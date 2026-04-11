@@ -621,7 +621,6 @@ function PaymentScreen({ user, billing, targetPlan, onComplete }) {
   // Elite is always $39 USD / 3 months (fixed, no billing toggle for Elite)
   const priceDisplay = isElite ? "$39 USD" : (billing==="yearly" ? "฿174" : "฿249");
   const periodDisplay = isElite ? "/ 3 months" : "/ month";
-  const subDisplay    = isElite ? "≈ $13/month · billed quarterly" : (billing==="yearly" ? "Save ฿900/yr" : "≈ $7 USD/month");
 
   const THAI_METHODS = [
     {id:"promptpay",label:"PromptPay",       icon:"🇹🇭",desc:"Scan QR",        color:"#1e40af"},
