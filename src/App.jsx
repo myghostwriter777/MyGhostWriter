@@ -1227,7 +1227,7 @@ function EssayMode({user}) {
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
   const gen = async () => {
     if(!topic.trim())return; setLoading(true);setError("");setEssay("");
-    try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,2000);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}
+    try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,2000,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}
     catch{setError("Something went wrong.");}finally{setLoading(false);}
   };
   return (
