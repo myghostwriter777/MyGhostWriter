@@ -389,15 +389,6 @@ const PriBtn = ({children,onClick,loading,disabled,fullWidth=true,variant="blue"
   );
 };
 
-const SecBtn = ({children,onClick}) => (
-  <button onClick={onClick}
-    style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}
-    onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}}
-    onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>
-    {children}
-  </button>
-);
-
 function PlanBadge({plan}) {
   const map = {free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.green},pro:{label:"PRO",bg:C.accentSoft,color:C.blue},student:{label:"STUDENT",bg:C.violetSoft,color:C.violet}};
   const d = map[plan]; if(!d) return null;
@@ -582,155 +573,6 @@ function AuthScreen({onAuth}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRICING SCREEN — unified 3-tab panel, all USD
-// ─────────────────────────────────────────────────────────────────────────────
-function PricingScreen({user, onSelect, onContact}) {
-  const [tab, setTab]         = useState("pro");
-  const [proBill, setProBill] = useState("monthly");
-  const [stuBill, setStuBill] = useState("bimonthly");
-
-  const FREE_F = ["3 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
-  const PRO_F  = ["Unlimited AI replies","✍️ Essay Writer (CEFR A1–C2)","🎓 Academic + auto-citations","💼 CV / Resume Builder","📖 Author Mode (12 genres)","Full history across all modes","Priority generation speed"];
-  const STU_F  = ["Everything in Pro","🧠 Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
-
-  const allProF = [...FREE_F,...PRO_F];
-  const allStuF = [...FREE_F,...PRO_F,...STU_F];
-
-  const tabs = [{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"🎓 Student",color:C.violet}];
-
-  const getPrice = () => {
-    if(tab==="free") return {main:"$0",per:"forever",sub:null};
-    if(tab==="pro") return proBill==="monthly"?{main:"$7",per:"/ month",sub:"≈ $84/year"}:{main:"$60",per:"/ year",sub:"Save $24 vs monthly"};
-    return stuBill==="bimonthly"?{main:"$20",per:"/ 2 months",sub:"≈ $10/month"}:{main:"$96",per:"/ year",sub:"Save $24 vs bimonthly"};
-  };
-
-  const price = getPrice();
-  const tabColor = tab==="student"?C.violet:tab==="pro"?C.blue:C.green;
-  const features = tab==="student"?allStuF:tab==="pro"?allProF:FREE_F;
-  const freeCount = FREE_F.length;
-  const proCount  = FREE_F.length+PRO_F.length;
-
-  const handleCTA = () => {
-    if(tab==="free"){onSelect("free",null);return;}
-    onSelect(tab, tab==="pro"?proBill:stuBill);
-  };
-
-  return (
-    <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
-      <div style={{width:"100%",maxWidth:440}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,animation:"fadeUp 0.4s ease"}}>
-          <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>{user.avatar}</div>
-          <div><div style={{fontSize:13,fontWeight:800,color:"#fff"}}>Hey {user.name.split(" ")[0]} 👋</div><div style={{fontSize:11,color:C.muted}}>{user.email}</div></div>
-        </div>
-        <div style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:4,animation:"fadeUp 0.4s 0.05s ease both"}}>Choose your plan</div>
-        <div style={{fontSize:12,color:C.muted,marginBottom:18,animation:"fadeUp 0.4s 0.08s ease both"}}>All plans include voice input and text-to-speech.</div>
-
-        <div style={{display:"flex",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3,marginBottom:14,animation:"fadeUp 0.4s 0.1s ease both"}}>
-          {tabs.map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)}
-              style={{flex:1,padding:"9px 4px",borderRadius:7,border:"none",background:tab===t.id?t.color:"transparent",color:tab===t.id?"#000":C.muted,fontSize:11,fontWeight:800,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab==="pro"&&(
-          <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>
-            {[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly — Save $24"}].map(b=>(
-              <button key={b.id} onClick={()=>setProBill(b.id)}
-                style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>
-                {b.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {tab==="student"&&(
-          <div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>
-            {[{id:"bimonthly",label:"Every 2 Months"},{id:"yearly",label:"Yearly — Save $24"}].map(b=>(
-              <button key={b.id} onClick={()=>setStuBill(b.id)}
-                style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>
-                {b.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {tab==="student"&&(
-          <div style={{background:C.violetSoft,border:"1px solid rgba(155,127,232,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}>
-            <span style={{fontSize:15,flexShrink:0}}>🎓</span>
-            <div style={{fontSize:11,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Humanize My Writing</strong> — a writing improvement tool to develop your authentic voice.</div>
-          </div>
-        )}
-
-        <div style={{
-          background:tab==="student"?`linear-gradient(150deg,rgba(155,127,232,0.07),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,
-          border:`1px solid ${tab==="student"?"rgba(155,127,232,0.4)":tab==="pro"?C.blue:C.border}`,
-          borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",
-          boxShadow:tab==="student"?`0 0 28px ${C.violetGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",
-          marginBottom:14,animation:"fadeUp 0.3s ease",
-        }}>
-          {tab!=="free"&&(
-            <div style={{position:"absolute",top:-1,right:14,background:tab==="student"?"linear-gradient(135deg,#9b7fe8,#c4b5fd)":`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:9,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>
-              {tab==="student"?"🎓 STUDENT PLAN":"MOST POPULAR"}
-            </div>
-          )}
-          <div style={{fontSize:10,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
-          <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}>
-            <span style={{fontSize:34,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span>
-            <span style={{fontSize:12,color:C.muted}}>{price.per}</span>
-          </div>
-          {price.sub&&<div style={{fontSize:10,color:(proBill==="yearly"||stuBill==="yearly")?C.green:C.muted,marginBottom:14}}>{price.sub}</div>}
-          {!price.sub&&<div style={{marginBottom:14}}/>}
-
-          <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:5,maxHeight:270,overflowY:"auto"}}>
-            {features.map((f,i)=>{
-              const isProEx  = tab==="pro"    && i>=freeCount;
-              const isStuEx  = tab==="student" && i>=proCount;
-              const isProBas = tab==="student" && i>=freeCount && i<proCount;
-              return (
-                <li key={f} style={{fontSize:12,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:6}}>
-                  <span style={{color:isStuEx?C.violet:isProEx?C.blue:isProBas?C.blue:C.green,flexShrink:0,marginTop:1}}>✓</span>{f}
-                </li>
-              );
-            })}
-          </ul>
-
-          {tab!=="free"&&(
-            <div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:17}}>🎁</span>
-              <div><div style={{fontSize:12,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:10,color:C.muted}}>No charge until day 4 · Cancel anytime</div></div>
-            </div>
-          )}
-
-          {tab==="free"    && <SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
-          {tab==="pro"     && <PriBtn onClick={handleCTA}>Start Free Trial →</PriBtn>}
-          {tab==="student" && <PriBtn onClick={handleCTA} variant="violet">Start Student Free Trial 🎓</PriBtn>}
-        </div>
-
-        <div style={{display:"flex",justifyContent:"center",gap:5,flexWrap:"wrap",animation:"fadeUp 0.4s 0.18s ease both"}}>
-          {tabs.filter(t=>t.id!==tab).map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)}
-              style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:10,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=t.color;e.currentTarget.style.color=t.color;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>
-              View {t.id==="student"?"Student":"Pro"} plan
-            </button>
-          ))}
-        </div>
-
-        {/* Contact Us in pricing */}
-        <div style={{marginTop:24,textAlign:"center"}}>
-          <button onClick={onContact}
-            style={{background:"transparent",border:"none",color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>
-            Questions? Contact us ✉️
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PAYMENT SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1678,7 +1520,6 @@ export default function GhostwriterMeApp() {
 
   const handleAuth       = u  => { setUser({...u,plan:"free"}); setScreen("safety"); };
   const handleSafety     = () => setScreen("app");
-  const handleSelectPlan = (plan, bill) => { if(plan==="free"){setScreen("app");return;} setTPlan(plan); setBilling(bill||"monthly"); setScreen("payment"); };
   const handleStartTrial = (bill, plan) => { setTPlan(plan||"pro"); setBilling(bill||"monthly"); setScreen("payment"); };
   const handlePayDone    = () => { setUser(u=>({...u,plan:tPlan})); setScreen("app"); };
   const handleSignOut    = () => { setUser(null); setScreen("auth"); };
@@ -1689,7 +1530,6 @@ export default function GhostwriterMeApp() {
       {showContact && <ContactModal onClose={()=>setShowContact(false)}/>}
       {screen==="auth"    && <AuthScreen onAuth={handleAuth}/>}
       {screen==="safety"  && <SafetyScreen onAccept={handleSafety}/>}
-      {screen==="pricing" && <PricingScreen user={user} onSelect={handleSelectPlan} onContact={()=>setShowContact(true)}/>}
       {screen==="payment" && <PaymentScreen user={user} billing={billing} targetPlan={tPlan} onComplete={handlePayDone}/>}
       {screen==="app"     && <AppShell user={user} onStartTrial={handleStartTrial} onSignOut={handleSignOut}/>}
     </>
