@@ -145,12 +145,6 @@ const Spinner = ({size=16,color="#fff"}) => (
   <span style={{display:"inline-block",width:size,height:size,borderRadius:"50%",border:`2px solid rgba(255,255,255,0.15)`,borderTopColor:color,animation:"spin 0.7s linear infinite",flexShrink:0}}/>
 );
 
-const TypingDots = () => (
-  <span style={{display:"inline-flex",gap:4,alignItems:"center"}}>
-	{[0,1,2].map(i=><span key={i} style={{width:7,height:7,borderRadius:"50%",background:C.purple,display:"inline-block",animation:`bounce 1.2s ${i*0.2}s ease-in-out infinite`}}/>)}
-  </span>
-);
-
 const Tag = ({children,color=C.purple,style:s}) => (
   <span style={{fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase",color,...s}}>{children}</span>
 );
@@ -240,13 +234,6 @@ const PrimaryBtn = ({children,onClick,loading,disabled,fullWidth=true}) => (
   <button onClick={onClick} disabled={loading||disabled} style={{width:fullWidth?"100%":"auto",padding:"14px 24px",borderRadius:10,border:"none",background:loading||disabled?"#1e1e30":`linear-gradient(135deg,${C.purple},${C.accent})`,color:loading||disabled?C.muted:"#fff",fontSize:14,fontWeight:700,cursor:loading||disabled?"not-allowed":"pointer",transition:"all 0.2s",display:"flex",alignItems:"center",justifyContent:"center",gap:8,boxShadow:loading||disabled?"none":"0 4px 24px rgba(139,92,246,0.3)",fontFamily:"inherit"}}>
 	{loading?<><Spinner/>Processing…</>:children}
   </button>
-);
-
-const SecondaryBtn = ({children,onClick}) => (
-  <button onClick={onClick} style={{width:"100%",padding:"13px",borderRadius:10,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}
-	onMouseEnter={e=>{e.currentTarget.style.borderColor=C.purple;e.currentTarget.style.color=C.text;}}
-	onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}
-  >{children}</button>
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -524,63 +511,6 @@ function AuthScreen({onAuth}) {
 		</div>
 	  </div>
 	</>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SCREEN: PLAN
-// ═══════════════════════════════════════════════════════════════════════════════
-function PlanScreen({user,onPlan}) {
-  const [billing,setBilling] = useState("monthly");
-  const monthly=249, yearly=Math.round(monthly*0.7);
-
-  const FREE_FEATURES  = ["3 AI replies/day","All 4 reply tones","Don't Sound Desperate mode","📧 Email Mode (full access)"];
-  const PRO_FEATURES   = ["Unlimited AI replies","📧 Email Mode","✍️ Essay Writer (A1–C2 CEFR)","🎓 Academic Mode + auto-citations","✅ Grammar Check + rewrite","💼 CV / Resume Builder","📖 Author Mode (fiction + non-fiction)","Personality learning AI","Priority generation speed"];
-
-  return (
-	<div style={{minHeight:"100vh",background:C.bg,padding:"32px 20px 80px",display:"flex",flexDirection:"column",alignItems:"center"}}>
-	  <div style={{width:"100%",maxWidth:460}}>
-		<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28,animation:"fadeUp 0.4s ease"}}>
-		  <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${C.purple},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{user.avatar}</div>
-		  <div><div style={{fontSize:14,fontWeight:700,color:"#fff"}}>Hey, {user.name.split(" ")[0]} 👋</div><div style={{fontSize:11,color:C.muted}}>{user.email}</div></div>
-		</div>
-
-		<div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,letterSpacing:1,color:"#fff",lineHeight:1.1,marginBottom:8,animation:"fadeUp 0.4s 0.05s ease both"}}>CHOOSE YOUR PLAN</div>
-		<div style={{fontSize:13,color:C.muted,marginBottom:24,animation:"fadeUp 0.4s 0.1s ease both"}}>Free gives you Replies + Email. Pro unlocks the full suite.</div>
-
-		<div style={{display:"flex",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:4,marginBottom:22,animation:"fadeUp 0.4s 0.12s ease both"}}>
-		  {[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly — Save 30%"}].map(b=>(
-			<button key={b.id} onClick={()=>setBilling(b.id)} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:billing===b.id?C.purple:"transparent",color:billing===b.id?"#fff":C.muted,fontSize:12,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>
-		  ))}
-		</div>
-
-		<Card style={{marginBottom:14,animation:"fadeUp 0.4s 0.18s ease both"}}>
-		  <div style={{fontSize:11,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase",marginBottom:6}}>Free</div>
-		  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,color:"#fff",letterSpacing:1,marginBottom:16}}>฿0 <span style={{fontSize:14,color:C.muted,fontFamily:"'Plus Jakarta Sans',sans-serif",fontWeight:400}}>/ forever</span></div>
-		  <ul style={{listStyle:"none",marginBottom:20,display:"flex",flexDirection:"column",gap:7}}>
-			{FREE_FEATURES.map(f=><li key={f} style={{fontSize:13,color:C.muted,display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:C.green,flexShrink:0}}>✓</span>{f}</li>)}
-			{["Essay Writer","Academic Mode","Grammar Check","CV / Resume Builder","Author Mode"].map(f=><li key={f} style={{fontSize:13,color:"#2a2a3a",display:"flex",gap:8}}><span style={{color:"#2a2a3a"}}>✕</span>{f}</li>)}
-		  </ul>
-		  <SecondaryBtn onClick={()=>onPlan("free",null)}>Continue Free</SecondaryBtn>
-		</Card>
-
-		<div style={{background:`linear-gradient(160deg,rgba(76,29,149,0.28),${C.card})`,border:`1px solid ${C.purple}`,borderRadius:16,padding:"24px",position:"relative",overflow:"hidden",animation:"fadeUp 0.4s 0.22s ease both",boxShadow:"0 0 48px rgba(139,92,246,0.18)"}}>
-		  <div style={{position:"absolute",top:-1,right:20,background:`linear-gradient(135deg,${C.purple},${C.accent})`,color:"#fff",fontSize:10,fontWeight:700,letterSpacing:"0.1em",padding:"4px 14px",borderRadius:"0 0 8px 8px"}}>MOST POPULAR</div>
-		  <div style={{fontSize:11,letterSpacing:"0.12em",color:C.purple,textTransform:"uppercase",marginBottom:6}}>Pro</div>
-		  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,color:"#fff",letterSpacing:1,marginBottom:2}}>฿{billing==="monthly"?monthly:yearly} <span style={{fontSize:14,color:C.muted,fontFamily:"'Plus Jakarta Sans',sans-serif",fontWeight:400}}>/ month</span></div>
-		  {billing==="yearly"&&<div style={{fontSize:11,color:C.green,marginBottom:10}}>Billed ฿{yearly*12}/yr · Save ฿{(monthly-yearly)*12}</div>}
-		  <div style={{fontSize:11,color:C.muted,marginBottom:16}}>≈ $7 USD / month</div>
-		  <ul style={{listStyle:"none",marginBottom:18,display:"flex",flexDirection:"column",gap:7}}>
-			{PRO_FEATURES.map(f=><li key={f} style={{fontSize:13,color:C.text,display:"flex",alignItems:"flex-start",gap:8}}><span style={{color:C.green,flexShrink:0,marginTop:1}}>✓</span>{f}</li>)}
-		  </ul>
-		  <div style={{background:"rgba(139,92,246,0.12)",border:"1px solid rgba(139,92,246,0.3)",borderRadius:10,padding:"12px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-			<span style={{fontSize:22}}>🎁</span>
-			<div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial included</div><div style={{fontSize:11,color:C.muted}}>No charge until day 4. Cancel anytime.</div></div>
-		  </div>
-		  <PrimaryBtn onClick={()=>onPlan("pro",billing)}>Start Free Trial → Choose Payment</PrimaryBtn>
-		</div>
-	  </div>
-	</div>
   );
 }
 
@@ -1307,8 +1237,6 @@ function AppShell({user, onStartTrial, onSignOut}) {
   const [mode, setMode]		   = useState("reply");
   const [trialModal, setTrialModal] = useState(null);
   const isPro = user.plan === "pro";
-
-  const current = MODES.find(m => m.id === mode);
 
   const handleTabClick = (m) => {
 	if (m.access === "trial" && !isPro) {
