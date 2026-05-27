@@ -168,11 +168,10 @@ async function callClaude(system, user, maxTokens = 1500, imageData = null, imag
     userContent = user;
   }
 
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
+  const r = await fetch("/api/claude", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
@@ -1095,7 +1094,7 @@ function ReplyMode({user,isPro}) {
       setReplies(p.replies||[]);setUsed(u=>u+1);
       if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:p.replies[0].text});
       setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);
-    } catch{setError("Something went wrong.");}
+    } catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
   };
   return (
@@ -1145,7 +1144,7 @@ function EmailMode({user}) {
     const eObj=EMAIL_TYPES.find(e=>e.id===etype); const tObj=TONES.find(t=>t.id===tone);
     const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];
     try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:r.body});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return (
     <div>
@@ -1184,7 +1183,7 @@ function GrammarMode({user}) {
     if(!text.trim())return; setLoading(true);setError("");setRes(null);
     const s=GRAMMAR_STYLES.find(x=>x.id===style);
     try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\n\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:r.rewritten});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
   return (
@@ -1228,7 +1227,7 @@ function EssayMode({user}) {
   const gen = async () => {
     if(!topic.trim())return; setLoading(true);setError("");setEssay("");
     try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,2000,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return (
     <div>
@@ -1270,7 +1269,7 @@ function AcademicMode({user}) {
     const cl=cites.filter(c=>c.value.trim()).map((c,i)=>"["+(i+1)+"] "+(c.type==="url"?"URL":"PDF")+": "+c.value).join("\n");
     const prompt="Academic essay: \""+topic+"\"\nArguments: "+(details||"none")+"\nWords: ~"+wc+"\nStyle: "+style+(cl?"\nSources:\n"+cl:"");
     try{const res=await callClaude("Expert academic writer. C1/C2 English. Use "+style+" citations. Include References. Write ONLY the essay.",prompt,2500,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:topic,input:style+", "+wc+"w",output:res});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return (
     <div>
@@ -1319,7 +1318,7 @@ function CVMode({user}) {
     if(!jt.trim()&&!exp.trim())return; setLoading(true);setError("");setRes("");
     const p=sec==="full"?"Complete "+cvs+" CV: Job: "+(jt||"N/A")+" Target: "+(tr||jt||"N/A")+" Industry: "+(ind||"N/A")+" Experience: "+(exp||"N/A")+" Skills: "+(ski||"N/A")+" Education: "+(edu||"N/A")+" Achievements: "+(ach||"N/A"):"Write only the "+sec+" section. Job: "+jt+". Experience: "+exp+". Skills: "+ski;
     try{const r=await callClaude("Expert CV writer. Strong action verbs. Format with ## headings. Write ONLY the CV.",p,2000,imgData,imgType);setRes(r);if(user)HS.save(user.email,"cv",{title:"CV: "+(jt||tr),input:cvs,output:r});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return (
     <div>
@@ -1364,7 +1363,7 @@ function AuthorMode({user}) {
     const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};
     const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\n"+prompt+"\n"+(chars?"Characters: "+chars+"\n":"")+(setting?"Setting: "+setting+"\n":"")+(isFic?"POV: "+pm[pov]+"\n":"")+"Length: "+wt+"\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";
     try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}
-    catch{setError("Something went wrong.");}finally{setLoading(false);}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return (
     <div>
@@ -1456,7 +1455,7 @@ function HumanizeMode({user}) {
       const raw1 = await callClaude(pass1Sys, pass1Prompt, 2000);
       pass1Result = JSON.parse(raw1.replace(/```json|```/g,"").trim());
     } catch {
-      setError("Something went wrong on pass 1."); setPhase(""); return;
+      setError("Pass 1 error: "+(e?.message||"unknown")); setPhase(""); return;
     }
 
     // ── PASS 2: review & fix anything that slipped through ───────────────────
