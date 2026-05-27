@@ -1454,7 +1454,7 @@ function HumanizeMode({user}) {
     try {
       const raw1 = await callClaude(pass1Sys, pass1Prompt, 2000);
       pass1Result = JSON.parse(raw1.replace(/```json|```/g,"").trim());
-    } catch {
+    } catch (e) {
       setError("Pass 1 error: "+(e?.message||"unknown")); setPhase(""); return;
     }
 
@@ -1469,7 +1469,7 @@ function HumanizeMode({user}) {
       const r2   = JSON.parse(raw2.replace(/```json|```/g,"").trim());
       finalText  = r2.humanized || pass1Result.humanized;
       note       = r2.note || "";
-    } catch {
+    } catch (e) {
       // pass 2 failed — use pass 1 result anyway
       finalText = pass1Result.humanized;
       note      = "";
