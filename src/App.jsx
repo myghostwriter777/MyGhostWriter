@@ -174,7 +174,7 @@ async function callClaude(system, user, maxTokens = 1500, imageData = null, imag
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
       system,
       messages: [{ role:"user", content: userContent }],
@@ -332,24 +332,50 @@ const OutputActions = ({text}) => (
   </div>
 );
 
+// ─── Image compression (keeps mobile camera photos under the API body limit) ──
+function compressImage(dataUrl, maxPx = 1024, quality = 0.75) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxPx || height > maxPx) {
+        if (width > height) { height = Math.round(height * maxPx / width); width = maxPx; }
+        else { width = Math.round(width * maxPx / height); height = maxPx; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 // ─── Image Upload for all modes ───────────────────────────────────────────────
 function ImageInput({onImage, imageData, onClear}) {
   const fileRef = useRef(null);
   const camRef  = useRef(null);
 
-  const handleFile = e => {
+  const handleFile = async e => {
     const f = e.target.files[0];
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = ev => onImage(ev.target.result, f.type);
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target.result);
+      onImage(compressed, "image/jpeg");
+    };
     reader.readAsDataURL(f);
   };
 
-  const handleCam = e => {
+  const handleCam = async e => {
     const f = e.target.files[0];
     if (!f) return;
     const reader = new FileReader();
-    reader.onload = ev => onImage(ev.target.result, f.type);
+    reader.onload = async ev => {
+      const compressed = await compressImage(ev.target.result);
+      onImage(compressed, "image/jpeg");
+    };
     reader.readAsDataURL(f);
   };
 
