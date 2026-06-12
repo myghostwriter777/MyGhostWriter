@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-
+import { supabase } from "./supabaseClient";
 const C = {
   bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
   blue: "#79BAEC", blueGlow: "rgba(121,186,236,0.2)", accent: "#a8d4f5",
@@ -592,7 +592,36 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
   const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
   const handleSocial=id=>{if(id==="email"){setShowEmail(true);return;}setLoading(id);setTimeout(()=>{setLoading(null);onAuth({name:"Demo User",email:"demo@ghostwriterme.com",avatar:"🧠",plan:"free"});},1300);};
-  const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
+ const handleSubmit=async()=>{
+  const e={};
+  if(!email.includes("@"))e.email="Enter a valid email";
+  if(pw.length<6)e.pw="6+ characters";
+  if(tab==="signup"){
+    if(!name.trim())e.name="Required";
+    const n=parseInt(age,10);
+    if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";
+    else if(n<13)e.age="Must be 13 or older";
+    if(!agreed)e.terms="Required";
+  }
+  if(Object.keys(e).length){setErrs(e);return;}
+  setLoading("email");
+
+  if(tab==="signup"){
+    const {data,error}=await supabase.auth.signUp({
+      email,
+      password:pw,
+      options:{data:{full_name:name}}
+    });
+    setLoading(null);
+    if(error){setErrs({email:error.message});return;}
+    onAuth({name,email,avatar:"✨",plan:"free",id:data.user?.id});
+  }else{
+    const {data,error}=await supabase.auth.signInWithPassword({email,password:pw});
+    setLoading(null);
+    if(error){setErrs({email:"Invalid email or password"});return;}
+    onAuth({name:data.user?.user_metadata?.full_name||"User",email,avatar:"✨",plan:"free",id:data.user?.id});
+  }
+};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
