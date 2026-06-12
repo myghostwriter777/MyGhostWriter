@@ -92,7 +92,6 @@ const NONFICTION_GENRES = [
   {id:"essay-nf",icon:"🖊️", label:"Personal Essay",desc:"Opinion, voice"},
   {id:"travel",  icon:"🗺️", label:"Travel Writing",desc:"Places, journeys"},
 ];
-const CV_SECTIONS = ["Work Experience","Education","Skills","Summary/Objective","Achievements","Projects","Certifications","Languages","References"];
 
 const SOCIAL_PROVIDERS = [
   {id:"google",   label:"Continue with Google",   iconType:"google",   bg:"#fff",    color:"#111"},
@@ -416,16 +415,40 @@ function LandingScreen({onGetStarted,onSignIn}){
   );
 }
 
+const Section=({title,children})=>(
+  <div style={{marginBottom:22}}>
+    <div style={{fontSize:11,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase",marginBottom:10,paddingLeft:2}}>{title}</div>
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+      {children}
+    </div>
+  </div>
+);
+
+const Row=({icon,label,children,onClick,danger,last})=>(
+  <div onClick={onClick} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",borderBottom:last?"none":`1px solid ${C.border}`,cursor:onClick?"pointer":"default",transition:"background 0.15s"}}
+    onMouseEnter={e=>{if(onClick)e.currentTarget.style.background=danger?"rgba(240,107,107,0.05)":C.surface;}}
+    onMouseLeave={e=>{if(onClick)e.currentTarget.style.background="transparent";}}>
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:16,width:22,textAlign:"center"}}>{icon}</span>
+      <span style={{fontSize:14,color:danger?C.red:C.text}}>{label}</span>
+    </div>
+    <div>{children}</div>
+  </div>
+);
+
 // === SETTINGS SCREEN ===
-function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms}){
+function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onChangePlan,onCancelPlan}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [language,setLanguage]=useState(()=>localStorage.getItem("gwm_lang")||"en");
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
   const [notifPromo,setNotifPromo]=useState(()=>localStorage.getItem("gwm_notif_promo")!=="false");
   const [saved,setSaved]=useState(false);
+  const [cancelConfirm,setCancelConfirm]=useState(false);
 
   const planMap={free:{label:"Free Plan",color:C.green,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blue,bg:C.accentSoft},student:{label:"Student Plan",color:C.violet,bg:C.violetSoft}};
   const planInfo=planMap[user.plan]||planMap.free;
+  const isPaid=user.plan!=="free";
+  const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
 
   const handleSave=()=>{
     localStorage.setItem("gwm_lang",language);
@@ -435,27 +458,6 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms}){
     setSaved(true);
     setTimeout(()=>setSaved(false),2000);
   };
-
-  const Section=({title,children})=>(
-    <div style={{marginBottom:22}}>
-      <div style={{fontSize:11,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase",marginBottom:10,paddingLeft:2}}>{title}</div>
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-        {children}
-      </div>
-    </div>
-  );
-
-  const Row=({icon,label,children,onClick,danger,last})=>(
-    <div onClick={onClick} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",borderBottom:last?"none":`1px solid ${C.border}`,cursor:onClick?"pointer":"default",transition:"background 0.15s"}}
-      onMouseEnter={e=>{if(onClick)e.currentTarget.style.background=danger?"rgba(240,107,107,0.05)":C.surface;}}
-      onMouseLeave={e=>{if(onClick)e.currentTarget.style.background="transparent";}}>
-      <div style={{display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:16,width:22,textAlign:"center"}}>{icon}</span>
-        <span style={{fontSize:14,color:danger?C.red:C.text}}>{label}</span>
-      </div>
-      <div>{children}</div>
-    </div>
-  );
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text}}>
@@ -516,15 +518,45 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms}){
         </Section>
 
         <Section title="My Plan">
-          <Row icon={user.plan==="student"?"🎓":user.plan==="pro"?"⚡":"🆓"} label={planInfo.label} last>
-            {user.plan==="free"&&(
-              <span style={{fontSize:12,color:C.blue,fontWeight:700,cursor:"pointer"}} onClick={onBack}>Upgrade →</span>
-            )}
-            {user.plan!=="free"&&(
-              <span style={{fontSize:12,color:C.green}}>Active ✓</span>
-            )}
+          <Row icon={user.plan==="student"?"🎓":user.plan==="pro"?"⚡":"🆓"} label={planInfo.label}>
+            {!isPaid&&<span style={{fontSize:12,color:C.muted}}>Current</span>}
+            {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellow}}>Cancelled</span>}
+            {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.green}}>Active ✓</span>}
           </Row>
+          {isPaid&&user.renewsAt&&(
+            <Row icon="📅" label={user.cancelAtPeriodEnd?"Access until":"Renews on"}>
+              <span style={{fontSize:12,color:user.cancelAtPeriodEnd?C.yellow:C.muted}}>{fmtDate(user.renewsAt)}</span>
+            </Row>
+          )}
+          <Row icon="🔄" label="Change Plan" onClick={onChangePlan} last={!isPaid}>
+            <span style={{color:C.muted,fontSize:13}}>›</span>
+          </Row>
+          {isPaid&&user.cancelAtPeriodEnd&&(
+            <Row icon="▶" label="Resume Subscription" onClick={()=>onCancelPlan(false)} last>
+              <span style={{color:C.green,fontSize:13}}>›</span>
+            </Row>
+          )}
+          {isPaid&&!user.cancelAtPeriodEnd&&!cancelConfirm&&(
+            <Row icon="✕" label="Cancel Subscription" onClick={()=>setCancelConfirm(true)} danger last>
+              <span style={{color:C.muted,fontSize:13}}>›</span>
+            </Row>
+          )}
+          {isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
+            <div style={{padding:"13px 14px"}}>
+              <div style={{fontSize:13,color:C.text,marginBottom:4,fontWeight:700}}>Cancel your subscription?</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setCancelConfirm(false)} style={{flex:1,padding:"9px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Keep Plan</button>
+                <button onClick={()=>{onCancelPlan(true);setCancelConfirm(false);}} style={{flex:1,padding:"9px",borderRadius:7,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Cancel</button>
+              </div>
+            </div>
+          )}
         </Section>
+        {isPaid&&user.cancelAtPeriodEnd&&(
+          <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellow,lineHeight:1.6}}>
+            Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
+          </div>
+        )}
 
         <Section title="About">
           <Row icon="📄" label="Terms & Conditions" onClick={onShowTerms}>
@@ -592,7 +624,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   );
 }
 
-function PricingScreen({user,onSelect,onContact}){
+function PricingScreen({user,onSelect,onContact,onBack}){
   const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("bimonthly");
 
   const FREE_F=["3 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
@@ -620,6 +652,7 @@ function PricingScreen({user,onSelect,onContact}){
   return(
     <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:440}}>
+        {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",padding:0}}>← Back to app</button>}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,animation:"fadeUp 0.4s ease"}}>
           <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{user.avatar}</div>
           <div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Hey {user.name.split(" ")[0]} 👋</div><div style={{fontSize:13,color:C.muted}}>{user.email}</div></div>
@@ -765,21 +798,161 @@ function EssayMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [level,setLevel]=useState("B2");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
   const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\\nKey points: "+(details||"none")+"\\nCEFR: "+level+"\\nWords: ~"+wc,2000,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/></div></Card>}</div>);
+  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/></div></Card>}</div>);
 }
 
 function AcademicMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [cites,setCites]=useState([{type:"url",value:""}]);const [wc,setWc]=useState("1000");const [style,setStyle]=useState("APA");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const addC=()=>setCites([...cites,{type:"url",value:""}]);const remC=i=>setCites(cites.filter((_,j)=>j!==i));const updC=(i,fld,v)=>{const c=[...cites];c[i]={...c[i],[fld]:v};setCites(c);};
   const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");const cl=cites.filter(c=>c.value.trim()).map((c,i)=>"["+(i+1)+"] "+(c.type==="url"?"URL":"PDF")+": "+c.value).join("\\n");const prompt="Academic essay: \""+topic+"\"\\nArguments: "+(details||"none")+"\\nWords: ~"+wc+"\\nStyle: "+style+(cl?"\\nSources:\\n"+cl:"");try{const res=await callClaude("Expert academic writer. C1/C2 English. Use "+style+" citations. Include References. Write ONLY the essay.",prompt,2500,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:topic,input:style+", "+wc+"w",output:res});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Thesis / Topic" placeholder="e.g. The role of AI in modern healthcare" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Arguments & Key Points" placeholder="e.g. ML accuracy, ethical concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}><FSelect label="Citation Style" value={style} onChange={setStyle} options={["APA","MLA","Chicago","Harvard","Vancouver","IEEE"]}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["500","750","1000","1500","2000","3000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Cite</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>{cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">🔗 URL</option><option value="pdf">📄 PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>{cites.length>1&&<button onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>}</div>))}</div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>🎓 Generate Academic Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Academic · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Essay · "+style}/></div></Card>}</div>);
+  return(<div><FArea label="Thesis / Topic" placeholder="e.g. The role of AI in modern healthcare" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Arguments & Key Points" placeholder="e.g. ML accuracy, ethical concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}><FSelect label="Citation Style" value={style} onChange={setStyle} options={["APA","MLA","Chicago","Harvard","Vancouver","IEEE"]}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","500","750","1000","1500","2000","3000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Cite</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>{cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">🔗 URL</option><option value="pdf">📄 PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>{cites.length>1&&<button onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>}</div>))}</div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>🎓 Generate Academic Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Academic · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Essay · "+style}/></div></Card>}</div>);
+}
+
+const CV_TEMPLATES=[
+  {id:"modern",label:"Modern",desc:"Accent header"},
+  {id:"classic",label:"Classic",desc:"Serif, formal"},
+  {id:"minimal",label:"Minimal",desc:"Clean, airy"},
+];
+const CV_ACCENTS=["#1e3a5f","#2563eb","#0d9488","#7c2d3e","#111111"];
+
+function buildCvHtml(d,p,t,accent){
+  const esc=s=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const fonts={modern:"'Helvetica Neue',Arial,sans-serif",classic:"Georgia,'Times New Roman',serif",minimal:"'Helvetica Neue',Arial,sans-serif"};
+  const f=fonts[t]||fonts.modern;
+  const name=esc(p.name||"Your Name"),title=esc(p.title||"");
+  const contact=[p.email,p.phone,p.location,p.link].filter(Boolean).map(esc).join(" &nbsp;&middot;&nbsp; ");
+  const photoImg=p.photo?('<img src="'+p.photo+'" style="width:88px;height:88px;border-radius:50%;object-fit:cover;flex-shrink:0;'+(t==="modern"?"border:3px solid rgba(255,255,255,0.55);":"border:2px solid "+accent+";")+'"/>'):"";
+  let header;
+  if(t==="modern"){
+    header='<div style="background:'+accent+';color:#fff;padding:30px 36px;display:flex;align-items:center;gap:22px;">'+photoImg+'<div><div style="font-size:30px;font-weight:800;letter-spacing:0.5px;">'+name+'</div>'+(title?'<div style="font-size:14px;opacity:0.92;margin-top:4px;">'+title+'</div>':"")+(contact?'<div style="font-size:11.5px;opacity:0.85;margin-top:8px;">'+contact+'</div>':"")+'</div></div>';
+  }else if(t==="classic"){
+    header='<div style="text-align:center;padding:34px 36px 18px;">'+(photoImg?'<div style="display:flex;justify-content:center;margin-bottom:12px;">'+photoImg+'</div>':"")+'<div style="font-size:30px;font-weight:700;letter-spacing:2px;color:#111;">'+name.toUpperCase()+'</div>'+(title?'<div style="font-size:13px;color:'+accent+';margin-top:5px;letter-spacing:1px;">'+title+'</div>':"")+(contact?'<div style="font-size:11.5px;color:#555;margin-top:8px;">'+contact+'</div>':"")+'<div style="height:2px;background:'+accent+';width:64px;margin:16px auto 0;"></div></div>';
+  }else{
+    header='<div style="padding:36px 40px 8px;display:flex;align-items:center;gap:20px;">'+photoImg+'<div><div style="font-size:28px;font-weight:700;color:#111;">'+name+'</div>'+(title?'<div style="font-size:13px;color:#666;margin-top:3px;">'+title+'</div>':"")+(contact?'<div style="font-size:11px;color:#888;margin-top:7px;">'+contact+'</div>':"")+'</div></div>';
+  }
+  const st=t==="classic"?('font-size:13px;letter-spacing:2.5px;color:'+accent+';font-weight:700;margin:0 0 10px;border-bottom:1px solid #ddd;padding-bottom:5px;'):t==="modern"?('font-size:12.5px;letter-spacing:2px;color:'+accent+';font-weight:800;margin:0 0 10px;text-transform:uppercase;'):'font-size:11px;letter-spacing:2.5px;color:#999;font-weight:700;margin:0 0 10px;text-transform:uppercase;';
+  const secWrap=(label,inner)=>inner?('<div style="margin-bottom:20px;"><div style="'+st+'">'+(t==="classic"?label.toUpperCase():label)+'</div>'+inner+'</div>'):"";
+  const summary=d.summary?('<div style="font-size:12.5px;line-height:1.65;color:#333;">'+esc(d.summary)+'</div>'):"";
+  const exp=(d.experience||[]).map(e=>'<div style="margin-bottom:13px;"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;"><span style="font-size:13.5px;font-weight:700;color:#222;">'+esc(e.role)+'</span><span style="font-size:11px;color:#888;">'+esc(e.period)+'</span></div><div style="font-size:12px;color:'+accent+';margin:1px 0 5px;font-weight:600;">'+esc(e.company)+'</div><ul style="margin:0;padding-left:16px;">'+(e.bullets||[]).map(b=>'<li style="font-size:12px;line-height:1.6;color:#444;margin-bottom:2px;">'+esc(b)+'</li>').join("")+'</ul></div>').join("");
+  const skills=(d.skills||[]).length?(t==="modern"?('<div style="display:flex;flex-wrap:wrap;gap:6px;">'+d.skills.map(s=>'<span style="background:'+accent+'18;color:'+accent+';font-size:11px;font-weight:600;padding:4px 10px;border-radius:12px;">'+esc(s)+'</span>').join("")+'</div>'):('<div style="font-size:12.5px;line-height:1.8;color:#333;">'+d.skills.map(esc).join(" &middot; ")+'</div>')):"";
+  const edu=(d.education||[]).map(e=>'<div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;"><span style="font-size:13px;font-weight:700;color:#222;">'+esc(e.degree)+'</span><span style="font-size:11px;color:#888;">'+esc(e.period)+'</span></div><div style="font-size:12px;color:#555;">'+esc(e.school)+'</div></div>').join("");
+  const ach=(d.achievements||[]).length?('<ul style="margin:0;padding-left:16px;">'+d.achievements.map(a=>'<li style="font-size:12px;line-height:1.6;color:#444;margin-bottom:3px;">'+esc(a)+'</li>').join("")+'</ul>'):"";
+  const body='<div style="padding:'+(t==="modern"?"26px 36px 36px":"10px 40px 40px")+';">'+secWrap("Professional Summary",summary)+secWrap("Experience",exp)+secWrap("Skills",skills)+secWrap("Education",edu)+secWrap("Achievements",ach)+'</div>';
+  return '<div style="font-family:'+f+';background:#ffffff;color:#222;width:100%;">'+header+body+'</div>';
 }
 
 function CVMode({user}){
-  const [jt,setJt]=useState("");const [ind,setInd]=useState("");const [exp,setExp]=useState("");const [ski,setSki]=useState("");const [edu,setEdu]=useState("");const [ach,setAch]=useState("");const [tr,setTr]=useState("");const [cvs,setCvs]=useState("modern");const [sec,setSec]=useState("full");const [res,setRes]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const CVS=[{id:"modern",icon:"⚡",label:"Modern",desc:"ATS-optimized"},{id:"executive",icon:"👔",label:"Executive",desc:"Senior tone"},{id:"creative",icon:"🎨",label:"Creative",desc:"Stand out"},{id:"minimal",icon:"◽",label:"Minimal",desc:"Clean"}];
-  const gen=async()=>{if(!jt.trim()&&!exp.trim())return;setLoading(true);setError("");setRes("");const p=sec==="full"?"Complete "+cvs+" CV: Job: "+(jt||"N/A")+" Target: "+(tr||jt||"N/A")+" Industry: "+(ind||"N/A")+" Experience: "+(exp||"N/A")+" Skills: "+(ski||"N/A")+" Education: "+(edu||"N/A")+" Achievements: "+(ach||"N/A"):"Write only the "+sec+" section. Job: "+jt+". Experience: "+exp+". Skills: "+ski;try{const r=await callClaude("Expert CV writer. Strong action verbs. Format with ## headings. Write ONLY the CV.",p,2000,imgData,imgType);setRes(r);if(user)HS.save(user.email,"cv",{title:"CV: "+(jt||tr),input:cvs,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>CV Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{CVS.map(s=><button key={s.id} onClick={()=>setCvs(s.id)} style={{background:cvs===s.id?C.accentSoft:C.surface,border:`1px solid ${cvs===s.id?C.blue:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{s.desc}</div></button>)}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:3}}><FSelect label="Generate" value={sec} onChange={setSec} options={[{value:"full",label:"Full CV"},...CV_SECTIONS.map(s=>({value:s,label:s+" only"}))]}/><FInput label="Target Role" placeholder="e.g. Senior PM" value={tr} onChange={e=>setTr(e.target.value)} icoL="🎯"/></div><FInput label="Current Job Title" placeholder="e.g. Product Manager" icoL="💼" value={jt} onChange={e=>setJt(e.target.value)}/><FInput label="Industry" placeholder="e.g. FinTech, Healthcare" icoL="🏢" value={ind} onChange={e=>setInd(e.target.value)}/><FArea label="Work Experience" placeholder="Company, title, years, responsibilities..." value={exp} onChange={e=>setExp(e.target.value)} rows={4} voice/><FArea label="Key Skills" placeholder="e.g. Python, Figma, leadership..." value={ski} onChange={e=>setSki(e.target.value)} rows={2} voice/><FArea label="Education" placeholder="e.g. BSc CS, Chulalongkorn, 2019–2023" value={edu} onChange={e=>setEdu(e.target.value)} rows={2}/><FArea label="Achievements (optional)" placeholder="e.g. Grew revenue 40%..." value={ach} onChange={e=>setAch(e.target.value)} rows={2} voice/><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!jt.trim()&&!exp.trim()}>💼 Build My CV</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{cvs} CV</span><span style={{fontSize:12,color:C.muted}}>~{res.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{res}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res}/><ListenBtn text={res}/><SaveAsImageBtn text={res} title={cvs+" CV"}/></div></Card>}</div>);
+  const [step,setStep]=useState("form");
+  const [personal,setPersonal]=useState({photo:null,name:"",title:"",email:"",phone:"",location:"",link:""});
+  const [tr,setTr]=useState("");const [exp,setExp]=useState("");const [ski,setSki]=useState("");const [edu,setEdu]=useState("");const [ach,setAch]=useState("");
+  const [template,setTemplate]=useState("modern");const [accent,setAccent]=useState(CV_ACCENTS[0]);
+  const [cvData,setCvData]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const photoRef=useRef(null);
+  const setP=(k,v)=>setPersonal(p=>({...p,[k]:v}));
+  const onPhoto=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setP("photo",ev.target.result);r.readAsDataURL(f);};
+
+  const gen=async()=>{
+    if(!exp.trim()&&!personal.title.trim()&&!tr.trim()){setError("Add at least a job title, target role, or some experience.");return;}
+    setLoading(true);setError("");
+    const sys='Expert CV writer. Strong action verbs, quantified impact where plausible, concise professional language. Do NOT invent specific employers, dates, or numbers that are not implied by the input. Return ONLY valid JSON, no markdown fences: {"summary":"2-3 sentence professional summary","experience":[{"role":"","company":"","period":"","bullets":["",""]}],"skills":["",""],"education":[{"degree":"","school":"","period":""}],"achievements":[""]}';
+    const u="Create polished CV content."+(tr?" Target role: "+tr+".":"")+(personal.title?" Current title: "+personal.title+".":"")+" Experience: "+(exp||"none provided")+". Skills: "+(ski||"none provided")+". Education: "+(edu||"none provided")+". Achievements: "+(ach||"none provided")+". Rewrite everything professionally. 2-4 strong bullets per role. If a section has no input, return an empty array for it.";
+    try{
+      const raw=await callClaude(sys,u,2000);
+      const data=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      setCvData(data);setStep("preview");
+      if(user)HS.save(user.email,"cv",{title:"CV: "+(tr||personal.title||personal.name||"Untitled"),input:template,output:(data.summary||"")+"\n\n"+(data.experience||[]).map(e=>e.role+" at "+e.company).join("\n")});
+    }catch(e){setError(e.message||"Something went wrong.");}
+    finally{setLoading(false);}
+  };
+
+  const cvText=()=>{
+    if(!cvData)return"";
+    let s=[personal.name,personal.title,[personal.email,personal.phone,personal.location,personal.link].filter(Boolean).join(" | ")].filter(Boolean).join("\n")+"\n";
+    if(cvData.summary)s+="\nSUMMARY\n"+cvData.summary+"\n";
+    if(cvData.experience?.length){s+="\nEXPERIENCE\n";cvData.experience.forEach(e=>{s+=e.role+" | "+e.company+" | "+e.period+"\n";(e.bullets||[]).forEach(b=>{s+="- "+b+"\n";});});}
+    if(cvData.skills?.length)s+="\nSKILLS\n"+cvData.skills.join(", ")+"\n";
+    if(cvData.education?.length){s+="\nEDUCATION\n";cvData.education.forEach(e=>{s+=e.degree+" | "+e.school+" | "+e.period+"\n";});}
+    if(cvData.achievements?.length){s+="\nACHIEVEMENTS\n";cvData.achievements.forEach(a=>{s+="- "+a+"\n";});}
+    return s;
+  };
+
+  const downloadPdf=()=>{
+    const html=buildCvHtml(cvData,personal,template,accent);
+    const w=window.open("","_blank");
+    if(!w){alert("Please allow popups to download your CV.");return;}
+    w.document.write('<html><head><title>'+(personal.name||"CV")+'</title><meta charset="utf-8"/><style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}</style></head><body style="margin:0;background:#fff;">'+html+'</body></html>');
+    w.document.close();
+    setTimeout(()=>{w.focus();w.print();},400);
+  };
+
+  if(step==="preview"&&cvData){
+    return(
+      <div style={{animation:"fadeUp 0.3s ease"}}>
+        <button onClick={()=>setStep("form")} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit"}}>&#8592; Edit Info</button>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          {CV_TEMPLATES.map(t=>(
+            <button key={t.id} onClick={()=>setTemplate(t.id)} style={{flex:1,padding:"8px 6px",borderRadius:8,background:template===t.id?C.accentSoft:C.surface,border:`1px solid ${template===t.id?C.blue:C.border}`,color:template===t.id?"#fff":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>
+              {t.label}
+              <div style={{fontSize:11,fontWeight:400,color:C.muted,marginTop:1}}>{t.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+          <span style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Accent</span>
+          {CV_ACCENTS.map(a=>(
+            <button key={a} onClick={()=>setAccent(a)} style={{width:24,height:24,borderRadius:"50%",background:a,border:accent===a?`2px solid ${C.blue}`:"2px solid transparent",cursor:"pointer",padding:0,boxShadow:accent===a?`0 0 0 2px ${C.bg}`:"none"}}/>
+          ))}
+        </div>
+        <div style={{background:"#fff",borderRadius:10,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}} dangerouslySetInnerHTML={{__html:buildCvHtml(cvData,personal,template,accent)}}/>
+        <PriBtn onClick={downloadPdf}>Download as PDF</PriBtn>
+        <div style={{display:"flex",gap:7,marginTop:10,flexWrap:"wrap"}}>
+          <CopyBtn text={cvText()}/>
+          <button onClick={gen} disabled={loading} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{loading?"Regenerating...":"Regenerate Content"}</button>
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginTop:10,lineHeight:1.6}}>Tip: "Download as PDF" opens your browser's print dialog. Choose "Save as PDF" as the destination.</div>
+        {error&&<ErrBox msg={error}/>}
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Profile Photo (optional)</div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+        <input ref={photoRef} type="file" accept="image/*" onChange={onPhoto} style={{display:"none"}}/>
+        <div onClick={()=>photoRef.current?.click()} style={{width:64,height:64,borderRadius:"50%",background:C.surface,border:`2px dashed ${personal.photo?C.blue:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",overflow:"hidden",flexShrink:0}}>
+          {personal.photo?<img src={personal.photo} alt="Profile" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:11,color:C.muted,textAlign:"center",lineHeight:1.3}}>Add<br/>Photo</span>}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13,color:C.text,fontWeight:600}}>{personal.photo?"Photo added":"Upload a photo"}</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:1}}>Square photos look best on the CV.</div>
+          {personal.photo&&<button onClick={()=>setP("photo",null)} style={{marginTop:4,padding:"3px 9px",borderRadius:5,background:"transparent",border:`1px solid ${C.border}`,color:C.red,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Remove</button>}
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
+        <FInput label="Full Name" placeholder="Your name" value={personal.name} onChange={e=>setP("name",e.target.value)}/>
+        <FInput label="Job Title" placeholder="e.g. Product Manager" value={personal.title} onChange={e=>setP("title",e.target.value)}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
+        <FInput label="Email" type="email" placeholder="you@email.com" value={personal.email} onChange={e=>setP("email",e.target.value)}/>
+        <FInput label="Phone" placeholder="+66 ..." value={personal.phone} onChange={e=>setP("phone",e.target.value)}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:0}}>
+        <FInput label="Location" placeholder="e.g. Bangkok, Thailand" value={personal.location} onChange={e=>setP("location",e.target.value)}/>
+        <FInput label="Website / LinkedIn" placeholder="linkedin.com/in/you" value={personal.link} onChange={e=>setP("link",e.target.value)}/>
+      </div>
+
+      <FInput label="Target Role (optional)" placeholder="The job you're applying for" value={tr} onChange={e=>setTr(e.target.value)}/>
+      <FArea label="Work Experience" placeholder="Company, title, years, what you did. Rough notes are fine, the AI will polish them." value={exp} onChange={e=>setExp(e.target.value)} rows={4} voice/>
+      <FArea label="Skills" placeholder="e.g. Python, Figma, team leadership, Thai/English" value={ski} onChange={e=>setSki(e.target.value)} rows={2} voice/>
+      <FArea label="Education" placeholder="e.g. BSc Computer Science, Chulalongkorn University, 2019-2023" value={edu} onChange={e=>setEdu(e.target.value)} rows={2}/>
+      <FArea label="Achievements (optional)" placeholder="e.g. Grew revenue 40%, Dean's List" value={ach} onChange={e=>setAch(e.target.value)} rows={2} voice/>
+
+      <PriBtn onClick={gen} loading={loading}>Generate My CV</PriBtn>
+      {error&&<ErrBox msg={error}/>}
+    </div>
+  );
 }
 
 function AuthorMode({user}){
@@ -880,7 +1053,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
   );
 }
 
-function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade}){
+function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan}){
   const [showContact,setShowContact]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showTerms,setShowTerms]=useState(false);
@@ -923,6 +1096,8 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           onSave={u=>{onUpdateUser(u);}}
           onContact={()=>setShowContact(true)}
           onShowTerms={()=>setShowTerms(true)}
+          onChangePlan={onChangePlan}
+          onCancelPlan={onCancelPlan}
         />
         {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
       </>
@@ -1018,6 +1193,12 @@ export default function GhostwriterMeApp(){
     return()=>document.head.removeChild(style);
   },[]);
 
+  useEffect(()=>{
+    if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
+      setUser(u=>({...u,plan:"free",billing:null,renewsAt:null,cancelAtPeriodEnd:false}));
+    }
+  },[user]);
+
   const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=u=>{setUser(u);setScreen("safety");};
@@ -1027,7 +1208,7 @@ export default function GhostwriterMeApp(){
 
   const handleUpgrade=(mode,targetPlan)=>{setTrialInfo({mode,targetPlan});setScreen("pricing");};
   const handlePricingSelect=(plan,billing)=>{
-    if(plan==="free"){setScreen("app");return;}
+    if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
     setPaymentInfo({targetPlan:plan,billing:billing||"monthly"});
     setScreen("payment");
   };
@@ -1038,7 +1219,9 @@ export default function GhostwriterMeApp(){
   };
   const handlePaymentComplete=()=>{
     if(paymentInfo){
-      setUser(u=>({...u,plan:paymentInfo.targetPlan}));
+      const months={monthly:1,bimonthly:2,yearly:12}[paymentInfo.billing]||1;
+      const end=new Date();end.setMonth(end.getMonth()+months);
+      setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,renewsAt:end.toISOString(),cancelAtPeriodEnd:false}));
     }
     setPaymentInfo(null);
     setScreen("app");
@@ -1047,12 +1230,12 @@ export default function GhostwriterMeApp(){
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
-  if(screen==="pricing")return <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}}/>;
+  if(screen==="pricing")return <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
   if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} onComplete={handlePaymentComplete}/>;
 
   return(
     <>
-      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade}/>
+      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>setScreen("pricing")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
     </>
   );
