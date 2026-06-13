@@ -1214,14 +1214,30 @@ export default function GhostwriterMeApp(){
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
-
+  const [checkingSession,setCheckingSession]=useState(true);
   useEffect(()=>{
     const style=document.createElement("style");
     style.textContent=GLOBAL_CSS;
     document.head.appendChild(style);
     return()=>document.head.removeChild(style);
   },[]);
-
+useEffect(()=>{
+    supabase.auth.getSession().then(({data})=>{
+      const session=data?.session;
+      if(session?.user){
+        const u=session.user;
+        setUser({
+          name:u.user_metadata?.full_name||"User",
+          email:u.email,
+          avatar:"✨",
+          plan:"free",
+          id:u.id
+        });
+        setScreen("app");
+      }
+      setCheckingSession(false);
+    });
+  },[]);
   useEffect(()=>{
     if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
       setUser(u=>({...u,plan:"free",billing:null,renewsAt:null,cancelAtPeriodEnd:false}));
@@ -1232,7 +1248,7 @@ export default function GhostwriterMeApp(){
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=u=>{setUser(u);setScreen("safety");};
   const handleSafetyAccept=()=>{setScreen("app");};
-  const handleSignOut=()=>{setUser(null);setScreen("landing");};
+  const handleSignOut=()=>{supabase.auth.signOut();setUser(null);setScreen("landing");};
   const handleUpdateUser=u=>{setUser(u);};
 
   const handleUpgrade=(mode,targetPlan)=>{setTrialInfo({mode,targetPlan});setScreen("pricing");};
@@ -1256,6 +1272,7 @@ export default function GhostwriterMeApp(){
     setScreen("app");
   };
 
+  if(checkingSession)return <div style={{minHeight:"100vh",background:C.bg}}/>;
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
