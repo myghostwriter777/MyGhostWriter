@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { supabase } from "./supabaseClient";
+
 const C = {
   bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
   blue: "#79BAEC", blueGlow: "rgba(121,186,236,0.2)", accent: "#a8d4f5",
@@ -97,6 +97,14 @@ const SOCIAL_PROVIDERS = [
   {id:"google",   label:"Continue with Google",   iconType:"google",   bg:"#fff",    color:"#111"},
   {id:"email",    label:"Continue with Email",    iconType:"email",    bg:C.surface, color:C.text, border:`1px solid ${C.border}`},
 ];
+
+const SESSION_KEY="gwm_session_v1";
+
+// Notice versioning: bump a version number to force users to re-accept after content changes.
+const NOTICE_VERSION={academic:1,humanize:1};
+const noticeKey=type=>"gwm_notice_"+type;
+const isNoticeAccepted=type=>{try{return parseInt(localStorage.getItem(noticeKey(type))||"0",10)>=NOTICE_VERSION[type];}catch{return false;}};
+const acceptNotice=type=>{try{localStorage.setItem(noticeKey(type),String(NOTICE_VERSION[type]));}catch{}};
 
 const TERMS_CONTENT = [
   {h:"1. Acceptance of Terms",b:"By creating an account and using GhostwriterMe, you agree to these Terms. If you disagree, do not use the Service."},
@@ -346,69 +354,241 @@ function GhostLogo({size=140}){
 
 // === LANDING SCREEN ===
 function LandingScreen({onGetStarted,onSignIn}){
-  const modes=[
-    {icon:"💬",label:"AI Replies",tier:"Free",tierColor:C.muted,bg:"#0d2035"},
-    {icon:"📧",label:"Email Writer",tier:"Free",tierColor:C.muted,bg:"#0d2035"},
-    {icon:"✅",label:"Grammar",tier:"Free",tierColor:C.muted,bg:"#0d2035"},
-    {icon:"✍️",label:"Essay Writer",tier:"Pro",tierColor:C.blue,bg:"#111a26"},
-    {icon:"🎓",label:"Academic",tier:"Student",tierColor:C.violet,bg:"#130e28"},
-    {icon:"🧠",label:"Humanize",tier:"Student",tierColor:C.violet,bg:"#130e28"},
+  const [faqOpen,setFaqOpen]=useState(null);
+  const [cfName,setCfName]=useState("");
+  const [cfEmail,setCfEmail]=useState("");
+  const [cfType,setCfType]=useState("Question");
+  const [cfMsg,setCfMsg]=useState("");
+
+  const MODE_LIST=[
+    {icon:"💬",label:"AI Replies",tier:"Free",color:C.green,desc:"Craft the perfect response to any message in seconds."},
+    {icon:"📧",label:"Email Writer",tier:"Free",color:C.green,desc:"Write polished, professional emails for any situation."},
+    {icon:"✅",label:"Grammar Check",tier:"Free",color:C.green,desc:"Fix grammar, spelling, and clarity with one tap."},
+    {icon:"✍️",label:"Essay Writer",tier:"Pro",color:C.blue,desc:"Generate structured essays calibrated to your English level."},
+    {icon:"🎓",label:"Academic",tier:"Student",color:C.violet,desc:"Get feedback on your writing plus research guidance."},
+    {icon:"💼",label:"CV / Resume",tier:"Pro",color:C.blue,desc:"Build a recruiter-ready resume with clean templates."},
+    {icon:"📖",label:"Author Mode",tier:"Pro",color:C.blue,desc:"Write fiction and non-fiction with a creative co-author."},
+    {icon:"🧠",label:"Humanize",tier:"Student",color:C.violet,desc:"Refine writing into a natural, human-sounding voice."},
+    {icon:"🕐",label:"History",tier:"Free",color:C.green,desc:"Revisit and reuse everything you have created."},
   ];
+
+  const PLANS=[
+    {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
+    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Essay Writer & CV Builder","Author Mode (12 genres)","Priority generation"],cta:"Start Free Trial"},
+    {name:"Student",price:"$15",per:"/2mo",note:"intro, then $20/2mo",color:C.violet,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},
+  ];
+
+  const FAQS=[
+    {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
+    {q:"How does GhostwriterMe work?",a:"Pick a writing tool, type or speak what you need, and the AI generates a draft you can edit, copy, or refine. Every tool is built around a specific writing task so you get focused, relevant results."},
+    {q:"Is my content private?",a:"Your writing is processed only to generate your results and is not sold or shared. History is stored on your own device. We recommend avoiding sensitive personal data in any AI tool."},
+    {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
+    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Student plan that adds the Academic Reviewer and Humanize tools. All paid plans start with a free trial."},
+    {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
+  ];
+
+  const UPDATES=[
+    {date:"Jun 2026",tag:"New",tagColor:C.green,title:"Academic Mode reimagined",text:"Academic mode is now a writing coach — get essay feedback, research guidance, and draft examples with CEFR levels."},
+    {date:"Jun 2026",tag:"Improved",tagColor:C.blue,title:"Redesigned CV / Resume Builder",text:"New templates, profile photos, accent colors, and one-tap PDF download."},
+    {date:"May 2026",tag:"New",tagColor:C.violet,title:"Humanize My Writing",text:"Refine AI or formal text into natural, human-sounding writing with a two-pass review."},
+  ];
+
+  const sendContact=()=>{
+    const subject=encodeURIComponent("["+cfType+"] GhostwriterMe — "+(cfName||"Visitor"));
+    const body=encodeURIComponent((cfName?"Name: "+cfName+"\n":"")+(cfEmail?"Email: "+cfEmail+"\n":"")+"Type: "+cfType+"\n\n"+cfMsg);
+    window.location.href="mailto:"+CONTACT_EMAIL+"?subject="+subject+"&body="+body;
+  };
+
+  const SectionTitle=({kicker,title,sub})=>(
+    <div style={{textAlign:"center",marginBottom:20}}>
+      {kicker&&<div style={{fontSize:12,letterSpacing:"0.18em",color:C.blue,fontWeight:800,textTransform:"uppercase",marginBottom:7}}>{kicker}</div>}
+      <div style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</div>
+      {sub&&<div style={{fontSize:14,color:C.muted,marginTop:8,lineHeight:1.6,maxWidth:380,margin:"8px auto 0"}}>{sub}</div>}
+    </div>
+  );
+
+  const ctaButtons=(margin)=>(
+    <div style={{display:"flex",flexDirection:"column",gap:9,...margin}}>
+      <button onClick={onGetStarted} style={{width:"100%",padding:"16px",borderRadius:12,border:"none",background:C.blue,color:"#000",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.01em",transition:"transform 0.15s,background 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background=C.accent;e.currentTarget.style.transform="scale(1.02)";}} onMouseLeave={e=>{e.currentTarget.style.background=C.blue;e.currentTarget.style.transform="scale(1)";}}>
+        Get Started — It's Free →
+      </button>
+      <button onClick={onSignIn} style={{width:"100%",padding:"14px",borderRadius:12,background:"transparent",border:"1px solid #1e2e3d",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"border-color 0.15s,color 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e2e3d";e.currentTarget.style.color=C.muted;}}>
+        Already have an account? Sign In
+      </button>
+    </div>
+  );
+
+  const divider=<div style={{height:1,background:"linear-gradient(90deg,transparent,#162030,transparent)",margin:"40px 0"}}/>;
+
   return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 20px 40px",fontFamily:"'Cabinet Grotesk',sans-serif",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-60,left:"50%",transform:"translateX(-50%)",width:420,height:420,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none"}}/>
-      <div style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none"}}/>
-      <div style={{position:"absolute",bottom:80,right:-40,width:180,height:180,borderRadius:"50%",background:"radial-gradient(circle,rgba(155,127,232,0.06) 0%,transparent 70%)",pointerEvents:"none"}}/>
-      <div style={{position:"absolute",top:120,left:-30,width:140,height:140,borderRadius:"50%",background:"radial-gradient(circle,rgba(121,186,236,0.06) 0%,transparent 70%)",pointerEvents:"none"}}/>
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
+      <div style={{maxWidth:440,margin:"0 auto",padding:"32px 20px 48px",position:"relative"}}>
 
-      <div style={{width:"100%",maxWidth:400,position:"relative",zIndex:1}}>
+        {/* Background glows */}
+        <div style={{position:"absolute",top:-60,left:"50%",transform:"translateX(-50%)",width:420,height:420,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none",zIndex:0}}/>
+        <div style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none",zIndex:0}}/>
 
-        <div style={{display:"flex",justifyContent:"center",marginBottom:14,animation:"fadeUp 0.5s ease both"}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",borderRadius:20,background:"#0d1a26",border:"1px solid #1a3148",fontSize:12,color:C.blue,fontWeight:700}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"glow 2s ease infinite"}}/>
-            9 AI writing modes &middot; Free to start
+        <div style={{position:"relative",zIndex:1}}>
+
+          {/* HERO */}
+          <div style={{display:"flex",justifyContent:"center",marginBottom:14,animation:"fadeUp 0.5s ease both"}}>
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",borderRadius:20,background:"#0d1a26",border:"1px solid #1a3148",fontSize:12,color:C.blue,fontWeight:700}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"glow 2s ease infinite"}}/>
+              9 AI writing tools &middot; Free to start
+            </div>
           </div>
-        </div>
-
-        <div style={{display:"flex",justifyContent:"center",marginBottom:4,animation:"fadeUp 0.5s 0.1s ease both"}}>
-          <GhostLogo size={140}/>
-        </div>
-
-        <div style={{textAlign:"center",marginBottom:10,animation:"fadeUp 0.5s 0.1s ease both"}}>
-          <div style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.05}}>GhostwriterMe</div>
-          <div style={{fontSize:13,color:"#3d5a75",letterSpacing:"0.2em",marginTop:5,fontWeight:700,textTransform:"uppercase"}}>Your Words. Perfected.</div>
-        </div>
-
-        <div style={{textAlign:"center",marginBottom:26,animation:"fadeUp 0.5s 0.18s ease both"}}>
-          <div style={{fontSize:17,color:C.accent,fontWeight:700,lineHeight:1.5}}>
-            Write like you mean it.<br/>
-            <span style={{color:C.muted,fontWeight:400,fontSize:15}}>For non-native speakers, students,<br/>and anyone who wants to sound better.</span>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:4,animation:"fadeUp 0.5s 0.1s ease both"}}>
+            <GhostLogo size={132}/>
           </div>
-        </div>
+          <div style={{textAlign:"center",marginBottom:10,animation:"fadeUp 0.5s 0.1s ease both"}}>
+            <div style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.05}}>GhostwriterMe</div>
+            <div style={{fontSize:13,color:"#3d5a75",letterSpacing:"0.2em",marginTop:5,fontWeight:700,textTransform:"uppercase"}}>Your Words. Perfected.</div>
+          </div>
+          <div style={{textAlign:"center",marginBottom:24,animation:"fadeUp 0.5s 0.18s ease both"}}>
+            <div style={{fontSize:17,color:C.accent,fontWeight:700,lineHeight:1.5}}>
+              Write like you mean it.<br/>
+              <span style={{color:C.muted,fontWeight:400,fontSize:15}}>For non-native speakers, students,<br/>and anyone who wants to sound better.</span>
+            </div>
+          </div>
+          {ctaButtons({})}
+          <div style={{marginTop:16,textAlign:"center"}}>
+            <div style={{fontSize:12,color:"#1e3448"}}>No credit card &middot; Works on any device &middot; Cancel anytime</div>
+          </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:24,animation:"fadeUp 0.5s 0.18s ease both"}}>
-          {modes.map(m=>(
-            <div key={m.label} style={{background:"#0a141e",border:"1px solid #162030",borderRadius:10,padding:"11px 12px",display:"flex",alignItems:"center",gap:9}}>
-              <div style={{width:34,height:34,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0,background:m.bg}}>{m.icon}</div>
-              <div>
-                <div style={{fontSize:13,fontWeight:800,color:"#fff"}}>{m.label}</div>
-                <div style={{fontSize:11,color:m.tierColor,marginTop:1}}>{m.tier}</div>
+          {divider}
+
+          {/* ABOUT US */}
+          <SectionTitle kicker="About Us" title="What is GhostwriterMe?"/>
+          <Card style={{lineHeight:1.75,marginBottom:0}}>
+            <div style={{fontSize:14,color:C.text}}>
+              GhostwriterMe is an AI writing suite that turns your ideas into clear, polished writing. Whether you're replying to a message, drafting an email, writing an essay, or building a resume, our tools help you write faster and sound your best. We focus on real writing assistance — boosting your productivity and creativity without taking your voice away. Trusted by students, professionals, and non-native English speakers who want to communicate with confidence.
+            </div>
+          </Card>
+
+          {divider}
+
+          {/* MODES */}
+          <SectionTitle kicker="Features" title="Explore Our Writing Tools" sub="Nine focused tools, each built for a specific kind of writing."/>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {MODE_LIST.map(m=>(
+              <div key={m.label} style={{display:"flex",alignItems:"center",gap:12,background:C.card,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 13px"}}>
+                <div style={{width:40,height:40,borderRadius:9,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}}>{m.icon}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{fontSize:14,fontWeight:800,color:"#fff"}}>{m.label}</span>
+                    <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",color:m.color,background:m.color+"1a",padding:"1px 6px",borderRadius:4,textTransform:"uppercase"}}>{m.tier}</span>
+                  </div>
+                  <div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.45}}>{m.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {divider}
+
+          {/* PRICING */}
+          <SectionTitle kicker="Pricing" title="Simple, fair pricing" sub="Start free. Upgrade only when you need more."/>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {PLANS.map(p=>(
+              <div key={p.name} style={{background:p.popular?`linear-gradient(150deg,${p.color}14,${C.card})`:C.card,border:`1px solid ${p.popular?p.color:C.border}`,borderRadius:12,padding:"16px",position:"relative",boxShadow:p.popular?`0 0 24px ${p.color}22`:"none"}}>
+                {p.popular&&<div style={{position:"absolute",top:-1,right:14,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:10,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>MOST POPULAR</div>}
+                <div style={{fontSize:12,letterSpacing:"0.12em",color:p.color,textTransform:"uppercase",fontWeight:800,marginBottom:6}}>{p.name}</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                  <span style={{fontSize:30,fontWeight:900,color:"#fff",letterSpacing:"-0.02em"}}>{p.price}</span>
+                  <span style={{fontSize:13,color:C.muted}}>{p.per}</span>
+                </div>
+                {p.note&&<div style={{fontSize:12,color:C.green,marginTop:2}}>{p.note}</div>}
+                <ul style={{listStyle:"none",margin:"12px 0 14px",display:"flex",flexDirection:"column",gap:6}}>
+                  {p.feats.map(f=>(<li key={f} style={{fontSize:13,color:C.text,display:"flex",gap:7,alignItems:"flex-start"}}><span style={{color:p.color,flexShrink:0}}>✓</span>{f}</li>))}
+                </ul>
+                <button onClick={onGetStarted} style={{width:"100%",padding:"11px",borderRadius:9,border:p.popular?"none":`1px solid ${C.border}`,background:p.popular?`linear-gradient(135deg,${C.blue},${C.accent})`:"transparent",color:p.popular?"#000":C.text,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{p.cta} →</button>
+              </div>
+            ))}
+          </div>
+          <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:12}}>All paid plans include a 3-day free trial. Cancel anytime.</div>
+
+          {divider}
+
+          {/* FAQ */}
+          <SectionTitle kicker="FAQ" title="Frequently asked questions"/>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {FAQS.map((f,i)=>{
+              const open=faqOpen===i;
+              return(
+                <div key={i} style={{background:C.card,border:`1px solid ${open?C.blue:C.border}`,borderRadius:10,overflow:"hidden",transition:"border-color 0.2s"}}>
+                  <button onClick={()=>setFaqOpen(open?null:i)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"13px 14px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:open?"#fff":C.text}}>{f.q}</span>
+                    <span style={{fontSize:18,color:open?C.blue:C.muted,flexShrink:0,transform:open?"rotate(45deg)":"none",transition:"transform 0.2s"}}>+</span>
+                  </button>
+                  {open&&<div style={{padding:"0 14px 14px",fontSize:13,color:C.muted,lineHeight:1.65,animation:"fadeUp 0.2s ease"}}>{f.a}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {divider}
+
+          {/* LATEST UPDATES */}
+          <SectionTitle kicker="News" title="Latest Updates"/>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {UPDATES.map((u,i)=>(
+              <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:11,padding:"14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",color:u.tagColor,background:u.tagColor+"1a",padding:"2px 7px",borderRadius:4,textTransform:"uppercase"}}>{u.tag}</span>
+                  <span style={{fontSize:12,color:C.muted}}>{u.date}</span>
+                </div>
+                <div style={{fontSize:14,fontWeight:800,color:"#fff",marginBottom:3}}>{u.title}</div>
+                <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>{u.text}</div>
+              </div>
+            ))}
+          </div>
+
+          {divider}
+
+          {/* CONTACT & FEEDBACK */}
+          <SectionTitle kicker="Contact" title="Help us shape GhostwriterMe" sub="We're constantly improving. Share questions, ideas, suggestions, or partnership opportunities — we'd love to hear from you."/>
+          <Card>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:8,padding:"9px 12px",marginBottom:14}}>
+              <div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.05em"}}>EMAIL US</div><div style={{fontSize:13,fontWeight:700,color:C.blue}}>{CONTACT_EMAIL}</div></div>
+              <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{marginBottom:11}}>
+                <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Name</label>
+                <input value={cfName} onChange={e=>setCfName(e.target.value)} placeholder="Your name" style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:14,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
+              </div>
+              <div style={{marginBottom:11}}>
+                <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Email</label>
+                <input value={cfEmail} onChange={e=>setCfEmail(e.target.value)} placeholder="you@email.com" style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:14,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
               </div>
             </div>
-          ))}
-        </div>
+            <div style={{marginBottom:11}}>
+              <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Type</label>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {["Question","Feedback","Suggestion","Partnership"].map(t=>(
+                  <button key={t} onClick={()=>setCfType(t)} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${cfType===t?C.blue:C.border}`,background:cfType===t?C.accentSoft:"transparent",color:cfType===t?C.blue:C.muted,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Message</label>
+              <textarea value={cfMsg} onChange={e=>setCfMsg(e.target.value)} rows={4} placeholder="Share your question, idea, or feedback..." style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 13px",color:C.text,fontSize:14,lineHeight:1.6,resize:"vertical",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
+            </div>
+            <button onClick={sendContact} disabled={!cfMsg.trim()} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:cfMsg.trim()?`linear-gradient(135deg,${C.blue},${C.accent})`:"#0c1220",color:cfMsg.trim()?"#000":C.muted,fontSize:14,fontWeight:800,cursor:cfMsg.trim()?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s"}}>Send Message →</button>
+            <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:8}}>Opens your email app with the message pre-filled.</div>
+          </Card>
 
-        <div style={{display:"flex",flexDirection:"column",gap:9,animation:"fadeUp 0.5s 0.26s ease both"}}>
-          <button onClick={onGetStarted} style={{width:"100%",padding:"16px",borderRadius:12,border:"none",background:C.blue,color:"#000",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.01em",transition:"transform 0.15s,background 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background=C.accent;e.currentTarget.style.transform="scale(1.02)";}} onMouseLeave={e=>{e.currentTarget.style.background=C.blue;e.currentTarget.style.transform="scale(1)";}}>
-            Get Started — It's Free →
-          </button>
-          <button onClick={onSignIn} style={{width:"100%",padding:"14px",borderRadius:12,background:"transparent",border:"1px solid #1e2e3d",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"border-color 0.15s,color 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e2e3d";e.currentTarget.style.color=C.muted;}}>
-            Already have an account? Sign In
-          </button>
-        </div>
+          {divider}
 
-        <div style={{marginTop:20,textAlign:"center",animation:"fadeUp 0.5s 0.26s ease both"}}>
-          <div style={{fontSize:12,color:"#1e3448"}}>No credit card &middot; Works on any device &middot; Cancel anytime</div>
+          {/* FINAL CTA */}
+          <SectionTitle title="Ready to write better?" sub="Join now and start using nine AI writing tools — free."/>
+          {ctaButtons({})}
+
+          <div style={{marginTop:32,textAlign:"center",fontSize:12,color:"#1e3448",lineHeight:1.8}}>
+            <div style={{fontSize:18,marginBottom:6}}>👻</div>
+            GhostwriterMe &middot; Your Words. Perfected.<br/>
+            © 2026 GhostwriterMe. All rights reserved.
+          </div>
         </div>
       </div>
     </div>
@@ -592,36 +772,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
   const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
   const handleSocial=id=>{if(id==="email"){setShowEmail(true);return;}setLoading(id);setTimeout(()=>{setLoading(null);onAuth({name:"Demo User",email:"demo@ghostwriterme.com",avatar:"🧠",plan:"free"});},1300);};
- const handleSubmit=async()=>{
-  const e={};
-  if(!email.includes("@"))e.email="Enter a valid email";
-  if(pw.length<6)e.pw="6+ characters";
-  if(tab==="signup"){
-    if(!name.trim())e.name="Required";
-    const n=parseInt(age,10);
-    if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";
-    else if(n<13)e.age="Must be 13 or older";
-    if(!agreed)e.terms="Required";
-  }
-  if(Object.keys(e).length){setErrs(e);return;}
-  setLoading("email");
-
-  if(tab==="signup"){
-    const {data,error}=await supabase.auth.signUp({
-      email,
-      password:pw,
-      options:{data:{full_name:name}}
-    });
-    setLoading(null);
-    if(error){setErrs({email:error.message});return;}
-    onAuth({name,email,avatar:"✨",plan:"free",id:data.user?.id});
-  }else{
-    const {data,error}=await supabase.auth.signInWithPassword({email,password:pw});
-    setLoading(null);
-    if(error){setErrs({email:"Invalid email or password"});return;}
-    onAuth({name:data.user?.user_metadata?.full_name||"User",email,avatar:"✨",plan:"free",id:data.user?.id});
-  }
-};
+  const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
@@ -830,11 +981,349 @@ function EssayMode({user}){
   return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/></div></Card>}</div>);
 }
 
-function AcademicMode({user}){
-  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [cites,setCites]=useState([{type:"url",value:""}]);const [wc,setWc]=useState("1000");const [style,setStyle]=useState("APA");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
+
+function IntegrityModal({type,accepted,onAccept,onCancel}){
+  const [checked,setChecked]=useState(false);
+  const isAcademic=type==="academic";
+  const title=isAcademic?"Academic Integrity Notice":"Responsible Use Notice";
+  const checkLabel=isAcademic?"I have read and understood this Academic Integrity Notice.":"I have read and understood this Responsible Use Notice.";
+  const body=isAcademic
+    ?`This Academic mode is intended to assist with research, brainstorming, outlining, and understanding academic writing structures. The generated content should be used as a reference, example, or starting point only.
+
+We strongly recommend that users review, revise, and develop the content using their own ideas, analysis, and understanding before submitting any academic work.
+
+Users are solely responsible for ensuring that their use of this tool complies with the academic integrity policies of their school, university, or institution. GhostwriterMe does not encourage or endorse plagiarism, academic dishonesty, or the submission of AI-generated content as original work.`
+    :`The Humanize feature is designed to improve readability, clarity, tone, and natural language flow. It should be used to enhance and refine content, not to misrepresent authorship or circumvent academic, workplace, or institutional policies.
+
+Users are responsible for ensuring that their use of this feature complies with applicable rules, guidelines, and integrity standards. GhostwriterMe does not encourage or endorse plagiarism, academic dishonesty, or attempts to evade AI detection systems.`;
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}
+      onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
+      <div style={{width:"100%",maxWidth:500,background:"#0c1220",border:"1px solid #162030",borderRadius:"14px 14px 0 0",padding:"20px 18px 32px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{width:32,height:3,borderRadius:2,background:"#162030",margin:"0 auto 18px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{width:40,height:40,borderRadius:10,background:"rgba(245,200,66,0.12)",border:"1px solid rgba(245,200,66,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>⚠️</div>
+          <div style={{fontSize:16,fontWeight:900,color:"#fff"}}>{title}</div>
+        </div>
+        {accepted&&(
+          <div style={{display:"flex",alignItems:"center",gap:7,background:"rgba(61,219,164,0.08)",border:"1px solid rgba(61,219,164,0.25)",borderRadius:8,padding:"8px 12px",marginBottom:14}}>
+            <span style={{color:"#3ddba4",fontSize:14,fontWeight:900}}>✓</span>
+            <span style={{fontSize:13,color:"#3ddba4",fontWeight:600}}>You have already accepted this notice.</span>
+          </div>
+        )}
+        <div style={{background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:9,padding:"14px",marginBottom:16}}>
+          <div style={{fontSize:13,color:"#c8a020",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{body}</div>
+        </div>
+        {accepted?(
+          <button onClick={onCancel} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#79BAEC,#a8d4f5)",color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+            Close
+          </button>
+        ):(
+          <>
+            <div onClick={()=>setChecked(!checked)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px",background:checked?"rgba(121,186,236,0.08)":"#080d14",border:`1px solid ${checked?"#79BAEC":"#162030"}`,borderRadius:9,cursor:"pointer",marginBottom:16,transition:"all 0.15s"}}>
+              <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${checked?"#79BAEC":"#162030"}`,background:checked?"#79BAEC":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>
+                {checked&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
+              </div>
+              <div style={{fontSize:13,color:checked?"#fff":"#8eacc4",lineHeight:1.5}}>{checkLabel}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onCancel} style={{flex:1,padding:"11px",borderRadius:8,background:"transparent",border:"1px solid #162030",color:"#8eacc4",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor="#79BAEC";e.currentTarget.style.color="#fff";}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="#162030";e.currentTarget.style.color="#8eacc4";}}>
+                Cancel
+              </button>
+              <button onClick={()=>{if(checked)onAccept();}} disabled={!checked} style={{flex:2,padding:"11px",borderRadius:8,border:"none",background:checked?"linear-gradient(135deg,#79BAEC,#a8d4f5)":"#0c1220",color:checked?"#000":"#8eacc4",fontSize:14,fontWeight:800,cursor:checked?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s",boxShadow:checked?"0 4px 20px rgba(121,186,236,0.3)":"none"}}>
+                I Agree →
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============ ACADEMIC REVIEWER (primary) ============
+function AcademicReviewer({user}){
+  const [text,setText]=useState("");
+  const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
+  const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+
+  const analyze=async()=>{
+    if(!text.trim()&&!imgData){setError("Paste your essay or attach an image of it first.");return;}
+    setLoading(true);setError("");setRes(null);
+    const sys=`You are an academic writing coach and reviewer, like a university writing center tutor. Review the student's OWN essay and give constructive, educational feedback to help them improve it themselves. DO NOT rewrite the essay for them. Be specific and reference their actual content.
+
+Return ONLY valid JSON, no markdown fences:
+{
+  "grade":"A|B|C|D",
+  "range":"90-100|80-89|70-79|60-69",
+  "numeric":<0-100 integer>,
+  "summary":"one honest sentence overview",
+  "categories":[
+    {"name":"Writing Quality","score":<1-10>,"note":"grammar, spelling, punctuation, sentence structure, clarity, readability"},
+    {"name":"Academic Quality","score":<1-10>,"note":"thesis strength, argument development, evidence, logical flow, organization, critical thinking"},
+    {"name":"Academic Tone","score":<1-10>,"note":"formality, professionalism, consistency, objectivity"},
+    {"name":"Citations","score":<1-10>,"note":"citation consistency, missing citations, reference formatting, style compliance"}
+  ],
+  "strengths":["specific strength","..."],
+  "improvements":["specific weakness to address","..."],
+  "revisions":["actionable step e.g. Rewrite paragraph 3 for clarity","..."]
+}`;
+    try{
+      const raw=await callClaude(sys,"Review this essay:\n\n"+(text||"(see attached image)"),2500,imgData,imgType);
+      const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      setRes(r);
+      if(user)HS.save(user.email,"academic",{title:"Review: "+(text.slice(0,40)||"essay"),input:"reviewer",output:"Grade "+(r.grade||"?")+" — "+(r.summary||"")});
+    }catch(e){setError(e.message||"Something went wrong.");}
+    finally{setLoading(false);}
+  };
+
+  const gradeColor=g=>g==="A"?C.green:g==="B"?C.blue:g==="C"?C.yellow:C.red;
+  const barColor=s=>s>=8?C.green:s>=6?C.blue:s>=4?C.yellow:C.red;
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
+        <span style={{fontSize:16,flexShrink:0}}>🔍</span>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Paste your essay to get detailed, coach-style feedback on writing quality, argument strength, tone, and citations. This reviews <strong style={{color:C.text}}>your own work</strong> — it does not rewrite it for you.</div>
+      </div>
+      <FArea label="Paste Your Essay" placeholder="Paste your full essay or a section you want feedback on..." value={text} onChange={e=>setText(e.target.value)} rows={8} voice/>
+      <ImageInput onImage={(dt,t)=>{setImgData(dt);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/>
+      <PriBtn onClick={analyze} loading={loading} disabled={!text.trim()&&!imgData}>🔍 Analyze My Essay</PriBtn>
+      {error&&<ErrBox msg={error}/>}
+      {res&&(
+        <div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
+          <Card style={{marginBottom:10,display:"flex",alignItems:"center",gap:16}}>
+            <div style={{width:68,height:68,borderRadius:"50%",border:`3px solid ${gradeColor(res.grade)}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <span style={{fontSize:26,fontWeight:900,color:gradeColor(res.grade),lineHeight:1}}>{res.grade}</span>
+              <span style={{fontSize:10,color:C.muted,marginTop:2}}>{res.numeric}/100</span>
+            </div>
+            <div>
+              <div style={{fontSize:12,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:3}}>Estimated Score · {res.range}</div>
+              <div style={{fontSize:14,color:C.text,lineHeight:1.5}}>{res.summary}</div>
+            </div>
+          </Card>
+          <div style={{background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:"#c8a020",lineHeight:1.5}}>⚠️ This is an AI estimate to guide your revision — not an official grade. Your instructor's assessment may differ.</div>
+
+          <Card style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:11}}>Category Breakdown</div>
+            {(res.categories||[]).map((cat,i)=>(
+              <div key={i} style={{marginBottom:i<(res.categories.length-1)?12:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                  <span style={{fontSize:13,fontWeight:700,color:C.text}}>{cat.name}</span>
+                  <span style={{fontSize:12,color:barColor(cat.score),fontWeight:800}}>{cat.score}/10</span>
+                </div>
+                <div style={{height:5,background:C.surface,borderRadius:3,overflow:"hidden",marginBottom:4}}>
+                  <div style={{width:(cat.score*10)+"%",height:"100%",background:barColor(cat.score),borderRadius:3,transition:"width 0.5s"}}/>
+                </div>
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>{cat.note}</div>
+              </div>
+            ))}
+          </Card>
+
+          {(res.strengths||[]).length>0&&(
+            <Card style={{marginBottom:10}}>
+              <div style={{fontSize:11,color:C.green,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>✓ Strengths</div>
+              {res.strengths.map((s,i)=>(<div key={i} style={{display:"flex",gap:8,fontSize:13,color:C.text,lineHeight:1.6,marginBottom:5}}><span style={{color:C.green,flexShrink:0}}>✓</span>{s}</div>))}
+            </Card>
+          )}
+          {(res.improvements||[]).length>0&&(
+            <Card style={{marginBottom:10}}>
+              <div style={{fontSize:11,color:C.yellow,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>Areas for Improvement</div>
+              {res.improvements.map((s,i)=>(<div key={i} style={{display:"flex",gap:8,fontSize:13,color:C.text,lineHeight:1.6,marginBottom:5}}><span style={{color:C.yellow,flexShrink:0}}>→</span>{s}</div>))}
+            </Card>
+          )}
+          {(res.revisions||[]).length>0&&(
+            <Card>
+              <div style={{fontSize:11,color:C.blue,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>Revision Suggestions</div>
+              {res.revisions.map((s,i)=>(<div key={i} style={{display:"flex",gap:8,fontSize:13,color:C.text,lineHeight:1.6,marginBottom:7,alignItems:"flex-start"}}><span style={{width:18,height:18,borderRadius:"50%",background:C.accentSoft,color:C.blue,fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{i+1}</span>{s}</div>))}
+              <div style={{marginTop:10}}><CopyBtn text={(res.revisions||[]).map((s,i)=>(i+1)+". "+s).join("\n")}/></div>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ RESEARCH ASSISTANT (secondary) ============
+const RESEARCH_TASKS=[
+  {id:"thesis",   icon:"🎯",label:"Thesis Ideas",      desc:"Generate thesis statement options"},
+  {id:"outline",  icon:"📑",label:"Essay Outline",      desc:"Structure your paper"},
+  {id:"arguments",icon:"💡",label:"Brainstorm Arguments",desc:"Develop your points"},
+  {id:"questions",icon:"❓",label:"Research Questions", desc:"Frame your inquiry"},
+  {id:"sources",  icon:"📚",label:"Source Types",       desc:"What evidence to look for"},
+  {id:"structure",icon:"🏗️",label:"Paper Structure",    desc:"Section-by-section plan"},
+  {id:"litreview",icon:"🔬",label:"Lit Review Framework",desc:"Organize your sources"},
+];
+function ResearchAssistant({user}){
+  const [task,setTask]=useState("thesis");
+  const [topic,setTopic]=useState("");const [ctx,setCtx]=useState("");
+  const [out,setOut]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+
+  const gen=async()=>{
+    if(!topic.trim()){setError("Enter a topic first.");return;}
+    setLoading(true);setError("");setOut("");
+    const t=RESEARCH_TASKS.find(x=>x.id===task);
+    const map={
+      thesis:"Generate 3-4 possible thesis statement options for this topic, each taking a slightly different angle. Briefly explain the angle of each so the student can pick and develop their own.",
+      outline:"Create a clear, logical essay outline with main sections and bullet points for what each should cover. Leave room for the student's own ideas.",
+      arguments:"Brainstorm a range of possible arguments and counterarguments on this topic. Present them as options to consider, not a finished position.",
+      questions:"Generate focused research questions the student could investigate on this topic, ranging from broad to specific.",
+      sources:"Suggest the TYPES of sources and evidence to look for (e.g. peer-reviewed studies, primary documents, datasets) and where to find them. Do not fabricate specific citations.",
+      structure:"Provide a section-by-section paper structure with guidance on the purpose of each section.",
+      litreview:"Provide a framework for organizing a literature review on this topic (e.g. by theme, chronology, or methodology) with guidance on how to synthesize sources."
+    };
+    const sys="You are an academic research assistant and writing coach. Provide GUIDANCE-ORIENTED, educational support that helps students plan and develop their OWN work. Never write the finished assignment. Be encouraging and practical. Use clear headings and bullet points.";
+    try{
+      const res=await callClaude(sys,map[task]+"\n\nTopic: "+topic+(ctx?"\nContext: "+ctx:""),2000);
+      setOut(res);
+      if(user)HS.save(user.email,"academic",{title:t.label+": "+topic.slice(0,35),input:"research:"+task,output:res});
+    }catch(e){setError(e.message||"Something went wrong.");}
+    finally{setLoading(false);}
+  };
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
+        <span style={{fontSize:16,flexShrink:0}}>🧭</span>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Plan and develop your own academic work. Get help with thesis ideas, outlines, arguments, and research direction.</div>
+      </div>
+      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What do you need help with?</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
+        {RESEARCH_TASKS.map(t=>(
+          <button key={t.id} onClick={()=>setTask(t.id)} style={{background:task===t.id?C.accentSoft:C.surface,border:`1px solid ${task===t.id?C.blue:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}>
+            <div style={{fontSize:16}}>{t.icon}</div>
+            <div style={{fontSize:13,fontWeight:700,marginTop:2}}>{t.label}</div>
+            <div style={{fontSize:11,color:C.muted,marginTop:1,lineHeight:1.3}}>{t.desc}</div>
+          </button>
+        ))}
+      </div>
+      <FInput label="Topic" placeholder="e.g. The impact of social media on teen mental health" value={topic} onChange={e=>setTopic(e.target.value)} icoL="🎩" voice/>
+      <FArea label="Context (optional)" placeholder="Any specific angle, course requirements, or constraints..." value={ctx} onChange={e=>setCtx(e.target.value)} rows={2} voice/>
+      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>🧭 Get Guidance</PriBtn>
+      {error&&<ErrBox msg={error}/>}
+      {out&&(
+        <Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
+          <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>{RESEARCH_TASKS.find(t=>t.id===task)?.label} · Guidance</div>
+          <div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{out}</div>
+          <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={out}/><ListenBtn text={out}/></div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============ ACADEMIC DRAFT BUILDER ============
+const CEFR_DESC={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-Intermediate",C1:"Advanced",C2:"Proficient"};
+function DraftBuilder({user}){
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [cites,setCites]=useState([{type:"url",value:""}]);const [wc,setWc]=useState("1000");const [style,setStyle]=useState("APA");const [level,setLevel]=useState("C1");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const addC=()=>setCites([...cites,{type:"url",value:""}]);const remC=i=>setCites(cites.filter((_,j)=>j!==i));const updC=(i,fld,v)=>{const c=[...cites];c[i]={...c[i],[fld]:v};setCites(c);};
-  const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");const cl=cites.filter(c=>c.value.trim()).map((c,i)=>"["+(i+1)+"] "+(c.type==="url"?"URL":"PDF")+": "+c.value).join("\\n");const prompt="Academic essay: \""+topic+"\"\\nArguments: "+(details||"none")+"\\nWords: ~"+wc+"\\nStyle: "+style+(cl?"\\nSources:\\n"+cl:"");try{const res=await callClaude("Expert academic writer. C1/C2 English. Use "+style+" citations. Include References. Write ONLY the essay.",prompt,2500,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:topic,input:style+", "+wc+"w",output:res});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Thesis / Topic" placeholder="e.g. The role of AI in modern healthcare" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Arguments & Key Points" placeholder="e.g. ML accuracy, ethical concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}><FSelect label="Citation Style" value={style} onChange={setStyle} options={["APA","MLA","Chicago","Harvard","Vancouver","IEEE"]}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","500","750","1000","1500","2000","3000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Cite</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>{cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">🔗 URL</option><option value="pdf">📄 PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>{cites.length>1&&<button onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>}</div>))}</div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>🎓 Generate Academic Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Academic · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Essay · "+style}/></div></Card>}</div>);
+  const gen=async()=>{
+    if(!topic.trim())return;setLoading(true);setError("");setEssay("");
+    const cl=cites.filter(c=>c.value.trim()).map((c,i)=>"["+(i+1)+"] "+(c.type==="url"?"URL":"PDF")+": "+c.value).join("\n");
+    const prompt="Topic: \""+topic+"\"\nArguments: "+(details||"none")+"\nTarget length: ~"+wc+" words\nCitation style: "+style+(cl?"\nSources:\n"+cl:"");
+    const sys="You are an academic writing assistant. Produce a STRUCTURED EXAMPLE DRAFT to help a student understand how to approach this topic — a starting point they will revise and expand with their own analysis. Use "+style+" citations and include a References section. Write at CEFR "+level+" ("+CEFR_DESC[level]+") English level — calibrate vocabulary, sentence complexity, and academic register to exactly this level. Begin the output with the line: [EXAMPLE DRAFT — revise and expand with your own work]";
+    try{const res=await callClaude(sys,prompt,2500,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:"Draft: "+topic,input:"draft:"+style+","+wc+"w,"+level,output:res});}
+    catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
+  };
+  return(
+    <div>
+      <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
+        <span style={{fontSize:16,flexShrink:0}}>✍️</span>
+        <div style={{fontSize:13,color:"#c8a020",lineHeight:1.55}}>Generates an <strong>example draft</strong> as a learning starting point. You are expected to revise, expand, and develop it with your own ideas before any use.</div>
+      </div>
+      <FArea label="Thesis / Topic" placeholder="e.g. The role of AI in modern healthcare" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
+      <FArea label="Arguments & Key Points" placeholder="e.g. ML accuracy, ethical concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:13}}>
+        <FSelect label="Citation Style" value={style} onChange={setStyle} options={["APA","MLA","Chicago","Harvard","Vancouver","IEEE"]}/>
+        <FSelect label="Length" value={wc} onChange={setWc} options={["100","150","200","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/>
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div>
+        <div style={{display:"flex",gap:5}}>
+          {LEVELS.map(l=>(
+            <button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>
+          ))}
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginTop:4}}>{level} — {CEFR_DESC[level]}</div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Reference</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>
+        {cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">🔗 URL</option><option value="pdf">📄 PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>{cites.length>1&&<button onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>}</div>))}
+      </div>
+      <ImageInput onImage={(dt,t)=>{setImgData(dt);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/>
+      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Example Draft</PriBtn>
+      {error&&<ErrBox msg={error}/>}
+      {essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
+        <div style={{display:"flex",gap:8,background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><span style={{fontSize:14,flexShrink:0}}>ℹ️</span><div style={{fontSize:12,color:"#c8a020",lineHeight:1.55}}>This is an example starting point for research and learning. Review, revise, and ensure compliance with your institution's academic integrity policies before any use.</div></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Example Draft · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div>
+        <div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{essay}</div>
+        <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Draft · "+style}/></div>
+      </Card>}
+    </div>
+  );
+}
+
+// ============ ACADEMIC MODE (dashboard + gate) ============
+const ACADEMIC_TABS=[
+  {id:"reviewer",icon:"🔍",label:"Academic Reviewer",sub:"Upload or paste your essay and receive detailed feedback."},
+  {id:"research", icon:"🧭",label:"Research Assistant",sub:"Get help planning, structuring, and developing your work."},
+  {id:"draft",    icon:"✍️",label:"Academic Draft Builder",sub:"Generate outlines, frameworks, and draft examples."},
+];
+function AcademicMode({user}){
+  const [accepted,setAccepted]=useState(()=>isNoticeAccepted("academic"));
+  const [showNotice,setShowNotice]=useState(()=>!isNoticeAccepted("academic"));
+  const [tab,setTab]=useState("reviewer");
+
+  if(!accepted)return(
+    <>
+      <IntegrityModal type="academic" accepted={false}
+        onAccept={()=>{acceptNotice("academic");setAccepted(true);setShowNotice(false);}}
+        onCancel={()=>{setShowNotice(false);}}
+      />
+      <div style={{textAlign:"center",padding:"60px 20px",color:C.muted,fontSize:14}}>Accept the Academic Integrity Notice to continue.</div>
+    </>
+  );
+
+  const active=ACADEMIC_TABS.find(t=>t.id===tab);
+  return(
+    <div>
+      {showNotice&&<IntegrityModal type="academic" accepted={true} onAccept={()=>setShowNotice(false)} onCancel={()=>setShowNotice(false)}/>}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
+        <button onClick={()=>setShowNotice(true)} style={{background:"none",border:"none",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>View Academic Integrity Notice</button>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr",gap:8,marginBottom:16}}>
+        {ACADEMIC_TABS.map((t,idx)=>{
+          const on=tab===t.id;const primary=idx===0;
+          return(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:primary?"15px 14px":"12px 14px",background:on?C.accentSoft:C.card,border:`1px solid ${on?C.blue:C.border}`,borderRadius:11,cursor:"pointer",textAlign:"left",fontFamily:"inherit",transition:"all 0.15s",boxShadow:on?`0 0 18px ${C.blueGlow}`:"none"}}>
+              <div style={{width:primary?44:38,height:primary?44:38,borderRadius:10,background:on?"linear-gradient(135deg,#79BAEC,#a8d4f5)":C.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:primary?22:18,flexShrink:0}}>{t.icon}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{fontSize:primary?16:14,fontWeight:900,color:on?"#fff":C.text}}>{t.label}</span>
+                  {primary&&<span style={{fontSize:10,fontWeight:800,letterSpacing:"0.08em",color:C.blue,background:C.accentSoft,padding:"1px 6px",borderRadius:4}}>PRIMARY</span>}
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{t.sub}</div>
+              </div>
+              <span style={{color:on?C.blue:C.muted,fontSize:18,flexShrink:0}}>{on?"✓":"›"}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:18,fontWeight:900,color:"#fff",letterSpacing:"-0.01em",display:"flex",alignItems:"center",gap:8}}>{active.icon} {active.label}</div>
+      </div>
+
+      {tab==="reviewer"&&<AcademicReviewer user={user}/>}
+      {tab==="research"&&<ResearchAssistant user={user}/>}
+      {tab==="draft"&&<DraftBuilder user={user}/>}
+    </div>
+  );
 }
 
 const CV_TEMPLATES=[
@@ -994,6 +1483,8 @@ function AuthorMode({user}){
 }
 
 function HumanizeMode({user}){
+  const [hAccepted,setHAccepted]=useState(()=>isNoticeAccepted("humanize"));
+  const [showHNotice,setShowHNotice]=useState(()=>!isNoticeAccepted("humanize"));
   const [text,setText]=useState("");const [level,setLevel]=useState("B2");const [intensity,setIntensity]=useState("moderate");const [purpose,setPurpose]=useState("essay");const [res,setRes]=useState(null);const [phase,setPhase]=useState("");const [error,setError]=useState("");const [view,setView]=useState("output");
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Near-native"};
   const PURPOSES=[{id:"essay",icon:"✍️",label:"Essay",desc:"Academic"},{id:"email",icon:"📧",label:"Email",desc:"Professional"},{id:"report",icon:"📊",label:"Report",desc:"Formal"},{id:"personal",icon:"💬",label:"Personal",desc:"Casual/Blog"}];
@@ -1016,8 +1507,21 @@ function HumanizeMode({user}){
   };
   const diffWords=(orig,updated)=>{const ow=orig.split(/\s+/),uw=updated.split(/\s+/);return uw.map((word,i)=>({word,changed:ow[i]!==word}));};
   const isLoading=phase!=="";const loadingLabel=phase==="pass1"?"Pass 1 — Rewriting...":phase==="pass2"?"Pass 2 — Reviewing...":"";
+  if(!hAccepted)return(
+    <>
+      <IntegrityModal type="humanize" accepted={false}
+        onAccept={()=>{acceptNotice("humanize");setHAccepted(true);setShowHNotice(false);}}
+        onCancel={()=>setShowHNotice(false)}
+      />
+      <div style={{textAlign:"center",padding:"60px 20px",color:"#8eacc4",fontSize:14}}>Accept the Responsible Use Notice to continue.</div>
+    </>
+  );
   return(
     <div>
+      {showHNotice&&<IntegrityModal type="humanize" accepted={true} onAccept={()=>setShowHNotice(false)} onCancel={()=>setShowHNotice(false)}/>}
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:4}}>
+        <button onClick={()=>setShowHNotice(true)} style={{background:"none",border:"none",color:"#9b7fe8",fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>View Responsible Use Notice</button>
+      </div>
       <div style={{background:C.violetSoft,border:"1px solid rgba(155,127,232,0.28)",borderRadius:8,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}>
         <span style={{fontSize:16,flexShrink:0}}>🧠</span>
         <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Student Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Two-pass AI removal. Strips em dashes, robotic transitions, buzzwords, and uniform sentence patterns.</div></div>
@@ -1035,7 +1539,7 @@ function HumanizeMode({user}){
         {res.note&&<div style={{background:C.violetSoft,border:"1px solid rgba(155,127,232,0.2)",borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",gap:8}}><span style={{fontSize:16}}>💡</span><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>{res.note}</div></div>}
         {res.changes?.length>0&&(<Card style={{marginBottom:10,borderColor:"rgba(155,127,232,0.3)"}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>What Changed</div>{res.changes.map((c,i)=>(<div key={i} style={{display:"flex",gap:8,paddingBottom:i<res.changes.length-1?8:0,marginBottom:i<res.changes.length-1?8:0,borderBottom:i<res.changes.length-1?`1px solid ${C.border}`:"none"}}><span style={{color:C.violet,flexShrink:0,fontSize:13,marginTop:1}}>✓</span><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{c.what}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{c.why}</div></div></div>))}</Card>)}
         <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:10}}>{[{id:"output",label:"✅ Final Output"},{id:"compare",label:"🔍 Before vs After"}].map(v=>(<button key={v.id} onClick={()=>setView(v.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:view===v.id?C.violet:"transparent",color:view===v.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{v.label}</button>))}</div>
-        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/></div></Card>)}
+        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(155,127,232,0.06)",border:"1px solid rgba(155,127,232,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><span style={{fontSize:14,flexShrink:0}}>ℹ️</span><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/></div></Card>)}
         {view==="compare"&&(<div><div style={{display:"flex",gap:10,marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(240,107,107,0.25)",border:"1px solid rgba(240,107,107,0.5)"}}/>Original</div><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(155,127,232,0.25)",border:"1px solid rgba(155,127,232,0.5)"}}/>Changed words</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Before</div><div style={{background:"rgba(240,107,107,0.05)",border:"1px solid rgba(240,107,107,0.2)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{text}</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>After</div><div style={{background:"rgba(155,127,232,0.05)",border:"1px solid rgba(155,127,232,0.25)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{diffWords(text,res.humanized).map((w,i)=>(<span key={i}><span style={{background:w.changed?"rgba(155,127,232,0.22)":"transparent",borderRadius:w.changed?3:0,padding:w.changed?"1px 2px":0,color:w.changed?C.violet:C.text,fontWeight:w.changed?700:400}}>{w.word}</span>{i<res.humanized.split(/\s+/).length-1?" ":""}</span>))}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{[{label:"Original words",val:text.split(/\s+/).filter(Boolean).length},{label:"Final words",val:res.humanized.split(/\s+/).filter(Boolean).length},{label:"Words changed",val:diffWords(text,res.humanized).filter(w=>w.changed).length},{label:"Change rate",val:Math.round(diffWords(text,res.humanized).filter(w=>w.changed).length/Math.max(res.humanized.split(/\s+/).filter(Boolean).length,1)*100)+"%"}].map(s=>(<div key={s.label} style={{flex:1,minWidth:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",textAlign:"center"}}><div style={{fontSize:14,fontWeight:900,color:C.violet}}>{s.val}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{s.label}</div></div>))}</div><OutputActions text={res.humanized}/></div>)}
       </div>)}
     </div>
@@ -1208,36 +1712,31 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 }
 
 export default function GhostwriterMeApp(){
-  const [screen,setScreen]=useState("landing");
   const [authTab,setAuthTab]=useState("signup");
-  const [user,setUser]=useState(null);
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
-  const [checkingSession,setCheckingSession]=useState(true);
+
+  // Restore session on startup
+  const [user,setUser]=useState(()=>{
+    try{const s=localStorage.getItem(SESSION_KEY);return s?JSON.parse(s):null;}catch{return null;}
+  });
+  const [screen,setScreen]=useState(()=>{
+    try{const s=localStorage.getItem(SESSION_KEY);return s?"app":"landing";}catch{return "landing";}
+  });
+
   useEffect(()=>{
     const style=document.createElement("style");
     style.textContent=GLOBAL_CSS;
     document.head.appendChild(style);
     return()=>document.head.removeChild(style);
   },[]);
-useEffect(()=>{
-    supabase.auth.getSession().then(({data})=>{
-      const session=data?.session;
-      if(session?.user){
-        const u=session.user;
-        setUser({
-          name:u.user_metadata?.full_name||"User",
-          email:u.email,
-          avatar:"✨",
-          plan:"free",
-          id:u.id
-        });
-        setScreen("app");
-      }
-      setCheckingSession(false);
-    });
-  },[]);
+
+  useEffect(()=>{
+    if(user){localStorage.setItem(SESSION_KEY,JSON.stringify(user));}
+    else{localStorage.removeItem(SESSION_KEY);}
+  },[user]);
+
   useEffect(()=>{
     if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
       setUser(u=>({...u,plan:"free",billing:null,renewsAt:null,cancelAtPeriodEnd:false}));
@@ -1248,7 +1747,7 @@ useEffect(()=>{
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=u=>{setUser(u);setScreen("safety");};
   const handleSafetyAccept=()=>{setScreen("app");};
-  const handleSignOut=()=>{supabase.auth.signOut();setUser(null);setScreen("landing");};
+  const handleSignOut=()=>{localStorage.removeItem(SESSION_KEY);setUser(null);setScreen("landing");};
   const handleUpdateUser=u=>{setUser(u);};
 
   const handleUpgrade=(mode,targetPlan)=>{setTrialInfo({mode,targetPlan});setScreen("pricing");};
@@ -1272,7 +1771,6 @@ useEffect(()=>{
     setScreen("app");
   };
 
-  if(checkingSession)return <div style={{minHeight:"100vh",background:C.bg}}/>;
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
