@@ -1771,7 +1771,7 @@ export default function GhostwriterMeApp(){
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
-
+const [checkingSession,setCheckingSession]=useState(true);
   // Restore session on startup
   const [user,setUser]=useState(()=>{
     try{const s=localStorage.getItem(SESSION_KEY);return s?JSON.parse(s):null;}catch{return null;}
@@ -1786,7 +1786,30 @@ export default function GhostwriterMeApp(){
     document.head.appendChild(style);
     return()=>document.head.removeChild(style);
   },[]);
+useEffect(()=>{
+    const applySession=(session)=>{
+      if(session?.user){
+        const u=session.user;
+        setUser({
+          name:u.user_metadata?.full_name||u.user_metadata?.name||"User",
+          email:u.email,
+          avatar:"✨",
+          plan:"free",
+          id:u.id
+        });
+        setScreen("app");
+      }
+      setCheckingSession(false);
+    };
 
+    supabase.auth.getSession().then(({data})=>applySession(data?.session));
+
+    const {data:listener}=supabase.auth.onAuthStateChange((_event,session)=>{
+      applySession(session);
+    });
+
+    return()=>listener?.subscription?.unsubscribe();
+  },[]);
   useEffect(()=>{
     if(user){localStorage.setItem(SESSION_KEY,JSON.stringify(user));}
     else{localStorage.removeItem(SESSION_KEY);}
@@ -1825,7 +1848,7 @@ export default function GhostwriterMeApp(){
     setPaymentInfo(null);
     setScreen("app");
   };
-
+  if(checkingSession)return <div style={{minHeight:"100vh",background:C.bg}}/>;
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
