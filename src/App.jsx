@@ -817,7 +817,15 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [age,setAge]=useState("");const [showPw,setShowPw]=useState(false);
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
   const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
-  const handleSocial=id=>{if(id==="email"){setShowEmail(true);return;}setLoading(id);setTimeout(()=>{setLoading(null);onAuth({name:"Demo User",email:"demo@ghostwriterme.com",avatar:"🧠",plan:"free"});},1300);};
+  const handleSocial=async id=>{
+  if(id==="email"){setShowEmail(true);return;}
+  setLoading(id);
+  const {error}=await supabase.auth.signInWithOAuth({
+    provider:"google",
+    options:{redirectTo:window.location.origin}
+  });
+  if(error){setLoading(null);setErrs({email:error.message});}
+};
   const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
