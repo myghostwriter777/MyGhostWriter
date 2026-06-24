@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { supabase } from "./supabaseClient";
 
 const C = {
   bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
