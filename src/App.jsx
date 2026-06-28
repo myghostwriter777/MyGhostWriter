@@ -147,6 +147,8 @@ const speak=(text)=>{if(!hasTTS)return;window.speechSynthesis.cancel();window.sp
 const stopSpeak=()=>{if(hasTTS)window.speechSynthesis.cancel();};
 
 async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=null){
+  // Checks Stripe for the user's real subscription status
+  newFunction();
   let userContent;
   if(imageData&&imageType){
     const base64=imageData.split(",")[1];
@@ -156,6 +158,19 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
   if(!r.ok){const err=await r.json().catch(()=>({}));throw new Error(err?.error?.message||"API error "+r.status);}
   const d=await r.json();
   return d.content?.map(b=>b.text||"").join("")||"";
+
+  function newFunction() {
+    async function checkSubscription(email) {
+      try {
+        const res = await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
+        if (!res.ok) return null;
+        return await res.json(); // { plan, billing, renewsAt, cancelAtPeriodEnd }
+      } catch (e) {
+        console.error("Could not verify subscription:", e);
+        return null;
+      }
+    }
+  }
 }
 
 function ContactModal({onClose}){
@@ -1810,10 +1825,23 @@ useEffect(()=>{
 
     return()=>listener?.subscription?.unsubscribe();
   },[]);
-  useEffect(()=>{
-    if(user){localStorage.setItem(SESSION_KEY,JSON.stringify(user));}
-    else{localStorage.removeItem(SESSION_KEY);}
-  },[user]);
+useEffect(()=>{
+  if(user){
+    localStorage.setItem(SESSION_KEY,JSON.stringify(user));
+    checkSubscription(user.email).then(sub=>{
+      if(sub){
+        setUser(u=>({...u,
+          plan:sub.plan,
+          billing:sub.billing||u.billing,
+          renewsAt:sub.renewsAt||u.renewsAt,
+          cancelAtPeriodEnd:sub.cancelAtPeriodEnd??u.cancelAtPeriodEnd,
+        }));
+      }
+    });
+  }else{
+    localStorage.removeItem(SESSION_KEY);
+  }
+},[]);
 
   useEffect(()=>{
     if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
@@ -1823,7 +1851,14 @@ useEffect(()=>{
 
   const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
-  const handleAuth=u=>{setUser(u);setScreen("safety");};
+  const handleAuth=async u=>{
+  const sub=await checkSubscription(u.email);
+  if(sub&&sub.plan!=="free"){
+    u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd};
+  }
+  setUser(u);
+  setScreen("safety");
+};
   const handleSafetyAccept=()=>{setScreen("app");};
   const handleSignOut=()=>{localStorage.removeItem(SESSION_KEY);setUser(null);setScreen("landing");};
   const handleUpdateUser=u=>{setUser(u);};
