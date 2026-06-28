@@ -160,16 +160,6 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
   return d.content?.map(b=>b.text||"").join("")||"";
 
   function newFunction() {
-    async function checkSubscription(email) {
-      try {
-        const res = await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
-        if (!res.ok) return null;
-        return await res.json(); // { plan, billing, renewsAt, cancelAtPeriodEnd }
-      } catch (e) {
-        console.error("Could not verify subscription:", e);
-        return null;
-      }
-    }
   }
 }
 
@@ -1782,6 +1772,16 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 }
 
 export default function GhostwriterMeApp(){
+  const checkSubscription=async(email)=>{
+  try{
+    const res=await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
+    if(!res.ok)return null;
+    return await res.json();
+  }catch(e){
+    console.error("Could not verify subscription:",e);
+    return null;
+  }
+};
   const [authTab,setAuthTab]=useState("signup");
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
