@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { supabase } from "./supabaseClient";
 
 const C = {
   bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
@@ -63,7 +62,7 @@ const TONES = [
 ];
 
 const LEVELS = ["A1","A2","B1","B2","C1","C2"];
-const ESSAY_TYPES = ["Argumentative","Descriptive","Expository","Narrative","Compare & Contrast","Reflective"];
+const ESSAY_TYPES = ["Argumentative","Descriptive","Expository","Narrative","Compare & Contrast","Reflective","Statement of Purpose"];
 const GRAMMAR_STYLES = [
   {id:"formal",  icon:"🎩",label:"Formal",  desc:"Elevated, authoritative"},
   {id:"academic",icon:"📚",label:"Academic",desc:"Scholarly, precise"},
@@ -147,8 +146,6 @@ const speak=(text)=>{if(!hasTTS)return;window.speechSynthesis.cancel();window.sp
 const stopSpeak=()=>{if(hasTTS)window.speechSynthesis.cancel();};
 
 async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=null){
-  // Checks Stripe for the user's real subscription status
-  newFunction();
   let userContent;
   if(imageData&&imageType){
     const base64=imageData.split(",")[1];
@@ -158,9 +155,6 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
   if(!r.ok){const err=await r.json().catch(()=>({}));throw new Error(err?.error?.message||"API error "+r.status);}
   const d=await r.json();
   return d.content?.map(b=>b.text||"").join("")||"";
-
-  function newFunction() {
-  }
 }
 
 function ContactModal({onClose}){
@@ -823,15 +817,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [age,setAge]=useState("");const [showPw,setShowPw]=useState(false);
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
   const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
-  const handleSocial=async id=>{
-  if(id==="email"){setShowEmail(true);return;}
-  setLoading(id);
-  const {error}=await supabase.auth.signInWithOAuth({
-    provider:"google",
-    options:{redirectTo:window.location.origin}
-  });
-  if(error){setLoading(null);setErrs({email:error.message});}
-};
+  const handleSocial=id=>{if(id==="email"){setShowEmail(true);return;}setLoading(id);setTimeout(()=>{setLoading(null);onAuth({name:"Demo User",email:"demo@ghostwriterme.com",avatar:"🧠",plan:"free"});},1300);};
   const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
@@ -1772,21 +1758,22 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 }
 
 export default function GhostwriterMeApp(){
+  // Verify subscription status with Stripe by email
   const checkSubscription=async(email)=>{
-  try{
-    const res=await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
-    if(!res.ok)return null;
-    return await res.json();
-  }catch(e){
-    console.error("Could not verify subscription:",e);
-    return null;
-  }
-};
+    try{
+      const res=await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
+      if(!res.ok)return null;
+      return await res.json();
+    }catch(e){
+      console.error("Could not verify subscription:",e);
+      return null;
+    }
+  };
   const [authTab,setAuthTab]=useState("signup");
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
-const [checkingSession,setCheckingSession]=useState(true);
+
   // Restore session on startup
   const [user,setUser]=useState(()=>{
     try{const s=localStorage.getItem(SESSION_KEY);return s?JSON.parse(s):null;}catch{return null;}
@@ -1801,47 +1788,25 @@ const [checkingSession,setCheckingSession]=useState(true);
     document.head.appendChild(style);
     return()=>document.head.removeChild(style);
   },[]);
-useEffect(()=>{
-    const applySession=(session)=>{
-      if(session?.user){
-        const u=session.user;
-        setUser({
-          name:u.user_metadata?.full_name||u.user_metadata?.name||"User",
-          email:u.email,
-          avatar:"✨",
-          plan:"free",
-          id:u.id
-        });
-        setScreen("app");
-      }
-      setCheckingSession(false);
-    };
 
-    supabase.auth.getSession().then(({data})=>applySession(data?.session));
-
-    const {data:listener}=supabase.auth.onAuthStateChange((_event,session)=>{
-      applySession(session);
-    });
-
-    return()=>listener?.subscription?.unsubscribe();
+  useEffect(()=>{
+    if(user){
+      localStorage.setItem(SESSION_KEY,JSON.stringify(user));
+      checkSubscription(user.email).then(sub=>{
+        if(sub){
+          setUser(u=>({...u,
+            plan:sub.plan,
+            billing:sub.billing||u.billing,
+            renewsAt:sub.renewsAt||u.renewsAt,
+            cancelAtPeriodEnd:sub.cancelAtPeriodEnd??u.cancelAtPeriodEnd,
+          }));
+        }
+      });
+    }else{
+      localStorage.removeItem(SESSION_KEY);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
-useEffect(()=>{
-  if(user){
-    localStorage.setItem(SESSION_KEY,JSON.stringify(user));
-    checkSubscription(user.email).then(sub=>{
-      if(sub){
-        setUser(u=>({...u,
-          plan:sub.plan,
-          billing:sub.billing||u.billing,
-          renewsAt:sub.renewsAt||u.renewsAt,
-          cancelAtPeriodEnd:sub.cancelAtPeriodEnd??u.cancelAtPeriodEnd,
-        }));
-      }
-    });
-  }else{
-    localStorage.removeItem(SESSION_KEY);
-  }
-},[]);
 
   useEffect(()=>{
     if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
@@ -1852,18 +1817,23 @@ useEffect(()=>{
   const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=async u=>{
-  const sub=await checkSubscription(u.email);
-  if(sub&&sub.plan!=="free"){
-    u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd};
-  }
-  setUser(u);
-  setScreen("safety");
-};
+    const sub=await checkSubscription(u.email);
+    if(sub&&sub.plan!=="free"){
+      u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd};
+    }
+    setUser(u);
+    setScreen("safety");
+  };
   const handleSafetyAccept=()=>{setScreen("app");};
   const handleSignOut=()=>{localStorage.removeItem(SESSION_KEY);setUser(null);setScreen("landing");};
   const handleUpdateUser=u=>{setUser(u);};
 
-  const handleUpgrade=(mode,targetPlan)=>{setTrialInfo({mode,targetPlan});setScreen("pricing");};
+  const handleUpgrade=(mode,targetPlan)=>{
+    // Don't push to pricing if user already has an active paid plan
+    if(user&&(user.plan==="pro"||user.plan==="student")){return;}
+    setTrialInfo({mode,targetPlan});
+    setScreen("pricing");
+  };
   const handlePricingSelect=(plan,billing)=>{
     if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
     setPaymentInfo({targetPlan:plan,billing:billing||"monthly"});
@@ -1883,7 +1853,7 @@ useEffect(()=>{
     setPaymentInfo(null);
     setScreen("app");
   };
-  if(checkingSession)return <div style={{minHeight:"100vh",background:C.bg}}/>;
+
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
