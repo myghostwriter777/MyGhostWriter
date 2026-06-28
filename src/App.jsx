@@ -817,7 +817,48 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [age,setAge]=useState("");const [showPw,setShowPw]=useState(false);
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
   const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
-  const handleSocial=id=>{if(id==="email"){setShowEmail(true);return;}setLoading(id);setTimeout(()=>{setLoading(null);onAuth({name:"Demo User",email:"demo@ghostwriterme.com",avatar:"🧠",plan:"free"});},1300);};
+  const handleSocial=id=>{
+  if(id==="email"){setShowEmail(true);return;}
+  if(id==="google"){
+    // Real Google OAuth via Google Identity Services
+    if(!window.google){
+      alert("Google sign-in not loaded yet. Please refresh and try again.");
+      return;
+    }
+    setLoading("google");
+    const client=window.google.accounts.oauth2.initTokenClient({
+      client_id:import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      scope:"openid email profile",
+      callback:async(tokenResponse)=>{
+        if(tokenResponse.error){
+          setLoading(null);
+          alert("Google sign-in failed. Please try again.");
+          return;
+        }
+        try{
+          // Fetch the user's Google profile
+          const profileRes=await fetch("https://www.googleapis.com/oauth2/v3/userinfo",{
+            headers:{Authorization:"Bearer "+tokenResponse.access_token},
+          });
+          const profile=await profileRes.json();
+          setLoading(null);
+          onAuth({
+            name:profile.name||profile.given_name||"User",
+            email:profile.email,
+            avatar:profile.picture||"🧠",
+            plan:"free",
+            googleId:profile.sub,
+          });
+        }catch(err){
+          setLoading(null);
+          alert("Could not get Google profile. Please try again.");
+        }
+      },
+    });
+    client.requestAccessToken();
+    return;
+  }
+};
   const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
