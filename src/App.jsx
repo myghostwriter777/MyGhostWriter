@@ -827,7 +827,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
     }
     setLoading("google");
     const client=window.google.accounts.oauth2.initTokenClient({
-      client_id:import.meta.env.VITE_GOOGLE_CLIENT_ID,
+      client_id:import.meta.env.REACT_APP_GOOGLE_CLIENT_ID,
       scope:"openid email profile",
       callback:async(tokenResponse)=>{
         if(tokenResponse.error){
