@@ -817,7 +817,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onCh
 }
 
 function AuthScreen({onAuth,defaultTab="signup"}){
-  const [tab,setTab]=useState(defaultTab);const [showEmail,setShowEmail]=useState(false);
+  const [tab]=useState(defaultTab);const [showEmail,setShowEmail]=useState(false);
   const [name,setName]=useState("");const [email,setEmail]=useState("");const [pw,setPw]=useState("");
   const [age,setAge]=useState("");const [showPw,setShowPw]=useState(false);
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
