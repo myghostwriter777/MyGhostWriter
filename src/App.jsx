@@ -276,6 +276,38 @@ function PlanBadge({plan}){
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
 
+/**
+ * Renders a user avatar that can be either:
+ *  - An emoji/short string (email/demo sign-ups, e.g. "✨")
+ *  - A Google profile photo URL (Google sign-ups)
+ *
+ * Edge cases handled:
+ *  - `avatar` undefined/null during initial render → falls back to "👻"
+ *  - Google photo URLs can 403 without a referrer policy (Google blocks
+ *    hotlinking based on referrer in some cases) → referrerPolicy="no-referrer"
+ *  - Broken/expired image URL → onError hides the <img>, leaving the
+ *    gradient circle visible instead of a broken-image icon
+ */
+function Avatar({avatar,size=34,fontSize}){
+  const isUrl=typeof avatar==="string"&&avatar.startsWith("http");
+  const fs=fontSize||Math.round(size*0.5);
+  return(
+    <div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:fs,flexShrink:0,overflow:"hidden"}}>
+      {isUrl?(
+        <img
+          src={avatar}
+          alt=""
+          referrerPolicy="no-referrer"
+          style={{width:"100%",height:"100%",objectFit:"cover"}}
+          onError={e=>{e.currentTarget.style.display="none";}}
+        />
+      ):(
+        avatar||"👻"
+      )}
+    </div>
+  );
+}
+
 function TermsModal({onClose}){
   return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Terms & Conditions</div><button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{TERMS_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<TERMS_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,0.98)"}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"block",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}>Got it — Close ✓</button></div></div>);
 }
@@ -700,7 +732,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onCh
       <div style={{maxWidth:500,margin:"0 auto",padding:"20px 16px 60px"}}>
 
         <div style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:22}}>
-          <div style={{width:50,height:50,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{user.avatar}</div>
+          <Avatar avatar={user.avatar} size={50}/>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:800,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
@@ -926,7 +958,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
       <div style={{width:"100%",maxWidth:440}}>
         {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",padding:0}}>← Back to app</button>}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,animation:"fadeUp 0.4s ease"}}>
-          <div style={{width:38,height:38,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{user.avatar}</div>
+          <Avatar avatar={user.avatar} size={38}/>
           <div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Hey {user.name.split(" ")[0]} 👋</div><div style={{fontSize:13,color:C.muted}}>{user.email}</div></div>
         </div>
         <div style={{fontSize:22,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:4,animation:"fadeUp 0.4s 0.05s ease both"}}>Choose your plan</div>
@@ -1884,7 +1916,9 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           </div>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
             <PlanBadge plan={user.plan}/>
-            <button onClick={()=>setShowSettings(true)} style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,border:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,cursor:"pointer",flexShrink:0,padding:0}}>{user.avatar}</button>
+            <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"transparent",cursor:"pointer",padding:0,flexShrink:0,borderRadius:"50%"}}>
+  <Avatar avatar={user.avatar} size={34}/>
+</button>
           </div>
         </div>
       </div>
