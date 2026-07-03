@@ -1148,50 +1148,6 @@ function PaymentScreen({user,billing,targetPlan,onComplete}){
     </Elements>
   );
 }
-  const [method,setMethod]=useState(null);const [step,setStep]=useState("method");const [loading,setLoading]=useState(false);
-  const [card,setCard]=useState({number:"",name:"",expiry:"",cvv:""});const [cErr,setCErr]=useState({});
-  const isStudent=targetPlan==="student";const planColor=isStudent?C.violet:C.blue;
-
-  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":"$15 / 2 months"):(billing==="yearly"?"$60 / year":"$7 / month");
-  const introNote=isStudent&&billing!=="yearly"?"Intro offer · then $20 / 2 months":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
-
-  const METHODS=[
-    {id:"card",  label:"Credit / Debit Card",icon:"💳",desc:"Visa, Mastercard",color:"#1a2e50"},
-    {id:"paypal",label:"PayPal",             icon:"🅿️",desc:"Pay with PayPal", color:"#003087"},
-  ];
-
-  const fmt4=v=>v.replace(/\D/g,"").slice(0,16).replace(/(.{4})/g,"$1 ").trim();
-  const fmtExp=v=>{const n=v.replace(/\D/g,"").slice(0,4);return n.length>2?n.slice(0,2)+"/"+n.slice(2):n;};
-  const brand=n=>{const d=n.replace(/\s/g,"");if(d.startsWith("4"))return"VISA";if(d.startsWith("5"))return"MC";return null;};
-
-  const validateCard=()=>{const e={};if(card.number.replace(/\s/g,"").length<16)e.number="Enter 16-digit number";if(!card.name.trim())e.name="Name required";if(card.expiry.length<5)e.expiry="MM/YY";if(card.cvv.length<3)e.cvv="3 digits";setCErr(e);return!Object.keys(e).length;};
-  const handlePay=()=>{if(method==="card"&&!validateCard())return;setLoading(true);setTimeout(()=>{setLoading(false);setStep("success");},2000);};
-
-  if(step==="success")return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}><div style={{fontSize:64,marginBottom:12,animation:"pulse 2s ease infinite"}}>🎉</div><div style={{fontSize:30,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div><div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isStudent?"Student plan activated!":"3-day free trial started."}<br/>All features unlocked. 🚀</div><PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn></div></div>);
-
-  return(
-    <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
-      <div style={{width:"100%",maxWidth:420}}>
-        <div style={{marginBottom:18}}><div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>Payment</div><div style={{fontSize:13,color:C.muted}}>Secure checkout · SSL encrypted · Cancel anytime</div></div>
-        <Card style={{marginBottom:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>GhostwriterMe {isStudent?"Student":"Pro"}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · after 3-day trial</div>{introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}</div>
-            <div style={{textAlign:"right"}}><div style={{fontSize:18,fontWeight:900,color:planColor}}>{priceDisplay.split(" ")[0]}</div><div style={{fontSize:12,color:C.green,marginTop:1}}>Today: $0.00 ✓</div></div>
-          </div>
-        </Card>
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:9}}>Payment Method</div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {METHODS.map(m=>(<button key={m.id} onClick={()=>setMethod(m.id)} style={{display:"flex",alignItems:"center",gap:11,padding:"12px",background:method===m.id?C.accentSoft:C.card,border:`1px solid ${method===m.id?planColor:C.border}`,borderRadius:9,cursor:"pointer",transition:"all 0.2s",textAlign:"left",fontFamily:"inherit"}}><div style={{width:38,height:38,borderRadius:8,flexShrink:0,background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{m.icon}</div><div style={{flex:1}}><div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{m.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{m.desc}</div></div>{method===m.id&&<div style={{width:18,height:18,borderRadius:"50%",background:planColor,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:11,color:"#000",fontWeight:900}}>✓</span></div>}</button>))}
-          </div>
-        </div>
-        {method==="card"&&(<Card style={{marginBottom:14,animation:"slideIn 0.3s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><div style={{fontSize:13,color:C.muted}}>Card details</div><div style={{display:"flex",gap:4}}>{["VISA","MC"].map(b=><div key={b} style={{background:brand(card.number)===b?"#fff":"transparent",border:`1px solid ${brand(card.number)===b?"#fff":C.border}`,borderRadius:3,padding:"1px 6px",fontSize:11,fontWeight:900,color:brand(card.number)===b?"#000":C.muted}}>{b}</div>)}</div></div><FInput label="Card Number" placeholder="1234 5678 9012 3456" icoL="💳" value={card.number} onChange={e=>setCard({...card,number:fmt4(e.target.value)})} error={cErr.number}/><FInput label="Cardholder Name" placeholder="As shown on card" icoL="👤" value={card.name} onChange={e=>setCard({...card,name:e.target.value})} error={cErr.name}/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><FInput label="Expiry" placeholder="MM/YY" value={card.expiry} onChange={e=>setCard({...card,expiry:fmtExp(e.target.value)})} error={cErr.expiry}/><FInput label="CVV" type="password" placeholder="•••" value={card.cvv} onChange={e=>setCard({...card,cvv:e.target.value.replace(/\D/g,"").slice(0,4)})} error={cErr.cvv}/></div><div style={{fontSize:12,color:C.muted}}>🔒 Processed by Stripe. We never store card data.</div></Card>)}
-        {method==="paypal"&&<Card style={{marginBottom:14,textAlign:"center",animation:"slideIn 0.3s ease"}}><div style={{fontSize:30,marginBottom:7}}>🅿️</div><div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:3}}>PayPal</div><div style={{fontSize:13,color:C.muted}}>You'll be redirected to PayPal to approve.</div></Card>}
-        {method&&(<div style={{animation:"fadeUp 0.3s ease"}}><PriBtn loading={loading} onClick={handlePay} variant={isStudent?"violet":"blue"}>{method==="paypal"?"Continue to PayPal →":"Confirm & Start Free Trial →"}</PriBtn><div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>🔒 Secure · No charge today · Cancel anytime</div></div>)}
-      </div>
-    </div>
-  );
-}
 
 function HistoryMode({user}){
   const [filter,setFilter]=useState("all");const [items,setItems]=useState([]);const [exp,setExp]=useState(null);
