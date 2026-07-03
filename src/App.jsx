@@ -1,4 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+
+// Initialized once, outside the component tree — Stripe's recommended pattern.
+// CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
 
 const C = {
   bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
@@ -416,8 +422,7 @@ function LandingScreen({onGetStarted,onSignIn}){
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
     {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Essay Writer & CV Builder","Author Mode (12 genres)","Priority generation"],cta:"Start Free Trial"},
-    {name:"Student",price:"$15",per:"/2mo",note:"intro, then $20/2mo",color:C.violet,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},
-  ];
+{name:"Student",price:"$15",per:"/mo",note:"intro, then $20/mo",color:C.violet,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
@@ -827,7 +832,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
     }
     setLoading("google");
     const client=window.google.accounts.oauth2.initTokenClient({
-      client_id:import.meta.env.REACT_APP_GOOGLE_CLIENT_ID,
+      client_id:process.env.REACT_APP_GOOGLE_CLIENT_ID,
       scope:"openid email profile",
       callback:async(tokenResponse)=>{
         if(tokenResponse.error){
@@ -865,8 +870,8 @@ function AuthScreen({onAuth,defaultTab="signup"}){
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:26,animation:"fadeUp 0.4s ease"}}><div style={{fontSize:32,fontWeight:900,letterSpacing:"-0.02em",color:"#fff",lineHeight:1}}>👻 GhostwriterMe</div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.18em",marginTop:5}}>AI WRITING SUITE</div></div>
       <div style={{width:"100%",maxWidth:370,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px",animation:"fadeUp 0.4s 0.08s ease both",boxShadow:"0 20px 50px rgba(0,0,0,0.7)"}}>
-        <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:20}}>
-          {["signin","signup"].map(t=>(<button key={t} onClick={()=>{setTab(t);setShowEmail(false);setErrs({});setAgreed(false);setAge("");}} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:tab===t?C.blue:"transparent",color:tab===t?"#000":C.muted,fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t==="signin"?"Sign In":"Create Account"}</button>))}
+        <div style={{textAlign:"center",marginBottom:20}}>
+          <div style={{fontSize:16,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>{tab==="signin"?"Sign In":"Create Account"}</div>
         </div>
         {!showEmail?(
           <><div style={{fontSize:15,fontWeight:800,color:"#fff",marginBottom:3}}>{tab==="signin"?"Welcome back 👋":"Join GhostwriterMe"}</div><div style={{fontSize:13,color:C.muted,marginBottom:18,lineHeight:1.5}}>{tab==="signin"?"Access your AI writing suite.":"Free forever. No card needed."}</div>
@@ -892,7 +897,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
 }
 
 function PricingScreen({user,onSelect,onContact,onBack}){
-  const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("bimonthly");
+  const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("monthly");
 
   const FREE_F=["3 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
   const PRO_F=["Unlimited AI replies","✍️ Essay Writer (CEFR A1–C2)","💼 CV / Resume Builder","📖 Author Mode (12 genres)","Full history across all modes","Priority generation speed"];
@@ -907,7 +912,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
       if(proBill==="monthly")return{main:"$7",per:"/ month",sub:"First 3 months — new users",intro:"Then $12 / month"};
       return{main:"$60",per:"/ year",sub:"Best annual rate",intro:null};
     }
-    if(stuBill==="bimonthly")return{main:"$15",per:"/ 2 months",sub:"First 2 months — new users",intro:"Then $20 / 2 months"};
+    if(stuBill==="monthly")return{main:"$15",per:"/ month",sub:"First 2 months — new users",intro:"Then $20 / month"};
     return{main:"$96",per:"/ year",sub:"Best annual rate",intro:null};
   };
 
@@ -956,7 +961,193 @@ function PricingScreen({user,onSelect,onContact,onBack}){
   );
 }
 
+/**
+ * PaymentScreen.jsx — Real Stripe Elements payment flow
+ * ────────────────────────────────────────────────────────
+ * DROP-IN REPLACEMENT for the existing fake `PaymentScreen` function
+ * in App.jsx (the one with raw <input> card fields and a setTimeout).
+ *
+ * WHERE THIS GOES
+ * Find the entire block starting at:
+ *     function PaymentScreen({user,billing,targetPlan,onComplete}){
+ * and ending at its closing `}` (right before `function HistoryMode`).
+ * Delete that whole block and paste everything below in its place.
+ *
+ * ALSO REQUIRED — two additions elsewhere in App.jsx:
+ *
+ * 1) At the very top of App.jsx, add these lines right after the
+ *    existing `import React...` line:
+ *
+ *      import { loadStripe } from "@stripe/stripe-js";
+ *      import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+ *
+ *      // Initialized once, outside the component tree — Stripe's recommended pattern.
+ *      // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
+ *      const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
+ *
+ * 2) Install the packages if you haven't already:
+ *      npm install @stripe/react-stripe-js @stripe/stripe-js
+ *
+ * 3) Confirm REACT_APP_STRIPE_PUBLISHABLE_KEY is set in Vercel
+ *    (frontend-safe key, starts with pk_...). Same CRA-prefix rule as
+ *    your Google Client ID fix — must be REACT_APP_, not VITE_.
+ *
+ * EDGE CASES HANDLED
+ * - Stripe.js not finished loading yet (button disabled until ready)
+ * - Invalid / declined / expired card (Stripe's own error message shown inline)
+ * - 3D Secure step-up required by the bank (rare on a $0 trial, but handled)
+ * - Network failure mid-request
+ * - Backend returning a Stripe error (e.g. subscription creation failed)
+ *
+ * WHAT WAS REMOVED
+ * The old fake "PayPal" button is gone — it never called any real PayPal
+ * API, it was decorative. Real PayPal support would be a separate,
+ * later integration.
+ */
+
+// ── Inner form: must render inside <Elements> so useStripe/useElements work ──
+function StripeCardForm({user,billing,targetPlan,onComplete}){
+  const stripe=useStripe();
+  const elements=useElements();
+  const isStudent=targetPlan==="student";
+  const planColor=isStudent?C.violet:C.blue;
+
+  const [loading,setLoading]=useState(false);
+  const [cardErr,setCardErr]=useState("");
+  const [step,setStep]=useState("form"); // "form" | "success"
+
+  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":"$15 / month"):(billing==="yearly"?"$60 / year":"$7 / month");
+  const introNote=isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
+
+  // Styles the CardElement's internal iframe to match the app's dark theme
+  const CARD_STYLE={
+    style:{
+      base:{color:"#ffffff",fontFamily:"'Cabinet Grotesk',sans-serif",fontSize:"14px","::placeholder":{color:C.muted}},
+      invalid:{color:C.red,iconColor:C.red},
+    },
+  };
+
+  const handlePay=async()=>{
+    // Edge case: Stripe.js hasn't finished loading yet — button should already be
+    // disabled for this (see `disabled={!stripe}` below), but guard anyway.
+    if(!stripe||!elements)return;
+    setLoading(true);
+    setCardErr("");
+
+    // Step 1: turn the raw card into a PaymentMethod. Card data never touches
+    // our own React state or our server — Stripe's hosted iframe handles it.
+    const cardElement=elements.getElement(CardElement);
+    const{error:pmError,paymentMethod}=await stripe.createPaymentMethod({
+      type:"card",
+      card:cardElement,
+      billing_details:{name:user?.name||"",email:user?.email||""},
+    });
+
+    if(pmError){
+      // Edge case: invalid card number, expired card, etc. Stripe gives us a
+      // human-readable message we can show directly.
+      setCardErr(pmError.message);
+      setLoading(false);
+      return;
+    }
+
+    // Step 2: ask our backend to create the subscription with 3-day trial + intro pricing.
+    try{
+      const res=await fetch("/api/create-subscription",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          paymentMethodId:paymentMethod.id,
+          email:user?.email||"",
+          name:user?.name||"",
+          plan:targetPlan,   // "pro" | "student"
+          billing:billing,   // "monthly" | "yearly"
+        }),
+      });
+      const data=await res.json();
+
+      if(!res.ok){
+        // Edge case: backend returned a Stripe error (declined card, etc.)
+        setCardErr(data.error||"Payment failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: handle 3D Secure if the bank requires it (rare on a $0 trial
+      // start, but some European banks require it even for authorization holds).
+      if(data.clientSecret){
+        const{error:confirmError}=await stripe.confirmCardPayment(data.clientSecret);
+        if(confirmError){
+          setCardErr(confirmError.message);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setStep("success");
+    }catch(networkErr){
+      // Edge case: network drop mid-request.
+      setCardErr("Network error. Please check your connection and try again.");
+      setLoading(false);
+    }
+  };
+
+  if(step==="success")return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
+        <div style={{fontSize:64,marginBottom:12,animation:"pulse 2s ease infinite"}}>🎉</div>
+        <div style={{fontSize:30,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
+        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isStudent?"Student plan activated!":"3-day free trial started."}<br/>All features unlocked. 🚀</div>
+        <PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:420}}>
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>Payment</div>
+          <div style={{fontSize:13,color:C.muted}}>Secure checkout · SSL encrypted · Cancel anytime</div>
+        </div>
+        <Card style={{marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>GhostwriterMe {isStudent?"Student":"Pro"}</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · after 3-day trial</div>
+              {introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:18,fontWeight:900,color:planColor}}>{priceDisplay.split(" ")[0]}</div>
+              <div style={{fontSize:12,color:C.green,marginTop:1}}>Today: $0.00 ✓</div>
+            </div>
+          </div>
+        </Card>
+        <Card style={{marginBottom:16}}>
+          <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:12}}>Card Details</div>
+          <div style={{background:C.surface,border:`1px solid ${cardErr?C.red:C.border}`,borderRadius:8,padding:"12px 14px",marginBottom:6}}>
+            <CardElement options={CARD_STYLE} onChange={e=>setCardErr(e.error?e.error.message:"")}/>
+          </div>
+          {cardErr&&<div style={{fontSize:12,color:C.red,marginTop:4}}>⚠️ {cardErr}</div>}
+          <div style={{fontSize:12,color:C.muted,marginTop:10}}>🔒 Processed by Stripe. We never store card data.</div>
+        </Card>
+        <PriBtn loading={loading} onClick={handlePay} variant={isStudent?"violet":"blue"} disabled={!stripe}>
+          Confirm & Start Free Trial →
+        </PriBtn>
+        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>🔒 Secure · No charge today · Cancel anytime</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Outer wrapper: provides the Stripe Elements context ──
 function PaymentScreen({user,billing,targetPlan,onComplete}){
+  return(
+    <Elements stripe={stripePromise}>
+      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} onComplete={onComplete}/>
+    </Elements>
+  );
+}
   const [method,setMethod]=useState(null);const [step,setStep]=useState("method");const [loading,setLoading]=useState(false);
   const [card,setCard]=useState({number:"",name:"",expiry:"",cvv:""});const [cErr,setCErr]=useState({});
   const isStudent=targetPlan==="student";const planColor=isStudent?C.violet:C.blue;
@@ -1654,9 +1845,9 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
             <div>
               <div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.02em"}}>
                 {isStudent?"$15":(bill==="monthly"?"$7":"$60")}
-                <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{isStudent?" / 2 months":bill==="monthly"?" / month":" / year"}</span>
+                <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{isStudent?" / month":bill==="monthly"?" / month":" / year"}</span>
               </div>
-              <div style={{fontSize:13,color:C.green,marginTop:1}}>{isStudent?"Intro offer · then $20 / 2 months":bill==="monthly"?"Intro offer · then $12 / month":"Best annual rate"}</div>
+              <div style={{fontSize:13,color:C.green,marginTop:1}}>{isStudent?"Intro offer · then $20 / month":bill==="monthly"?"Intro offer · then $12 / month":"Best annual rate"}</div>
               <div style={{fontSize:12,color:C.muted,marginTop:1}}>billed in USD</div>
             </div>
             <div style={{background:isStudent?C.violetSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
@@ -1885,11 +2076,18 @@ export default function GhostwriterMeApp(){
     setTrialInfo(null);
     setScreen("payment");
   };
-  const handlePaymentComplete=()=>{
-    if(paymentInfo){
-      const months={monthly:1,bimonthly:2,yearly:12}[paymentInfo.billing]||1;
-      const end=new Date();end.setMonth(end.getMonth()+months);
-      setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,renewsAt:end.toISOString(),cancelAtPeriodEnd:false}));
+  const handlePaymentComplete=async()=>{
+    // Stripe is now the source of truth — re-fetch the real subscription instead of
+    // guessing renewsAt locally with a hardcoded months map.
+    if(user){
+      const sub=await checkSubscription(user.email);
+      if(sub&&sub.plan!=="free"){
+        setUser(u=>({...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd}));
+      }else if(paymentInfo){
+        // Edge case: Stripe read hasn't propagated yet. Optimistically reflect the
+        // plan the user just paid for; the next app-load checkSubscription call will self-correct.
+        setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,cancelAtPeriodEnd:false}));
+      }
     }
     setPaymentInfo(null);
     setScreen("app");
