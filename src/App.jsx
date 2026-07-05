@@ -105,9 +105,10 @@ const SOCIAL_PROVIDERS = [
 ];
 
 const SESSION_KEY="gwm_session_v1";
+const TRIAL_DURATION_MS=3*24*60*60*1000; // 3 days, used for the cardless trial clock
 
 // Notice versioning: bump a version number to force users to re-accept after content changes.
-const NOTICE_VERSION={academic:1,humanize:1};
+const NOTICE_VERSION={academic:1,humanize:1,safety:1};
 const noticeKey=type=>"gwm_notice_"+type;
 const isNoticeAccepted=type=>{try{return parseInt(localStorage.getItem(noticeKey(type))||"0",10)>=NOTICE_VERSION[type];}catch{return false;}};
 const acceptNotice=type=>{try{localStorage.setItem(noticeKey(type),String(NOTICE_VERSION[type]));}catch{}};
@@ -122,6 +123,18 @@ const TERMS_CONTENT = [
   {h:"7. Limitation of Liability",b:"GhostwriterMe shall not be liable for any damages arising from your use of the Service."},
   {h:"8. Subscriptions & Billing",b:"Subscriptions are billed as selected. 3-day free trials begin upon payment authorization — no charge until day 4. Cancel anytime."},
   {h:"9. Contact & Governing Law",b:"Questions? Email us at "+CONTACT_EMAIL+". These Terms are governed by the laws of Thailand."},
+];
+
+const PRIVACY_CONTENT = [
+  {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools, sent to our AI provider to generate responses. Payment details are handled entirely by Stripe — we never see or store your card number."},
+  {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us."},
+  {h:"3. What We Store Locally",b:"Your writing history is stored in your browser's local storage on your own device, not on our servers. Clearing your browser data will remove it."},
+  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and an AI provider to generate content. Each operates under its own privacy policy."},
+  {h:"5. Data Retention",b:"Account information is retained while your account is active. You may request deletion by contacting us at "+CONTACT_EMAIL+"."},
+  {h:"6. Your Rights",b:"You may request access to, correction of, or deletion of your personal data at any time by emailing "+CONTACT_EMAIL+"."},
+  {h:"7. Children's Privacy",b:"The Service is not directed at children under 13. Users under 18 require parental or guardian consent, as stated in our Terms."},
+  {h:"8. Changes to This Policy",b:"We may update this policy periodically. Continued use of the Service after changes constitutes acceptance."},
+  {h:"9. Contact",b:"Questions about this policy? Email us at "+CONTACT_EMAIL+"."},
 ];
 
 const HS = {
@@ -310,6 +323,10 @@ function Avatar({avatar,size=34,fontSize}){
 
 function TermsModal({onClose}){
   return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Terms & Conditions</div><button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{TERMS_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<TERMS_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,0.98)"}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"block",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}>Got it — Close ✓</button></div></div>);
+}
+
+function PrivacyModal({onClose}){
+  return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Privacy Policy</div><button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{PRIVACY_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<PRIVACY_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,0.98)"}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"block",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}>Got it — Close ✓</button></div></div>);
 }
 
 function SafetyScreen({onAccept}){
@@ -700,7 +717,7 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 );
 
 // === SETTINGS SCREEN ===
-function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onChangePlan,onCancelPlan}){
+function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [language,setLanguage]=useState(()=>localStorage.getItem("gwm_lang")||"en");
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
@@ -759,15 +776,20 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onCh
           </Row>
         </Section>
 
-        <Section title="Language">
+        <Section title={<>Language <span style={{marginLeft:6,fontSize:9,fontWeight:800,letterSpacing:"0.06em",color:C.yellow,background:"rgba(245,200,66,0.12)",padding:"2px 6px",borderRadius:4,textTransform:"uppercase"}}>Coming Soon</span></>}>
           <div style={{padding:"13px 14px"}}>
-            <div style={{position:"relative"}}>
-              <select value={language} onChange={e=>setLanguage(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
+            <div style={{position:"relative",opacity:0.5,cursor:"not-allowed"}} title="Multilingual support is coming soon">
+              {/* onChange stays wired even though disabled prevents it firing —
+                  setLanguage is still referenced in handleSave below; removing
+                  it would trigger the same no-unused-vars build failure we hit
+                  with setTab earlier in this project. */}
+              <select disabled value={language} onChange={e=>setLanguage(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"not-allowed",pointerEvents:"none"}}>
                 <option value="en">🇬🇧 English</option>
                 <option value="th">🇹🇭 ภาษาไทย</option>
               </select>
               <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted,fontSize:12}}>▾</span>
             </div>
+            <div style={{fontSize:12,color:C.muted,marginTop:8,lineHeight:1.5}}>🌐 Multilingual support is on the way — English is the only language for now.</div>
           </div>
         </Section>
 
@@ -825,7 +847,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onCh
           <Row icon="📄" label="Terms & Conditions" onClick={onShowTerms}>
             <span style={{color:C.muted,fontSize:13}}>›</span>
           </Row>
-          <Row icon="🔒" label="Privacy Policy" onClick={()=>{}}>
+          <Row icon="🔒" label="Privacy Policy" onClick={onShowPrivacy}>
             <span style={{color:C.muted,fontSize:13}}>›</span>
           </Row>
           <Row icon="✉️" label="Contact Us" onClick={onContact}>
@@ -967,7 +989,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
           {tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px 4px",borderRadius:7,border:"none",background:tab===t.id?t.color:"transparent",color:tab===t.id?"#000":C.muted,fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t.label}</button>))}
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"bimonthly",label:"Every 2 Months"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
+        {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{background:C.violetSoft,border:"1px solid rgba(155,127,232,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><span style={{fontSize:16,flexShrink:0}}>🎓</span><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(155,127,232,0.07),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.4)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.violetGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
           {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,background:tab==="student"?"linear-gradient(135deg,#9b7fe8,#c4b5fd)":`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>{tab==="student"?"🎓 STUDENT PLAN":"MOST POPULAR"}</div>)}
@@ -1038,7 +1060,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
  */
 
 // ── Inner form: must render inside <Elements> so useStripe/useElements work ──
-function StripeCardForm({user,billing,targetPlan,onComplete}){
+function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete}){
   const stripe=useStripe();
   const elements=useElements();
   const isStudent=targetPlan==="student";
@@ -1092,8 +1114,9 @@ function StripeCardForm({user,billing,targetPlan,onComplete}){
           paymentMethodId:paymentMethod.id,
           email:user?.email||"",
           name:user?.name||"",
-          plan:targetPlan,   // "pro" | "student"
-          billing:billing,   // "monthly" | "yearly"
+          plan:targetPlan,     // "pro" | "student"
+          billing:billing,     // "monthly" | "yearly"
+          skipTrial:!!skipTrial, // true if they already used a cardless trial for this plan
         }),
       });
       const data=await res.json();
@@ -1151,7 +1174,7 @@ function StripeCardForm({user,billing,targetPlan,onComplete}){
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:18,fontWeight:900,color:planColor}}>{priceDisplay.split(" ")[0]}</div>
-              <div style={{fontSize:12,color:C.green,marginTop:1}}>Today: $0.00 ✓</div>
+              <div style={{fontSize:12,color:C.green,marginTop:1}}>{skipTrial?`Today: ${priceDisplay.split(" ")[0]} ✓`:"Today: $0.00 ✓"}</div>
             </div>
           </div>
         </Card>
@@ -1164,19 +1187,19 @@ function StripeCardForm({user,billing,targetPlan,onComplete}){
           <div style={{fontSize:12,color:C.muted,marginTop:10}}>🔒 Processed by Stripe. We never store card data.</div>
         </Card>
         <PriBtn loading={loading} onClick={handlePay} variant={isStudent?"violet":"blue"} disabled={!stripe}>
-          Confirm & Start Free Trial →
+          {skipTrial?"Confirm & Subscribe →":"Confirm & Start Free Trial →"}
         </PriBtn>
-        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>🔒 Secure · No charge today · Cancel anytime</div>
+        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>🔒 Secure{skipTrial?" · Cancel anytime":" · No charge today · Cancel anytime"}</div>
       </div>
     </div>
   );
 }
 
 // ── Outer wrapper: provides the Stripe Elements context ──
-function PaymentScreen({user,billing,targetPlan,onComplete}){
+function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete}){
   return(
     <Elements stripe={stripePromise}>
-      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} onComplete={onComplete}/>
+      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} skipTrial={skipTrial} onComplete={onComplete}/>
     </Elements>
   );
 }
@@ -1840,13 +1863,40 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
             </div>
             <div style={{background:isStudent?C.violetSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
               <div style={{fontSize:12,color:planColor,fontWeight:800}}>🎁 3 DAYS FREE</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:1}}>No charge until day 4</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:1}}>No card required</div>
             </div>
           </div>
-          <PriBtn onClick={()=>onStart(bill,targetPlan)} variant={isStudent?"violet":"blue"}>{isStudent?"Start Student Free Trial 🎓":"Start Free Trial →"}</PriBtn>
-          <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>Cancel anytime · No charge until day 4</div>
+          <PriBtn onClick={()=>onStart(targetPlan)} variant={isStudent?"violet":"blue"}>{isStudent?"Start Student Free Trial 🎓":"Start Free Trial →"}</PriBtn>
+          <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>Cancel anytime · No card required</div>
         </div>
         <button onClick={onClose} style={{width:"100%",padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Maybe later</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown when a cardless trial's 3 days are up. Deliberately NOT dismissable by
+ * clicking the backdrop — the spec requires an explicit choice, so there's no
+ * onClick-outside-to-close handler here (unlike TrialModal, which allows that).
+ */
+function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
+  const isStudent=targetPlan==="student";
+  const planColor=isStudent?C.violet:C.blue;
+  const planLabel=isStudent?"Student":"Pro";
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}}>
+      <div style={{width:"100%",maxWidth:460,background:C.card,border:`1px solid ${isStudent?"rgba(155,127,232,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"22px 18px 28px",animation:"slideUpModal 0.3s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+        <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 18px"}}/>
+        <div style={{textAlign:"center",marginBottom:18}}>
+          <div style={{fontSize:40,marginBottom:10}}>⏰</div>
+          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:6}}>Your free trial has ended</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Continue with {planLabel} to keep your unlocked features, or switch back to the Free plan.</div>
+        </div>
+        <PriBtn onClick={onContinue} variant={isStudent?"violet":"blue"}>Continue with {planLabel} →</PriBtn>
+        <div style={{marginTop:9}}>
+          <SecBtn onClick={onDowngrade}>Switch to Free Plan</SecBtn>
+        </div>
       </div>
     </div>
   );
@@ -1856,6 +1906,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   const [showContact,setShowContact]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showTerms,setShowTerms]=useState(false);
+  const [showPrivacy,setShowPrivacy]=useState(false);
 
   const isPro=user.plan==="pro"||user.plan==="student";
   const isStudent=user.plan==="student";
@@ -1888,6 +1939,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
     return(
       <>
         {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
+        {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
         <SettingsScreen
           user={user}
           onBack={()=>setShowSettings(false)}
@@ -1895,6 +1947,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           onSave={u=>{onUpdateUser(u);}}
           onContact={()=>setShowContact(true)}
           onShowTerms={()=>setShowTerms(true)}
+          onShowPrivacy={()=>setShowPrivacy(true)}
           onChangePlan={onChangePlan}
           onCancelPlan={onCancelPlan}
         />
@@ -1907,6 +1960,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",display:"flex",flexDirection:"column"}}>
       {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
       {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
+      {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
 
       <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(0,0,0,0.95)",backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`}}>
         <div style={{maxWidth:600,margin:"0 auto",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -2011,32 +2065,72 @@ export default function GhostwriterMeApp(){
     return()=>document.head.removeChild(style);
   },[]);
 
+  // Persist the session on every change (login, sign-out, plan upgrade, trial
+  // start, profile edit, etc). Needs [user] as its dependency to actually catch
+  // every update — it doesn't call setUser, so there's no re-render loop risk.
   useEffect(()=>{
     if(user){
       localStorage.setItem(SESSION_KEY,JSON.stringify(user));
+    }else{
+      localStorage.removeItem(SESSION_KEY);
+    }
+  },[user]);
+
+  // Verify the plan against Stripe once when the app first loads. Mount-only by
+  // design — re-fetching on every local `user` change would fire an extra
+  // network request on every unrelated state update.
+  //
+  // Edge case: a cardless trial never creates a Stripe subscription, so Stripe
+  // will correctly report "free" for a user who is actively mid-trial. We must
+  // NOT let that overwrite the local trial grant — Stripe only wins here once a
+  // real subscription exists (i.e. sub.plan is not "free").
+  useEffect(()=>{
+    if(user){
       checkSubscription(user.email).then(sub=>{
-        if(sub){
-          setUser(u=>({...u,
+        if(!sub)return;
+        setUser(u=>{
+          const hasActiveLocalTrial=u.trialPlan&&u.trialEndsAt&&new Date(u.trialEndsAt)>new Date();
+          if(sub.plan==="free"&&hasActiveLocalTrial)return u; // protect the trial
+          return{...u,
             plan:sub.plan,
             billing:sub.billing||u.billing,
             renewsAt:sub.renewsAt||u.renewsAt,
             cancelAtPeriodEnd:sub.cancelAtPeriodEnd??u.cancelAtPeriodEnd,
-          }));
-        }
+          };
+        });
       });
-    }else{
-      localStorage.removeItem(SESSION_KEY);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
+  // Existing cancellation-expiry check (for real Stripe subscriptions the user
+  // explicitly cancelled) — unchanged.
   useEffect(()=>{
     if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
       setUser(u=>({...u,plan:"free",billing:null,renewsAt:null,cancelAtPeriodEnd:false}));
     }
   },[user]);
 
-  const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
+  // Cardless-trial expiry check. Runs on mount AND on a 60s interval, since a
+  // user could leave the tab open straight through their trial's end time
+  // without triggering any other state change that would re-run a mount-only
+  // effect. A plain date comparison every 60s is cheap — no network calls.
+  const [showTrialEndedPrompt,setShowTrialEndedPrompt]=useState(false);
+  useEffect(()=>{
+    const checkTrialExpiry=()=>{
+      setUser(u=>{
+        if(u&&u.trialEndsAt&&new Date(u.trialEndsAt)<=new Date()){
+          setShowTrialEndedPrompt(true);
+        }
+        return u; // read-only check, never mutates user here
+      });
+    };
+    checkTrialExpiry();
+    const interval=setInterval(checkTrialExpiry,60000);
+    return()=>clearInterval(interval);
+  },[]);
+  
+ const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=async u=>{
     const sub=await checkSubscription(u.email);
@@ -2044,9 +2138,14 @@ export default function GhostwriterMeApp(){
       u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd};
     }
     setUser(u);
-    setScreen("safety");
+    // Skip the waiver if this browser has already accepted it — this is the fix
+    // for "waiver shows every login." Note: this is per-browser, not per-account
+    // (no user database exists to store acceptance server-side yet). Signing in
+    // on a new device will show it once more there. Flagging as known scope,
+    // not a bug — a real fix would need a backend user table.
+    setScreen(isNoticeAccepted("safety")?"app":"safety");
   };
-  const handleSafetyAccept=()=>{setScreen("app");};
+  const handleSafetyAccept=()=>{acceptNotice("safety");setScreen("app");};
   const handleSignOut=()=>{localStorage.removeItem(SESSION_KEY);setUser(null);setScreen("landing");};
   const handleUpdateUser=u=>{setUser(u);};
 
@@ -2058,25 +2157,50 @@ export default function GhostwriterMeApp(){
   };
   const handlePricingSelect=(plan,billing)=>{
     if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
-    setPaymentInfo({targetPlan:plan,billing:billing||"monthly"});
+    // If the user already used their cardless trial for this plan, this Payment
+    // visit is a real conversion, not a fresh trial — skipTrial tells the
+    // backend not to grant a second free period on top of the one they used.
+    const skipTrial=!!(user&&user.trialPlan===plan);
+    setPaymentInfo({targetPlan:plan,billing:billing||"monthly",skipTrial});
     setScreen("payment");
   };
-  const handleTrialStart=(billing,targetPlan)=>{
-    setPaymentInfo({targetPlan,billing});
+  // Grants instant, cardless access — no Stripe call at all. This is the
+  // entire fix for "credit card required upfront": the plan unlocks immediately
+  // and a 3-day clock starts locally.
+  const handleTrialStart=(targetPlan)=>{
+    const trialEndsAt=new Date(Date.now()+TRIAL_DURATION_MS).toISOString();
+    setUser(u=>({...u,plan:targetPlan,trialPlan:targetPlan,trialEndsAt}));
     setTrialInfo(null);
-    setScreen("payment");
+    // Deliberately no setScreen() call — user stays exactly where they were,
+    // now with the feature unlocked.
   };
+
+  // User chose "Continue" on the trial-ended prompt. They're committing to a
+  // real subscription now, so send them to Pricing to pick Monthly/Yearly,
+  // defaulting toward the tier they were trialing.
+  const handleTrialContinue=()=>{
+    setShowTrialEndedPrompt(false);
+    setTrialInfo({mode:null,targetPlan:user.trialPlan});
+    setScreen("pricing");
+  };
+
+  // User chose "Switch to Free". Nothing was ever billed, so this is a pure
+  // local state change — no server call needed.
+  const handleTrialDowngrade=()=>{
+    setShowTrialEndedPrompt(false);
+    setUser(u=>({...u,plan:"free",trialPlan:null,trialEndsAt:null}));
+  };
+
   const handlePaymentComplete=async()=>{
     // Stripe is now the source of truth — re-fetch the real subscription instead of
-    // guessing renewsAt locally with a hardcoded months map.
+    // guessing renewsAt locally. Also clear trial fields: a real subscription
+    // now exists, so the cardless-trial bookkeeping is no longer needed.
     if(user){
       const sub=await checkSubscription(user.email);
       if(sub&&sub.plan!=="free"){
-        setUser(u=>({...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd}));
+        setUser(u=>({...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,trialPlan:null,trialEndsAt:null}));
       }else if(paymentInfo){
-        // Edge case: Stripe read hasn't propagated yet. Optimistically reflect the
-        // plan the user just paid for; the next app-load checkSubscription call will self-correct.
-        setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,cancelAtPeriodEnd:false}));
+        setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,cancelAtPeriodEnd:false,trialPlan:null,trialEndsAt:null}));
       }
     }
     setPaymentInfo(null);
@@ -2087,12 +2211,13 @@ export default function GhostwriterMeApp(){
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
   if(screen==="pricing")return <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
-  if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} onComplete={handlePaymentComplete}/>;
+  if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete}/>;
 
   return(
     <>
       <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>setScreen("pricing")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
+      {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>
   );
 }
