@@ -1882,7 +1882,6 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
  */
 function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   const isStudent=targetPlan==="student";
-  const planColor=isStudent?C.violet:C.blue;
   const planLabel=isStudent?"Student":"Pro";
   return(
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}}>
