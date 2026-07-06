@@ -440,6 +440,7 @@ const TAROT_TOOLS=[
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
   {id:"humanize",name:"Humanize",     tier:"Student", desc:"Refines AI-generated text into natural, human-like writing."},
+  {id:"story",   name:"Story Guide",  tier:"Pro",     desc:"Turns any book or movie into an interactive study guide — plot structure, characters, themes, and conflicts."},
   {id:"history", name:"History",      tier:"Free",    desc:"Saves and organizes all your past creations for easy access."},
 ];
 
@@ -451,7 +452,21 @@ function TarotCard({tool}){
       <div style={{position:"relative",width:"100%",height:"100%",transition:"transform 0.55s cubic-bezier(0.4,0.2,0.2,1)",transformStyle:"preserve-3d",transform:flipped?"rotateY(180deg)":"none"}}>
         {/* FRONT — tarot illustration */}
         <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.55)"}}>
-          <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          {CARD_IMG[tool.id]?(
+            <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          ):(
+            /* Ornamental fallback front for cards without a commissioned
+               illustration yet (currently: story). Matches the tarot backs'
+               gold-on-dark aesthetic; drop a base64 into CARD_IMG later and
+               this branch stops rendering automatically. */
+            <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
+              <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
+              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
+              <div style={{fontSize:34}}>🎬</div>
+              <div style={{fontSize:13,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",textAlign:"center",padding:"0 8px",lineHeight:1.2}}>{tool.name}</div>
+              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
+            </div>
+          )}
         </div>
         {/* BACK — description */}
         <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",transform:"rotateY(180deg)",borderRadius:8,border:"1.5px solid "+TZ.gold,background:"linear-gradient(165deg,#15101f,#0c0a14)",padding:"14px 12px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",boxShadow:"0 2px 12px rgba(0,0,0,0.55)",overflow:"hidden"}}>
@@ -1217,14 +1232,105 @@ function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete}){
   );
 }
 
+// Shared follow-up chat (Item 3) used by Academic Reviewer AND Grammar (DRY).
+// Stateless API strategy: callClaude has no server-side memory, so every send
+// embeds the full context + conversation so far in one user message.
+function FollowUpChat({context,intro,accent}){
+  const [msgs,setMsgs]=useState([]);
+  const [q,setQ]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const ac=accent||C.blue;
+
+  const send=async()=>{
+    const question=q.trim();
+    if(!question||busy)return;
+    setBusy(true);setErr("");setQ("");
+    const history=[...msgs,{role:"user",content:question}];
+    setMsgs(history); // optimistic append so the question shows instantly
+    const sys="You are a friendly, specific writing coach answering follow-up questions about the student's work and the feedback below. Reference their actual text where possible. Keep answers under ~200 words unless more detail is explicitly requested. Do not rewrite the whole piece unless asked.\n\n=== CONTEXT ===\n"+context.slice(0,9000); // cap: very long essays must not blow the prompt budget
+    const convo=history.map(m=>(m.role==="user"?"STUDENT":"COACH")+": "+m.content).join("\n\n");
+    try{
+      const reply=await callClaude(sys,convo,1200);
+      setMsgs(h=>[...h,{role:"ai",content:reply}]);
+    }catch(e){
+      // Edge case: on failure, roll back the optimistic question and restore
+      // it to the input so the user can retry without retyping.
+      setErr(e.message||"Something went wrong.");
+      setMsgs(h=>h.slice(0,-1));
+      setQ(question);
+    }finally{setBusy(false);}
+  };
+
+  return(
+    <Card style={{marginTop:10}}>
+      <div style={{fontSize:11,color:ac,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>💬 Ask a Follow-Up</div>
+      {msgs.length===0&&<div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:10}}>{intro}</div>}
+      {msgs.map((m,i)=>(
+        <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:8}}>
+          <div style={{maxWidth:"85%",padding:"9px 12px",borderRadius:10,background:m.role==="user"?ac:C.surface,color:m.role==="user"?"#000":C.text,fontSize:13,lineHeight:1.65,whiteSpace:"pre-wrap"}}>{m.content}</div>
+        </div>
+      ))}
+      {busy&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}><Spin size={14} color={ac}/><span style={{fontSize:12,color:C.muted}}>Thinking...</span></div>}
+      {err&&<ErrBox msg={err}/>}
+      <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send();}} placeholder="e.g. How can I strengthen my thesis?" style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=ac} onBlur={e=>e.target.style.borderColor=C.border}/>
+        <MicBtn onResult={t=>setQ(v=>v+(v?" ":"")+t)} sm/>
+        <button onClick={send} disabled={busy||!q.trim()} style={{padding:"9px 14px",borderRadius:8,border:"none",background:busy||!q.trim()?"#0c1220":ac,color:busy||!q.trim()?C.muted:"#000",fontSize:13,fontWeight:800,cursor:busy||!q.trim()?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0}}>Send</button>
+      </div>
+    </Card>
+  );
+}
+
+// Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
+const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
+const HIST_MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠",story:"🎬"};
+
+// "More Details" bottom sheet (Item 2): full prompt, full output, precise
+// timestamp, and mode — the inline View row truncates output to 200px, this
+// shows everything with copy/listen/save actions.
+function HistoryDetailModal({item,onClose}){
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{width:"100%",maxWidth:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 30px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+          <span style={{fontSize:22}}>{HIST_MI[item.mode]||"📝"}</span>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||"Untitled"}</div>
+            <div style={{fontSize:12,color:C.muted}}>{HIST_ML[item.mode]||item.mode}</div>
+          </div>
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:14}}>🕐 {new Date(item.ts).toLocaleString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+        {item.input&&(
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Prompt / Input</div>
+            <div style={{fontSize:13,color:C.text,lineHeight:1.7,whiteSpace:"pre-wrap",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",maxHeight:160,overflowY:"auto"}}>{item.input}</div>
+          </div>
+        )}
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Generated Content</div>
+          <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",maxHeight:"42vh",overflowY:"auto"}}>{item.output}</div>
+        </div>
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:14}}>
+          <CopyBtn text={item.output||""}/>
+          <ListenBtn text={item.output||""}/>
+          <SaveAsImageBtn text={item.output||""} title={HIST_ML[item.mode]||"History"}/>
+        </div>
+        <SecBtn onClick={onClose}>Close</SecBtn>
+      </div>
+    </div>
+  );
+}
+
 function HistoryMode({user}){
-  const [filter,setFilter]=useState("all");const [items,setItems]=useState([]);const [exp,setExp]=useState(null);
-  const ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
-  const MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠",story:"🎬"};
+  const [filter,setFilter]=useState("all");const [items,setItems]=useState([]);const [exp,setExp]=useState(null);const [detail,setDetail]=useState(null);
+  const ML=HIST_ML;
+  const MI=HIST_MI;
   useEffect(()=>{setItems(HS.loadAll(user.email));},[user.email]);
   const filtered=filter==="all"?items:items.filter(i=>i.mode===filter);
   if(!items.length)return(<div style={{textAlign:"center",padding:"44px 0"}}><div style={{fontSize:40,marginBottom:10}}>🕐</div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted}}>Generated content will appear here.</div></div>);
-  return(<div><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>(<Card key={item.id} style={{marginBottom:8}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:exp===item.id?9:0}}><div style={{display:"flex",alignItems:"center",gap:7,flex:1,minWidth:0}}><span style={{fontSize:16,flexShrink:0}}>{MI[item.mode]||"📝"}</span><div style={{minWidth:0}}><div style={{fontSize:12,color:C.muted}}>{ML[item.mode]||item.mode} · {new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div></div></div><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>{exp===item.id?"Hide":"View"}</button></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease"}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</Card>))}</div>);
+  return(<div><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>(<Card key={item.id} style={{marginBottom:8}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:exp===item.id?9:0}}><div style={{display:"flex",alignItems:"center",gap:7,flex:1,minWidth:0}}><span style={{fontSize:16,flexShrink:0}}>{MI[item.mode]||"📝"}</span><div style={{minWidth:0}}><div style={{fontSize:12,color:C.muted}}>{ML[item.mode]||item.mode} · {new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div></div></div><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>{exp===item.id?"Hide":"View"}</button></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease"}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</Card>))}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
 }
 
 function ReplyMode({user,isPro}){
@@ -1238,6 +1344,13 @@ function ReplyMode({user,isPro}){
   // covers private-browsing modes where localStorage access throws.
   const usageKey="gwm_replies_"+(user?.email||"anon")+"_"+new Date().toISOString().slice(0,10);
   const [used,setUsed]=useState(()=>{try{return parseInt(localStorage.getItem(usageKey)||"0",10)||0;}catch{return 0;}});
+  // Midnight rollover fix: with keep-mounted modes this component can stay
+  // alive across days. usageKey recomputes per render, but useState only ran
+  // once — so when the date changes we must re-read the (new, empty) day's
+  // count, or yesterday's total would wrongly block/carry into today.
+  useEffect(()=>{
+    try{setUsed(parseInt(localStorage.getItem(usageKey)||"0",10)||0);}catch{setUsed(0);}
+  },[usageKey]);
   const gen=async()=>{
     if(!msg.trim())return;if(!isPro&&used>=FREE_LIMIT){setError("Free limit reached.");return;}
     setLoading(true);setError("");setReplies([]);
@@ -1276,10 +1389,10 @@ function EmailMode({user}){
 }
 
 function GrammarMode({user}){
-  const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:r.rewritten});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);const [genId,setGenId]=useState(0);
+  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:r.rewritten});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
-  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:18,marginBottom:4}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}>✅ Check & Rewrite</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/></div></Card></div>}</div>);
+  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:18,marginBottom:4}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}>✅ Check & Rewrite</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
 }
 
 function EssayMode({user}){
@@ -1356,7 +1469,7 @@ Users are responsible for ensuring that their use of this feature complies with 
 function AcademicReviewer({user}){
   const [text,setText]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [genId,setGenId]=useState(0);
 
   const analyze=async()=>{
     if(!text.trim()&&!imgData){setError("Paste your essay or attach an image of it first.");return;}
@@ -1383,6 +1496,7 @@ Return ONLY valid JSON, no markdown fences:
       const raw=await callClaude(sys,"Review this essay:\n\n"+(text||"(see attached image)"),2500,imgData,imgType);
       const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
       setRes(r);
+      setGenId(g=>g+1);
       if(user)HS.save(user.email,"academic",{title:"Review: "+(text.slice(0,40)||"essay"),input:"reviewer",output:"Grade "+(r.grade||"?")+" — "+(r.summary||"")});
     }catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
@@ -1450,6 +1564,10 @@ Return ONLY valid JSON, no markdown fences:
               <div style={{marginTop:10}}><CopyBtn text={(res.revisions||[]).map((s,i)=>(i+1)+". "+s).join("\n")}/></div>
             </Card>
           )}
+          <FollowUpChat key={genId}
+            context={"STUDENT ESSAY:\n"+(text||"(submitted as an image)")+"\n\nFEEDBACK GIVEN:\n"+JSON.stringify({grade:res.grade,numeric:res.numeric,summary:res.summary,categories:res.categories,strengths:res.strengths,improvements:res.improvements,revisions:res.revisions})}
+            intro="Ask anything about your feedback — e.g. why a category scored low, or how to fix a specific weakness."
+            accent={C.blue}/>
         </div>
       )}
     </div>
@@ -2063,8 +2181,20 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
     return false;
   };
 
-  const renderMode=()=>{
-    switch(activeMode){
+  // Item 1 (preserve generated content): visited, unlocked content modes stay
+  // MOUNTED and are merely hidden with display:none when inactive — React state
+  // (inputs, results, follow-up chats) survives mode switches automatically,
+  // with zero changes needed inside any mode component. History is deliberately
+  // excluded: remounting it on each visit is what refreshes its list with items
+  // generated in other modes since the last look. Lazy: a mode mounts only on
+  // first visit, so startup cost is unchanged.
+  const [visited,setVisited]=useState(()=>new Set([activeMode]));
+  useEffect(()=>{
+    setVisited(v=>v.has(activeMode)?v:new Set([...v,activeMode]));
+  },[activeMode]);
+
+  const renderModeFor=(id)=>{
+    switch(id){
       case"reply":return <ReplyMode user={user} isPro={isPro}/>;
       case"email":return <EmailMode user={user}/>;
       case"grammar":return <GrammarMode user={user}/>;
@@ -2074,7 +2204,6 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"author":return <AuthorMode user={user}/>;
       case"story":return <StoryAnalyzer user={user}/>;
       case"humanize":return <HumanizeMode user={user}/>;
-      case"history":return <HistoryMode user={user}/>;
       default:return null;
     }
   };
@@ -2134,7 +2263,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           </div>
         )}
 
-        {locked(currentMode||{})?(
+        {locked(currentMode||{})&&(
           <div style={{textAlign:"center",padding:"50px 16px",animation:"fadeUp 0.3s ease"}}>
             <div style={{fontSize:44,marginBottom:12}}>{currentMode.access==="student"?"🎓":"🔒"}</div>
             <div style={{fontSize:17,fontWeight:900,color:"#fff",marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Student-exclusive":"a Pro feature"}</div>
@@ -2147,9 +2276,19 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
               </PriBtn>
             </div>
           </div>
-        ):(
+        )}
+        {/* Keep-mounted content modes (see comment above renderModeFor). A
+            display:none→block toggle also replays the fadeUp CSS animation,
+            so switching still feels animated. Locked modes are filtered out —
+            state intentionally drops if access is lost mid-session. */}
+        {MODES.filter(m=>m.id!=="history"&&visited.has(m.id)&&!locked(m)).map(m=>(
+          <div key={m.id} style={{display:activeMode===m.id?"block":"none",animation:"fadeUp 0.3s ease",paddingBottom:16}}>
+            {renderModeFor(m.id)}
+          </div>
+        ))}
+        {activeMode==="history"&&(
           <div style={{animation:"fadeUp 0.3s ease",paddingBottom:16}}>
-            {renderMode()}
+            <HistoryMode user={user}/>
           </div>
         )}
       </div>
