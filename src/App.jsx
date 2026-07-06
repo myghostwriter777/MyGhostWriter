@@ -56,6 +56,7 @@ const MODES = [
   { id:"academic", icon:"🎓", label:"Academic",    access:"student"     },
   { id:"cv",       icon:"💼", label:"CV/Resume",   access:"pro+student" },
   { id:"author",   icon:"📖", label:"Author",      access:"pro+student" },
+  { id:"story",    icon:"🎬", label:"Story Guide", access:"pro+student" },
   { id:"humanize", icon:"🧠", label:"Humanize",    access:"student"     },
   { id:"history",  icon:"🕐", label:"History",     access:"free"        },
 ];
@@ -68,7 +69,7 @@ const TONES = [
 ];
 
 const LEVELS = ["A1","A2","B1","B2","C1","C2"];
-const ESSAY_TYPES = ["Argumentative","Descriptive","Expository","Narrative","Compare & Contrast","Reflective","Statement of Purpose"];
+const ESSAY_TYPES = ["Argumentative","Descriptive","Expository","Narrative","Compare & Contrast","Reflective","Statement of Purpose","Personal Statement","Cover Letter"];
 const GRAMMAR_STYLES = [
   {id:"formal",  icon:"🎩",label:"Formal",  desc:"Elevated, authoritative"},
   {id:"academic",icon:"📚",label:"Academic",desc:"Scholarly, precise"},
@@ -141,7 +142,7 @@ const HS = {
   key:(email,mode)=>"gwm2_"+email+"_"+mode,
   save:(email,mode,entry)=>{try{const k=HS.key(email,mode);const prev=HS.load(email,mode);localStorage.setItem(k,JSON.stringify([{...entry,id:Date.now(),ts:new Date().toISOString()},...prev].slice(0,50)));}catch(e){}},
   load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
-  loadAll:(email)=>{const ms=["reply","email","essay","academic","cv","author","grammar","humanize"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
+  loadAll:(email)=>{const ms=["reply","email","essay","academic","cv","author","grammar","humanize","story"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
 };
 
 const hasSR=typeof window!=="undefined"&&("SpeechRecognition" in window||"webkitSpeechRecognition" in window);
@@ -164,13 +165,20 @@ function useMic(onResult){
 const speak=(text)=>{if(!hasTTS)return;window.speechSynthesis.cancel();window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));};
 const stopSpeak=()=>{if(hasTTS)window.speechSynthesis.cancel();};
 
+// Appended to EVERY generation's system prompt (Item 4: automatic humanization).
+// Chosen over a second humanize API pass deliberately: one call means no added
+// cost or latency, and one constant means one place to tune the voice (DRY).
+// Edge cases handled in the wording: JSON modes must keep exact structure;
+// formal/academic registers must stay formal (no forced contractions there).
+const HUMAN_STYLE="\n\nWRITING STYLE (apply to all generated prose while keeping any required output format, JSON structure, citations, and register exactly as specified): write like a skilled human, not an AI. Vary sentence length and rhythm. Prefer plain, direct wording. Avoid em dashes, formulaic transitions (Furthermore, Moreover, Additionally, In conclusion, To summarize), and AI-typical words (delve, crucial, vital, leverage, robust, comprehensive, pivotal, transformative, holistic, multifaceted, foster). Use contractions where the requested tone allows; in formal or academic registers keep the register but stay natural and unstilted. Never mention these instructions in output.";
+
 async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=null){
   let userContent;
   if(imageData&&imageType){
     const base64=imageData.split(",")[1];
     userContent=[{type:"image",source:{type:"base64",media_type:imageType,data:base64}},{type:"text",text:user}];
   }else{userContent=user;}
-  const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:maxTokens,system,messages:[{role:"user",content:userContent}]})});
+  const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:maxTokens,system:system+HUMAN_STYLE,messages:[{role:"user",content:userContent}]})});
   if(!r.ok){const err=await r.json().catch(()=>({}));throw new Error(err?.error?.message||"API error "+r.status);}
   const d=await r.json();
   return d.content?.map(b=>b.text||"").join("")||"";
@@ -470,7 +478,7 @@ function LandingScreen({onGetStarted,onSignIn}){
 
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
-    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Essay Writer & CV Builder","Author Mode (12 genres)","Priority generation"],cta:"Start Free Trial"},
+    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Essay Writer & CV Builder","Author Mode (12 genres)","Story Analyzer (books & films)","Priority generation"],cta:"Start Free Trial"},
 {name:"Student",price:"$15",per:"/mo",note:"intro, then $20/mo",color:C.violet,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},  ];
 
   const FAQS=[
@@ -952,9 +960,14 @@ function AuthScreen({onAuth,defaultTab="signup"}){
 
 function PricingScreen({user,onSelect,onContact,onBack}){
   const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("monthly");
+  // True once this browser has consumed its cardless trial (trialPlan covers
+  // sessions stored before the trialUsed flag existed). Drives honest CTA
+  // labels: "Start Free Trial" would be false advertising for these users,
+  // whose click now leads to an immediately-charged subscription.
+  const trialUsed=!!(user&&(user.trialUsed||user.trialPlan));
 
-  const FREE_F=["3 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
-  const PRO_F=["Unlimited AI replies","✍️ Essay Writer (CEFR A1–C2)","💼 CV / Resume Builder","📖 Author Mode (12 genres)","Full history across all modes","Priority generation speed"];
+  const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
+  const PRO_F=["Unlimited AI replies","✍️ Essay Writer (CEFR A1–C2)","💼 CV / Resume Builder","📖 Author Mode (12 genres)","🎬 Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
   const STU_F=["Everything in Pro","🎓 Academic Essay + auto-citations (Student exclusive)","🧠 Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
@@ -1001,10 +1014,10 @@ function PricingScreen({user,onSelect,onContact,onBack}){
           <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:5,maxHeight:270,overflowY:"auto"}}>
             {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;return(<li key={feat} style={{fontSize:13,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:6}}><span style={{color:isStuEx?C.violet:isProEx?C.blue:isProBas?C.blue:C.green,flexShrink:0,marginTop:1}}>✓</span>{feat}</li>);})}
           </ul>
-          {tab!=="free"&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>🎁</span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No charge until day 4 · Cancel anytime</div></div></div>)}
+          {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>🎁</span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
           {tab==="free"&&<SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
-          {tab==="pro"&&<PriBtn onClick={handleCTA}>Start Free Trial →</PriBtn>}
-          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet">Start Student Free Trial 🎓</PriBtn>}
+          {tab==="pro"&&<PriBtn onClick={handleCTA}>{trialUsed?"Continue with Pro →":"Start Free Trial →"}</PriBtn>}
+          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet">{trialUsed?"Continue with Student 🎓":"Start Student Free Trial 🎓"}</PriBtn>}
         </div>
         <div style={{display:"flex",justifyContent:"center",gap:5,flexWrap:"wrap",animation:"fadeUp 0.4s 0.18s ease both"}}>
           {tabs.filter(t=>t.id!==tab).map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=t.color;e.currentTarget.style.color=t.color;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>View {t.id==="student"?"Student":t.id==="pro"?"Pro":"Free"} plan</button>))}
@@ -1206,8 +1219,8 @@ function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete}){
 
 function HistoryMode({user}){
   const [filter,setFilter]=useState("all");const [items,setItems]=useState([]);const [exp,setExp]=useState(null);
-  const ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize"};
-  const MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠"};
+  const ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
+  const MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠",story:"🎬"};
   useEffect(()=>{setItems(HS.loadAll(user.email));},[user.email]);
   const filtered=filter==="all"?items:items.filter(i=>i.mode===filter);
   if(!items.length)return(<div style={{textAlign:"center",padding:"44px 0"}}><div style={{fontSize:40,marginBottom:10}}>🕐</div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted}}>Generated content will appear here.</div></div>);
@@ -1216,15 +1229,21 @@ function HistoryMode({user}){
 
 function ReplyMode({user,isPro}){
   const [msg,setMsg]=useState("");const [tone,setTone]=useState("confident");const [noDesp,setNoDesp]=useState(false);
-  const [replies,setReplies]=useState([]);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [used,setUsed]=useState(0);
+  const [replies,setReplies]=useState([]);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const FREE_LIMIT=3;const ref=useRef(null);
+  const FREE_LIMIT=15;const ref=useRef(null);
+  // Real per-day counter (Item 3). The old useState(0) reset on every remount,
+  // so "3/day" was actually "3 per visit". Edge cases: key embeds the calendar
+  // date so the count self-resets at midnight with no cleanup job; try/catch
+  // covers private-browsing modes where localStorage access throws.
+  const usageKey="gwm_replies_"+(user?.email||"anon")+"_"+new Date().toISOString().slice(0,10);
+  const [used,setUsed]=useState(()=>{try{return parseInt(localStorage.getItem(usageKey)||"0",10)||0;}catch{return 0;}});
   const gen=async()=>{
     if(!msg.trim())return;if(!isPro&&used>=FREE_LIMIT){setError("Free limit reached.");return;}
     setLoading(true);setError("");setReplies([]);
     const t=TONES.find(x=>x.id===tone);
     const sys="You are GhostwriterMe — witty, socially calibrated. No em-dashes. "+(noDesp?"Strip ALL clingy energy. Unbothered only. ":"")+"Tone: "+t.label+" — "+t.desc+". Return ONLY valid JSON: {\"replies\":[{\"option\":1,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":2,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":3,\"text\":\"...\",\"vibe\":\"one-word\"}]}";
-    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=JSON.parse(raw.replace(/```json|```/g,"").trim());setReplies(p.replies||[]);setUsed(u=>u+1);if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:p.replies[0].text});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
+    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=JSON.parse(raw.replace(/```json|```/g,"").trim());setReplies(p.replies||[]);setUsed(u=>{const n=u+1;try{localStorage.setItem(usageKey,String(n));}catch{}return n;});if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:p.replies[0].text});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
     catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return(
@@ -1762,6 +1781,134 @@ function CVMode({user}){
   );
 }
 
+// ============ STORY ANALYZER (Pro) ============
+function StoryAnalyzer({user}){
+  const [type,setType]=useState("movie");
+  const [title,setTitle]=useState("");
+  const [notes,setNotes]=useState("");
+  const [res,setRes]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [open,setOpen]=useState({});
+  const toggle=k=>setOpen(o=>({...o,[k]:!o[k]}));
+
+  const gen=async()=>{
+    if(!title.trim())return;
+    setLoading(true);setError("");setRes(null);setOpen({});
+    const isBook=type==="book";
+    // Copyright note: the prompt demands ORIGINAL analysis in the model's own
+    // words — no reproduced passages or dialogue. Unknown titles must return a
+    // JSON error rather than a hallucinated plot (edge case: obscure/invented
+    // titles), which we surface directly to the user.
+    const sys='You are a literature and film study-guide expert. Produce an ORIGINAL analytical study guide entirely in your own words. Never reproduce passages, dialogue, lyrics, or any other copyrighted text from the work. If you do not confidently recognize the title, return {"error":"Title not recognized. Check the spelling or try a better-known work."} instead of inventing a plot. Return ONLY valid JSON, no markdown fences:\n{"title":"","type":"'+type+'","overview":"3-4 sentence plot summary","structure":[{"stage":"Exposition","summary":"","keyEvents":["",""]},{"stage":"Rising Action","summary":"","keyEvents":["",""]},{"stage":"Climax","summary":"","keyEvents":["",""]},{"stage":"Falling Action","summary":"","keyEvents":["",""]},{"stage":"Resolution","summary":"","keyEvents":["",""]}],"characters":[{"name":"","development":""}],"themes":[{"theme":"","explanation":""}],"conflicts":[{"type":"","description":""}]'+(isBook?',"chapters":[{"chapter":"","summary":""}]':'')+'}'+(isBook?'\nFor chapters: cover the whole book in at most 15 entries — combine into ranges like "Chapters 4-6" for long books.':'');
+    try{
+      const raw=await callClaude(sys,'Create a study guide for the '+type+': "'+title+'"'+(notes?'\nFocus on: '+notes:''),3000);
+      const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      if(r.error){setError(r.error);return;}
+      setRes(r);
+      if(user)HS.save(user.email,"story",{title:(isBook?"📚 ":"🎬 ")+title,input:type+(notes?" · "+notes.slice(0,30):""),output:r.overview||""});
+    }catch(e){setError(e.message||"Something went wrong.");}
+    finally{setLoading(false);}
+  };
+
+  // Small accordion row reused by every expandable section below (DRY). Holds
+  // no state of its own — expansion lives in the parent's `open` map, so
+  // re-renders can't wipe which sections the user has opened.
+  const Acc=({k,icon,label,count,children})=>(
+    <Card style={{marginBottom:8,padding:0,overflow:"hidden"}}>
+      <button onClick={()=>toggle(k)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"12px 14px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+        <span style={{fontSize:14,fontWeight:800,color:open[k]?"#fff":C.text}}>{icon} {label}{count!=null&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}> · {count}</span>}</span>
+        <span style={{fontSize:16,color:open[k]?C.blue:C.muted,transform:open[k]?"rotate(45deg)":"none",transition:"transform 0.2s",flexShrink:0}}>+</span>
+      </button>
+      {open[k]&&<div style={{padding:"0 14px 13px",animation:"fadeUp 0.2s ease"}}>{children}</div>}
+    </Card>
+  );
+
+  const STAGE_ICONS={"Exposition":"🌅","Rising Action":"📈","Climax":"⚡","Falling Action":"📉","Resolution":"🌇"};
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
+        <span style={{fontSize:16,flexShrink:0}}>🎬</span>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Enter any book or movie title to get an interactive study guide — plot structure, characters, themes, and conflicts{type==="book"?", plus chapter-by-chapter summaries":""}.</div>
+      </div>
+
+      <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>
+        {[{id:"movie",label:"🎬 Movie"},{id:"book",label:"📚 Book"}].map(t=>(
+          <button key={t.id} onClick={()=>setType(t.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:type===t.id?C.blue:"transparent",color:type===t.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t.label}</button>
+        ))}
+      </div>
+
+      <FInput label={type==="book"?"Book Title":"Movie Title"} placeholder={type==="book"?"e.g. To Kill a Mockingbird":"e.g. Inception"} value={title} onChange={e=>setTitle(e.target.value)} icoL={type==="book"?"📚":"🎬"} voice/>
+      <FArea label="Focus (optional)" placeholder="e.g. Focus on the protagonist's moral development..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2} voice/>
+      <PriBtn onClick={gen} loading={loading} disabled={!title.trim()}>🎬 Build Study Guide</PriBtn>
+      {error&&<ErrBox msg={error}/>}
+
+      {res&&(
+        <div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
+          <Card style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{res.type==="book"?"📚":"🎬"} Overview · {res.title||title}</div>
+            <div style={{fontSize:14,lineHeight:1.8,color:C.text}}>{res.overview}</div>
+            <OutputActions text={res.overview||""}/>
+          </Card>
+
+          <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Story Structure</div>
+          {(res.structure||[]).map((st,i)=>(
+            <Acc key={i} k={"st"+i} icon={STAGE_ICONS[st.stage]||"📖"} label={st.stage}>
+              <div style={{fontSize:13,lineHeight:1.7,color:C.text,marginBottom:(st.keyEvents||[]).length?8:0}}>{st.summary}</div>
+              {(st.keyEvents||[]).map((ev,j)=>(
+                <div key={j} style={{display:"flex",gap:7,fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:3}}><span style={{color:C.blue,flexShrink:0}}>•</span>{ev}</div>
+              ))}
+            </Acc>
+          ))}
+
+          <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",margin:"14px 0 8px"}}>Analysis</div>
+          {(res.characters||[]).length>0&&(
+            <Acc k="chars" icon="👥" label="Character Development" count={res.characters.length}>
+              {res.characters.map((c,i)=>(
+                <div key={i} style={{paddingBottom:i<res.characters.length-1?9:0,marginBottom:i<res.characters.length-1?9:0,borderBottom:i<res.characters.length-1?`1px solid ${C.border}`:"none"}}>
+                  <div style={{fontSize:13,fontWeight:800,color:C.blue,marginBottom:2}}>{c.name}</div>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.65}}>{c.development}</div>
+                </div>
+              ))}
+            </Acc>
+          )}
+          {(res.themes||[]).length>0&&(
+            <Acc k="themes" icon="💡" label="Themes" count={res.themes.length}>
+              {res.themes.map((t,i)=>(
+                <div key={i} style={{marginBottom:i<res.themes.length-1?8:0}}>
+                  <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:2}}>{t.theme}</div>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.65}}>{t.explanation}</div>
+                </div>
+              ))}
+            </Acc>
+          )}
+          {(res.conflicts||[]).length>0&&(
+            <Acc k="conf" icon="⚔️" label="Conflicts" count={res.conflicts.length}>
+              {res.conflicts.map((cf,i)=>(
+                <div key={i} style={{marginBottom:i<res.conflicts.length-1?8:0}}>
+                  <div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:2}}>{cf.type}</div>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.65}}>{cf.description}</div>
+                </div>
+              ))}
+            </Acc>
+          )}
+          {res.type==="book"&&(res.chapters||[]).length>0&&(
+            <>
+              <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",margin:"14px 0 8px"}}>Chapter Summaries</div>
+              {res.chapters.map((ch,i)=>(
+                <Acc key={i} k={"ch"+i} icon="📖" label={ch.chapter}>
+                  <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{ch.summary}</div>
+                </Acc>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AuthorMode({user}){
   const [cat,setCat]=useState("fiction");const [genre,setGenre]=useState("fantasy");const [nfg,setNfg]=useState("memoir");const [prompt,setPrompt]=useState("");const [chars,setChars]=useState("");const [setting,setSetting]=useState("");const [ot,setOt]=useState("scene");const [len,setLen]=useState("medium");const [pov,setPov]=useState("third");const [res,setRes]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const OT=[{id:"scene",label:"Scene",desc:"Narrative"},{id:"opening",label:"Opening",desc:"Hook reader"},{id:"chapter",label:"Chapter",desc:"Full chapter"},{id:"outline",label:"Outline",desc:"Plot structure"},{id:"character",label:"Character",desc:"Profile"},{id:"dialogue",label:"Dialogue",desc:"Conversation"}];
@@ -1838,7 +1985,7 @@ function HumanizeMode({user}){
 function TrialModal({mode,targetPlan,onStart,onClose}){
   const [bill,setBill]=useState("monthly");
   const isStudent=targetPlan==="student";const planColor=isStudent?C.violet:C.blue;
-  const M={essay:{icon:"✍️",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},academic:{icon:"🎓",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"💼",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"📖",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},humanize:{icon:"🧠",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
+  const M={essay:{icon:"✍️",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},academic:{icon:"🎓",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"💼",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"📖",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"🎬",title:"Story Analyzer",perks:["Books & movies","5-stage plot structure","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"🧠",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
   const h=M[mode]||M.essay;
   return(
     <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -1882,7 +2029,6 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
  */
 function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   const isStudent=targetPlan==="student";
-  const planLabel=isStudent?"Student":"Pro";
   return(
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}}>
       <div style={{width:"100%",maxWidth:460,background:C.card,border:`1px solid ${isStudent?"rgba(155,127,232,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"22px 18px 28px",animation:"slideUpModal 0.3s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
@@ -1890,9 +2036,9 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
         <div style={{textAlign:"center",marginBottom:18}}>
           <div style={{fontSize:40,marginBottom:10}}>⏰</div>
           <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:6}}>Your free trial has ended</div>
-          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Continue with {planLabel} to keep your unlocked features, or switch back to the Free plan.</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Keep your unlocked features by continuing with the Pro or Student plan — or switch back to the Free plan.</div>
         </div>
-        <PriBtn onClick={onContinue} variant={isStudent?"violet":"blue"}>Continue with {planLabel} →</PriBtn>
+        <PriBtn onClick={onContinue} variant={isStudent?"violet":"blue"}>Choose a Plan →</PriBtn>
         <div style={{marginTop:9}}>
           <SecBtn onClick={onDowngrade}>Switch to Free Plan</SecBtn>
         </div>
@@ -1926,6 +2072,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"academic":return <AcademicMode user={user}/>;
       case"cv":return <CVMode user={user}/>;
       case"author":return <AuthorMode user={user}/>;
+      case"story":return <StoryAnalyzer user={user}/>;
       case"humanize":return <HumanizeMode user={user}/>;
       case"history":return <HistoryMode user={user}/>;
       default:return null;
@@ -2156,19 +2303,39 @@ export default function GhostwriterMeApp(){
   };
   const handlePricingSelect=(plan,billing)=>{
     if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
-    // If the user already used their cardless trial for this plan, this Payment
-    // visit is a real conversion, not a fresh trial — skipTrial tells the
-    // backend not to grant a second free period on top of the one they used.
-    const skipTrial=!!(user&&user.trialPlan===plan);
-    setPaymentInfo({targetPlan:plan,billing:billing||"monthly",skipTrial});
+    // Edge case: `user.trialPlan` covers users mid-trial from before the
+    // trialUsed flag existed (backward compat with already-stored sessions).
+    const trialAlreadyUsed=!!(user&&(user.trialUsed||user.trialPlan));
+    if(!trialAlreadyUsed){
+      // First-time user clicking "Start Free Trial" gets exactly that — the
+      // cardless 3-day trial, same as the locked-feature path. No card screen.
+      startCardlessTrial(plan);
+      setScreen("app");
+      return;
+    }
+    // Trial already consumed — this visit is a real conversion. skipTrial tells
+    // the backend to charge immediately instead of granting a second free period.
+    setPaymentInfo({targetPlan:plan,billing:billing||"monthly",skipTrial:true});
     setScreen("payment");
   };
   // Grants instant, cardless access — no Stripe call at all. This is the
   // entire fix for "credit card required upfront": the plan unlocks immediately
   // and a 3-day clock starts locally.
-  const handleTrialStart=(targetPlan)=>{
+  // Shared cardless-trial grant — used by both the locked-feature TrialModal
+  // and the PricingScreen CTA, so the two entry points can't drift apart (DRY).
+  // `trialUsed:true` is permanent bookkeeping that survives downgrade: without
+  // it, handleTrialDowngrade clearing trialPlan/trialEndsAt would let the same
+  // browser start unlimited back-to-back free trials.
+  const startCardlessTrial=(targetPlan)=>{
     const trialEndsAt=new Date(Date.now()+TRIAL_DURATION_MS).toISOString();
-    setUser(u=>({...u,plan:targetPlan,trialPlan:targetPlan,trialEndsAt}));
+    setUser(u=>({...u,plan:targetPlan,trialPlan:targetPlan,trialEndsAt,trialUsed:true}));
+  };
+
+  // Grants instant, cardless access — no Stripe call at all. This is the
+  // entire fix for "credit card required upfront": the plan unlocks immediately
+  // and a 3-day clock starts locally.
+  const handleTrialStart=(targetPlan)=>{
+    startCardlessTrial(targetPlan);
     setTrialInfo(null);
     // Deliberately no setScreen() call — user stays exactly where they were,
     // now with the feature unlocked.
@@ -2177,9 +2344,13 @@ export default function GhostwriterMeApp(){
   // User chose "Continue" on the trial-ended prompt. They're committing to a
   // real subscription now, so send them to Pricing to pick Monthly/Yearly,
   // defaulting toward the tier they were trialing.
+  // User chose "Continue" on the trial-ended prompt. They're committing to a
+  // real subscription now, so send them to Pricing to pick Monthly/Yearly.
+  // Note: deliberately NOT setting trialInfo here — doing so caused a stray
+  // TrialModal (with fallback essay copy) to render over TrialEndedModal if
+  // the user navigated back to the app without completing payment.
   const handleTrialContinue=()=>{
     setShowTrialEndedPrompt(false);
-    setTrialInfo({mode:null,targetPlan:user.trialPlan});
     setScreen("pricing");
   };
 
