@@ -250,6 +250,82 @@ function ListenBtn({text}){
 
 const OutputActions=({text})=>(<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={text}/><ListenBtn text={text}/></div>);
 
+// Whole days remaining until an ISO date. Ceil (not round) so "2.1 days" reads
+// as "3 days left" — matching how billing/trial periods are experienced.
+// Edge cases: null/invalid dates and already-past dates both return 0.
+const daysUntil=d=>{
+  if(!d)return 0;
+  const t=new Date(d).getTime();
+  if(isNaN(t))return 0;
+  return Math.max(0,Math.ceil((t-Date.now())/86400000));
+};
+
+// ============ HISTORY FORMATTERS (Item: full "Details" content) ============
+// History previously stored only fragments (Story Guide saved just the
+// overview, Reviewer just "Grade X — summary", Reply just option 1). These
+// build the COMPLETE plain-text output at save time so HistoryDetailModal /
+// Copy / Listen / Save-as-Image all get everything the user actually saw.
+// Plain text (not JSON) so <pre-wrap> rendering stays readable.
+// Every field is optional-chained — a partially-parsed API response must
+// degrade to a shorter document, never throw inside a save call.
+const fmtStoryGuide=r=>{
+  if(!r)return"";
+  const L=[];
+  if(r.overview)L.push("OVERVIEW\n"+r.overview);
+  if(r.structure?.length)L.push("STORY STRUCTURE\n"+r.structure.map(s=>"• "+(s.stage||"")+"\n  "+(s.summary||"")+(s.keyEvents?.length?"\n"+s.keyEvents.map(e=>"    - "+e).join("\n"):"")).join("\n"));
+  if(r.characters?.length)L.push("CHARACTERS\n"+r.characters.map(c=>"• "+(c.name||"")+": "+(c.development||"")).join("\n"));
+  if(r.themes?.length)L.push("THEMES\n"+r.themes.map(t=>"• "+(t.theme||"")+": "+(t.explanation||"")).join("\n"));
+  if(r.conflicts?.length)L.push("CONFLICTS\n"+r.conflicts.map(c=>"• "+(c.type||"")+": "+(c.description||"")).join("\n"));
+  if(r.chapters?.length)L.push("CHAPTER SUMMARIES\n"+r.chapters.map(c=>"• "+(c.chapter||"")+": "+(c.summary||"")).join("\n"));
+  return L.join("\n\n");
+};
+const fmtReview=r=>{
+  if(!r)return"";
+  const L=["GRADE: "+(r.grade||"?")+" ("+(r.numeric??"?")+"/100, range "+(r.range||"?")+")"+(r.summary?"\n"+r.summary:"")];
+  if(r.categories?.length)L.push("CATEGORY BREAKDOWN\n"+r.categories.map(c=>"• "+(c.name||"")+": "+(c.score??"?")+"/10 — "+(c.note||"")).join("\n"));
+  if(r.strengths?.length)L.push("STRENGTHS\n"+r.strengths.map(s=>"✓ "+s).join("\n"));
+  if(r.improvements?.length)L.push("AREAS FOR IMPROVEMENT\n"+r.improvements.map(s=>"→ "+s).join("\n"));
+  if(r.revisions?.length)L.push("REVISION SUGGESTIONS\n"+r.revisions.map((s,i)=>(i+1)+". "+s).join("\n"));
+  return L.join("\n\n");
+};
+const fmtReplies=rs=>(rs||[]).map(r=>"OPTION "+(r.option??"")+(r.vibe?" · "+r.vibe:"")+"\n"+(r.text||"")).join("\n\n");
+const fmtGrammar=(r)=>{
+  if(!r)return"";
+  const L=[];
+  if(r.score!=null||r.summary)L.push("SCORE: "+(r.score??"?")+"/100"+(r.summary?" — "+r.summary:""));
+  if(r.errors?.length)L.push("CORRECTIONS ("+r.errors.length+")\n"+r.errors.map(e=>"• ["+(e.type||"fix")+"] \""+(e.original||"")+"\" → \""+(e.fixed||"")+"\""+(e.explanation?" — "+e.explanation:"")).join("\n"));
+  if(r.rewritten)L.push("REWRITTEN TEXT\n"+r.rewritten);
+  return L.join("\n\n");
+};
+const fmtCv=(data,personal)=>{
+  if(!data)return"";
+  let s=[personal?.name,personal?.title,[personal?.email,personal?.phone,personal?.location,personal?.link].filter(Boolean).join(" | ")].filter(Boolean).join("\n");
+  if(data.summary)s+="\n\nSUMMARY\n"+data.summary;
+  if(data.experience?.length)s+="\n\nEXPERIENCE\n"+data.experience.map(e=>(e.role||"")+" | "+(e.company||"")+" | "+(e.period||"")+(e.bullets?.length?"\n"+e.bullets.map(b=>"- "+b).join("\n"):"")).join("\n");
+  if(data.skills?.length)s+="\n\nSKILLS\n"+data.skills.join(", ");
+  if(data.education?.length)s+="\n\nEDUCATION\n"+data.education.map(e=>(e.degree||"")+" | "+(e.school||"")+" | "+(e.period||"")).join("\n");
+  if(data.achievements?.length)s+="\n\nACHIEVEMENTS\n"+data.achievements.map(a=>"- "+a).join("\n");
+  return s.trim();
+};
+
+// ============ GENERATE MORE (Item: one-tap reset after generating) ============
+// Shared button rendered under every mode's results. onReset must return the
+// mode to its pristine input state (clear inputs, results, errors, images) —
+// no page refresh needed. Scrolls back to the top of the pane so the user
+// lands on the empty form, not the bottom of the old output.
+function GenerateMoreBtn({onReset,color}){
+  const c=color||C.blue;
+  return(
+    <button
+      onClick={()=>{onReset();try{window.scrollTo({top:0,behavior:"smooth"});}catch{window.scrollTo(0,0);/* older browsers lack options object */}}}
+      style={{width:"100%",marginTop:14,padding:"12px",borderRadius:9,border:`1px solid ${c}55`,background:c+"14",color:c,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}
+      onMouseEnter={e=>{e.currentTarget.style.background=c+"28";}}
+      onMouseLeave={e=>{e.currentTarget.style.background=c+"14";}}>
+      ✨ Generate More
+    </button>
+  );
+}
+
 function ImageInput({onImage,imageData,onClear}){
   const fileRef=useRef(null);const camRef=useRef(null);
   const handle=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>onImage(ev.target.result,f.type);r.readAsDataURL(f);};
@@ -455,17 +531,64 @@ function TarotCard({tool}){
           {CARD_IMG[tool.id]?(
             <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
           ):(
-            /* Ornamental fallback front for cards without a commissioned
-               illustration yet (currently: story). Matches the tarot backs'
-               gold-on-dark aesthetic; drop a base64 into CARD_IMG later and
-               this branch stops rendering automatically. */
-            <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
-              <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
-              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
-              <div style={{fontSize:34}}>🎬</div>
-              <div style={{fontSize:13,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",textAlign:"center",padding:"0 8px",lineHeight:1.2}}>{tool.name}</div>
-              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
-            </div>
+            /* Tarot-styled SVG front for cards without a commissioned raster
+               illustration yet (currently: story). Mirrors the commissioned
+               cards' composition — starry indigo sky, crescent moons in the
+               top corners, gold double frame, an illustrated centrepiece, and
+               a parchment name banner at the bottom. Drop a base64 into
+               CARD_IMG later and this branch stops rendering automatically. */
+            <svg viewBox="0 0 244 294" width="100%" height="100%" style={{display:"block"}} role="img" aria-label={tool.name}>
+              <defs>
+                <linearGradient id={"tzSky"+tool.id} x1="0" y1="0" x2="0.6" y2="1">
+                  <stop offset="0%" stopColor="#241a3d"/><stop offset="55%" stopColor="#170f2b"/><stop offset="100%" stopColor="#0c0a16"/>
+                </linearGradient>
+                <linearGradient id={"tzBan"+tool.id} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f2e8d0"/><stop offset="100%" stopColor="#d9c79e"/>
+                </linearGradient>
+                <radialGradient id={"tzGlow"+tool.id} cx="0.5" cy="0.42" r="0.55">
+                  <stop offset="0%" stopColor={TZ.goldL} stopOpacity="0.35"/><stop offset="100%" stopColor={TZ.goldL} stopOpacity="0"/>
+                </radialGradient>
+              </defs>
+              {/* Sky + gold double frame (matches the backs' inset border) */}
+              <rect width="244" height="294" rx="8" fill={"url(#tzSky"+tool.id+")"}/>
+              <rect x="4" y="4" width="236" height="286" rx="6" fill="none" stroke={TZ.gold} strokeWidth="2"/>
+              <rect x="10" y="10" width="224" height="274" rx="4" fill="none" stroke={TZ.gold} strokeWidth="0.8" opacity="0.55"/>
+              {/* Corner crescents, like the commissioned set */}
+              <path d="M28 26 a8 8 0 1 0 8 10 a6.5 6.5 0 1 1 -8 -10z" fill={TZ.goldL} opacity="0.85"/>
+              <path d="M216 26 a8 8 0 1 1 -8 10 a6.5 6.5 0 1 0 8 -10z" fill={TZ.goldL} opacity="0.85"/>
+              {/* Star field */}
+              {[[40,60],[204,64],[122,30],[62,110],[184,104],[36,160],[208,152],[90,52],[156,44],[52,196],[192,192]].map(([x,y],i)=>(
+                <path key={i} d={"M"+x+" "+(y-3)+" L"+(x+1.1)+" "+(y-1.1)+" L"+(x+3)+" "+y+" L"+(x+1.1)+" "+(y+1.1)+" L"+x+" "+(y+3)+" L"+(x-1.1)+" "+(y+1.1)+" L"+(x-3)+" "+y+" L"+(x-1.1)+" "+(y-1.1)+" Z"} fill={TZ.cream} opacity={i%3===0?0.9:0.5}/>
+              ))}
+              {/* Soft aura behind the centrepiece */}
+              <circle cx="122" cy="122" r="74" fill={"url(#tzGlow"+tool.id+")"}/>
+              {/* Centrepiece: a clapperboard held aloft by two hands, mystical smoke rising */}
+              <path d="M96 246 C88 224 92 206 100 196 L112 190 L118 206 L104 216 C100 226 100 236 104 246 Z" fill="#c99e6b" stroke="#8a6a42" strokeWidth="1.4"/>
+              <path d="M148 246 C156 224 152 206 144 196 L132 190 L126 206 L140 216 C144 226 144 236 140 246 Z" fill="#c99e6b" stroke="#8a6a42" strokeWidth="1.4"/>
+              <g stroke="#8a6a42" strokeWidth="1.1" opacity="0.7"><path d="M101 210 l8 -5"/><path d="M143 210 l-8 -5"/></g>
+              {/* Board body */}
+              <rect x="74" y="128" width="96" height="58" rx="4" fill="#1d1530" stroke={TZ.gold} strokeWidth="2"/>
+              <g stroke={TZ.gold} strokeWidth="0.9" opacity="0.65"><line x1="80" y1="146" x2="164" y2="146"/><line x1="80" y1="160" x2="164" y2="160"/><line x1="80" y1="174" x2="164" y2="174"/></g>
+              {/* Clapper arm with gold/dark chevrons */}
+              <g transform="rotate(-14 74 122)">
+                <rect x="72" y="108" width="100" height="16" rx="3" fill="#120c22" stroke={TZ.gold} strokeWidth="1.6"/>
+                {[0,1,2,3,4].map(i=>(<path key={i} d={"M"+(78+i*19)+" 108 l10 0 l-6 16 l-10 0 Z"} fill={TZ.goldL} opacity="0.9"/>))}
+              </g>
+              {/* Mystic smoke wisps rising from the board */}
+              <g fill="none" stroke="#a98bf0" strokeWidth="2.4" strokeLinecap="round" opacity="0.8">
+                <path d="M96 122 C90 106 102 100 96 86 C92 76 100 70 98 60"/>
+                <path d="M150 124 C158 108 146 100 154 86 C158 77 152 70 156 62"/>
+              </g>
+              <circle cx="97" cy="55" r="2.1" fill="#c9b4ff" opacity="0.85"/>
+              <circle cx="157" cy="57" r="1.8" fill="#c9b4ff" opacity="0.7"/>
+              {/* Sun disc, echoing the commissioned cards' celestial motifs */}
+              <circle cx="122" cy="52" r="11" fill="none" stroke={TZ.goldL} strokeWidth="1.6"/>
+              <g stroke={TZ.goldL} strokeWidth="1.3" strokeLinecap="round">{[0,45,90,135,180,225,270,315].map(a=>{const r1=14,r2=19,rad=a*Math.PI/180;return <line key={a} x1={122+r1*Math.cos(rad)} y1={52+r1*Math.sin(rad)} x2={122+r2*Math.cos(rad)} y2={52+r2*Math.sin(rad)}/>;})}</g>
+              {/* Parchment name banner, same placement as the raster cards */}
+              <rect x="30" y="254" width="184" height="26" rx="3" fill={"url(#tzBan"+tool.id+")"} stroke="#8a6a42" strokeWidth="1.4"/>
+              <rect x="34" y="258" width="176" height="18" rx="2" fill="none" stroke="#8a6a42" strokeWidth="0.7" opacity="0.6"/>
+              <text x="122" y="271.5" textAnchor="middle" fill="#2a1c10" fontSize="13" fontWeight="700" fontFamily="'Instrument Serif',Georgia,serif" letterSpacing="2" style={{textTransform:"uppercase"}}>{tool.name.toUpperCase()}</text>
+            </svg>
           )}
         </div>
         {/* BACK — description */}
@@ -482,6 +605,19 @@ function TarotCard({tool}){
     </div>
   );
 }
+
+// ============ APP UPDATES — SINGLE SOURCE OF TRUTH ============
+// ⚠️ MAINTENANCE RULE: whenever a new mode ships or a major update lands,
+// add ONE entry to the TOP of this array (newest first). The landing page
+// renders the latest UPDATES_SHOWN automatically — nothing else to touch.
+// tag: "New" for new modes/features, "Improved" for redesigns/upgrades.
+const UPDATES_SHOWN=4;
+const APP_UPDATES=[
+  {date:"Jul 2026",tag:"New",     tagColor:C.blue,  title:"Story Guide",                 text:"Turn any book or movie into an interactive study guide — plot structure, characters, themes, conflicts, and chapter summaries."},
+  {date:"Jun 2026",tag:"New",     tagColor:C.green, title:"Academic Mode reimagined",    text:"Academic mode is now a writing coach — get essay feedback, research guidance, and draft examples with CEFR levels."},
+  {date:"Jun 2026",tag:"Improved",tagColor:C.blue,  title:"Redesigned CV / Resume Builder",text:"New templates, profile photos, accent colors, and one-tap PDF download."},
+  {date:"May 2026",tag:"New",     tagColor:C.violet,title:"Humanize My Writing",         text:"Refine AI or formal text into natural, human-sounding writing with a two-pass review."},
+];
 
 function LandingScreen({onGetStarted,onSignIn}){
   const [faqOpen,setFaqOpen]=useState(null);
@@ -503,12 +639,6 @@ function LandingScreen({onGetStarted,onSignIn}){
     {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
     {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Student plan that adds the Academic Reviewer and Humanize tools. All paid plans start with a free trial."},
     {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
-  ];
-
-  const UPDATES=[
-    {date:"Jun 2026",tag:"New",tagColor:C.green,title:"Academic Mode reimagined",text:"Academic mode is now a writing coach — get essay feedback, research guidance, and draft examples with CEFR levels."},
-    {date:"Jun 2026",tag:"Improved",tagColor:C.blue,title:"Redesigned CV / Resume Builder",text:"New templates, profile photos, accent colors, and one-tap PDF download."},
-    {date:"May 2026",tag:"New",tagColor:C.violet,title:"Humanize My Writing",text:"Refine AI or formal text into natural, human-sounding writing with a two-pass review."},
   ];
 
   const sendContact=()=>{
@@ -653,7 +783,7 @@ function LandingScreen({onGetStarted,onSignIn}){
           {/* LATEST UPDATES */}
           <SectionTitle kicker="News" title="Latest Updates"/>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {UPDATES.map((u,i)=>(
+            {APP_UPDATES.slice(0,UPDATES_SHOWN).map((u,i)=>(
               <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:11,padding:"14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
                   <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",color:u.tagColor,background:u.tagColor+"1a",padding:"2px 7px",borderRadius:4,textTransform:"uppercase"}}>{u.tag}</span>
@@ -831,9 +961,17 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
             {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellow}}>Cancelled</span>}
             {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.green}}>Active ✓</span>}
           </Row>
+          {/* Active cardless trial: show exactly when it ends and days left.
+              Guard on trialEndsAt still being in the future — an expired trial
+              is handled by TrialEndedModal, not a countdown row. */}
+          {user.trialPlan&&user.trialEndsAt&&new Date(user.trialEndsAt)>new Date()&&(
+            <Row icon="⏳" label="Free trial ends">
+              <span style={{fontSize:12,color:C.yellow}}>{fmtDate(user.trialEndsAt)} · {daysUntil(user.trialEndsAt)} day{daysUntil(user.trialEndsAt)!==1?"s":""} left</span>
+            </Row>
+          )}
           {isPaid&&user.renewsAt&&(
             <Row icon="📅" label={user.cancelAtPeriodEnd?"Access until":"Renews on"}>
-              <span style={{fontSize:12,color:user.cancelAtPeriodEnd?C.yellow:C.muted}}>{fmtDate(user.renewsAt)}</span>
+              <span style={{fontSize:12,color:user.cancelAtPeriodEnd?C.yellow:C.muted}}>{fmtDate(user.renewsAt)}{user.cancelAtPeriodEnd?" · "+daysUntil(user.renewsAt)+" day"+(daysUntil(user.renewsAt)!==1?"s":"")+" left":""}</span>
             </Row>
           )}
           <Row icon="🔄" label="Change Plan" onClick={onChangePlan} last={!isPaid}>
@@ -852,7 +990,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
           {isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
             <div style={{padding:"13px 14px"}}>
               <div style={{fontSize:13,color:C.text,marginBottom:4,fontWeight:700}}>Cancel your subscription?</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt||user.trialEndsAt)||"the end of your current period"}</span>. After that your account switches to Free. You can resume anytime before then.</div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setCancelConfirm(false)} style={{flex:1,padding:"9px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Keep Plan</button>
                 <button onClick={()=>{onCancelPlan(true);setCancelConfirm(false);}} style={{flex:1,padding:"9px",borderRadius:7,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Cancel</button>
@@ -860,11 +998,22 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
             </div>
           )}
         </Section>
-        {isPaid&&user.cancelAtPeriodEnd&&(
-          <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellow,lineHeight:1.6}}>
-            Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
-          </div>
-        )}
+        {isPaid&&user.cancelAtPeriodEnd&&(()=>{
+          // Bug fix: cancelling during a cardless trial leaves renewsAt null
+          // (no Stripe billing period exists yet), which used to render
+          // "...stay active until ." — fall back to the trial clock, and if
+          // neither date exists, drop the date sentence entirely.
+          const endDate=user.renewsAt||user.trialEndsAt;
+          const dl=daysUntil(endDate);
+          const planName=user.plan==="student"?"Student":"Pro";
+          return(
+            <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellow,lineHeight:1.6}}>
+              {endDate
+                ?`Subscription cancelled. ${planName} features stay active until ${fmtDate(endDate)}. There ${dl===1?"is":"are"} ${dl} day${dl!==1?"s":""} left.`
+                :`Subscription cancelled. ${planName} features stay active until the end of your current period.`}
+            </div>
+          );
+        })()}
 
         <Section title="About">
           <Row icon="📄" label="Terms & Conditions" onClick={onShowTerms}>
@@ -1088,7 +1237,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
  */
 
 // ── Inner form: must render inside <Elements> so useStripe/useElements work ──
-function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete}){
+function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   const stripe=useStripe();
   const elements=useElements();
   const isStudent=targetPlan==="student";
@@ -1189,6 +1338,13 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete}){
   return(
     <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:420}}>
+        {/* Back to plan selection without refreshing the page. Disabled while a
+            charge is in flight — navigating away mid-request could leave the
+            user unsure whether the subscription was actually created. Not
+            rendered on the success step (nothing to go back to). */}
+        {onBack&&(
+          <button onClick={onBack} disabled={loading} style={{background:"none",border:"none",color:loading?C.border:C.muted,fontSize:13,cursor:loading?"not-allowed":"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",padding:0}}>← Back to plans</button>
+        )}
         <div style={{marginBottom:18}}>
           <div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>Payment</div>
           <div style={{fontSize:13,color:C.muted}}>Secure checkout · SSL encrypted · Cancel anytime</div>
@@ -1224,10 +1380,10 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete}){
 }
 
 // ── Outer wrapper: provides the Stripe Elements context ──
-function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete}){
+function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   return(
     <Elements stripe={stripePromise}>
-      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} skipTrial={skipTrial} onComplete={onComplete}/>
+      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} skipTrial={skipTrial} onComplete={onComplete} onBack={onBack}/>
     </Elements>
   );
 }
@@ -1356,9 +1512,13 @@ function ReplyMode({user,isPro}){
     setLoading(true);setError("");setReplies([]);
     const t=TONES.find(x=>x.id===tone);
     const sys="You are GhostwriterMe — witty, socially calibrated. No em-dashes. "+(noDesp?"Strip ALL clingy energy. Unbothered only. ":"")+"Tone: "+t.label+" — "+t.desc+". Return ONLY valid JSON: {\"replies\":[{\"option\":1,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":2,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":3,\"text\":\"...\",\"vibe\":\"one-word\"}]}";
-    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=JSON.parse(raw.replace(/```json|```/g,"").trim());setReplies(p.replies||[]);setUsed(u=>{const n=u+1;try{localStorage.setItem(usageKey,String(n));}catch{}return n;});if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:p.replies[0].text});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
+    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=JSON.parse(raw.replace(/```json|```/g,"").trim());setReplies(p.replies||[]);setUsed(u=>{const n=u+1;try{localStorage.setItem(usageKey,String(n));}catch{}return n;});if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:fmtReplies(p.replies)});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
     catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
+  // Generate More: clear everything back to a pristine form. Deliberately does
+  // NOT touch `used` — the daily counter must survive resets or it would be a
+  // free-limit bypass.
+  const reset=()=>{setMsg("");setReplies([]);setError("");setImgData(null);setImgType(null);};
   return(
     <div>
       {!isPro&&<div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:C.muted}}>{FREE_LIMIT-used} free replies left today</span><span style={{fontSize:13,color:C.blue,fontWeight:700}}>Upgrade →</span></div>}
@@ -1374,7 +1534,7 @@ function ReplyMode({user,isPro}){
       <ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/>
       <PriBtn onClick={gen} loading={loading} disabled={!msg.trim()}>✍️ Generate Replies</PriBtn>
       {error&&<ErrBox msg={error}/>}
-      {replies.length>0&&(<div ref={ref} style={{marginTop:20,animation:"fadeUp 0.4s ease"}}>{replies.map((r,i)=>(<Card key={i} style={{marginTop:9}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{r.vibe}</span><span style={{fontSize:12,color:C.muted}}>Option {r.option}</span></div><div style={{fontSize:14,lineHeight:1.7,color:C.text}}>{r.text}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={r.text}/><ListenBtn text={r.text}/><SaveAsImageBtn text={r.text} title="AI Reply"/></div></Card>))}</div>)}
+      {replies.length>0&&(<div ref={ref} style={{marginTop:20,animation:"fadeUp 0.4s ease"}}>{replies.map((r,i)=>(<Card key={i} style={{marginTop:9}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{r.vibe}</span><span style={{fontSize:12,color:C.muted}}>Option {r.option}</span></div><div style={{fontSize:14,lineHeight:1.7,color:C.text}}>{r.text}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={r.text}/><ListenBtn text={r.text}/><SaveAsImageBtn text={r.text} title="AI Reply"/></div></Card>))}<GenerateMoreBtn onReset={reset}/></div>)}
     </div>
   );
 }
@@ -1384,22 +1544,24 @@ function EmailMode({user}){
   const [kp,setKp]=useState("");const [tone,setTone]=useState("professional");const [len,setLen]=useState("medium");
   const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const gen=async()=>{if(!ctx.trim())return;setLoading(true);setError("");setRes(null);const eObj=EMAIL_TYPES.find(e=>e.id===etype);const tObj=TONES.find(t=>t.id===tone);const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:r.body});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.15)",borderRadius:7,padding:"8px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:7}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited — free for all users</span></div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Email Type</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{EMAIL_TYPES.map(e=><button key={e.id} onClick={()=>setEtype(e.id)} style={{background:etype===e.id?C.accentSoft:C.surface,border:`1px solid ${etype===e.id?C.blue:C.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{e.icon}</div><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{e.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{e.desc}</div></button>)}</div><FArea label="Situation / Context" placeholder="What's this email about?" value={ctx} onChange={e=>setCtx(e.target.value)} rows={3} voice/><FInput label="Recipient (optional)" placeholder="e.g. My manager, a recruiter..." icoL="👤" value={rec} onChange={e=>setRec(e.target.value)} voice/><FArea label="Key Points (optional)" placeholder="e.g. Ask about timeline..." value={kp} onChange={e=>setKp(e.target.value)} rows={2} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Tone" value={tone} onChange={setTone} options={TONES.map(t=>({value:t.id,label:t.emoji+" "+t.label}))}/><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!ctx.trim()}>📧 Generate Email</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Subject</div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{res.subject}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.subject}/><ListenBtn text={res.subject}/><SaveAsImageBtn text={res.subject} title="Email Subject"/></div></Card><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Body</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.body}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.body}/><ListenBtn text={res.body}/><SaveAsImageBtn text={res.body} title="Email"/></div></Card>{res.tip&&<div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"10px 12px",display:"flex",gap:8}}><span style={{fontSize:16}}>💡</span><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>{res.tip}</div></div>}</div>}</div>);
+  const gen=async()=>{if(!ctx.trim())return;setLoading(true);setError("");setRes(null);const eObj=EMAIL_TYPES.find(e=>e.id===etype);const tObj=TONES.find(t=>t.id===tone);const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:"SUBJECT: "+(r.subject||"")+"\n\n"+(r.body||"")+(r.tip?"\n\n💡 TIP: "+r.tip:"")});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const reset=()=>{setCtx("");setRec("");setKp("");setRes(null);setError("");setImgData(null);setImgType(null);};
+  return(<div><div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.15)",borderRadius:7,padding:"8px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:7}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited — free for all users</span></div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Email Type</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{EMAIL_TYPES.map(e=><button key={e.id} onClick={()=>setEtype(e.id)} style={{background:etype===e.id?C.accentSoft:C.surface,border:`1px solid ${etype===e.id?C.blue:C.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{e.icon}</div><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{e.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{e.desc}</div></button>)}</div><FArea label="Situation / Context" placeholder="What's this email about?" value={ctx} onChange={e=>setCtx(e.target.value)} rows={3} voice/><FInput label="Recipient (optional)" placeholder="e.g. My manager, a recruiter..." icoL="👤" value={rec} onChange={e=>setRec(e.target.value)} voice/><FArea label="Key Points (optional)" placeholder="e.g. Ask about timeline..." value={kp} onChange={e=>setKp(e.target.value)} rows={2} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Tone" value={tone} onChange={setTone} options={TONES.map(t=>({value:t.id,label:t.emoji+" "+t.label}))}/><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!ctx.trim()}>📧 Generate Email</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Subject</div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{res.subject}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.subject}/><ListenBtn text={res.subject}/><SaveAsImageBtn text={res.subject} title="Email Subject"/></div></Card><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Body</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.body}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.body}/><ListenBtn text={res.body}/><SaveAsImageBtn text={res.body} title="Email"/></div></Card>{res.tip&&<div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"10px 12px",display:"flex",gap:8}}><span style={{fontSize:16}}>💡</span><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>{res.tip}</div></div>}<GenerateMoreBtn onReset={reset}/></div>}</div>);
 }
 
 function GrammarMode({user}){
   const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);const [genId,setGenId]=useState(0);
-  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:r.rewritten});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammar(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const reset=()=>{setText("");setRes(null);setError("");setImgData(null);setImgType(null);};
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
-  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:18,marginBottom:4}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}>✅ Check & Rewrite</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
+  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:18,marginBottom:4}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}>✅ Check & Rewrite</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/><GenerateMoreBtn onReset={reset}/></div>}</div>);
 }
 
 function EssayMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [level,setLevel]=useState("B2");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
   const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\\nKey points: "+(details||"none")+"\\nCEFR: "+level+"\\nWords: ~"+wc,2000,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/></div></Card>}</div>);
+  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{essay}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/></div><GenerateMoreBtn onReset={()=>{setTopic("");setDetails("");setEssay("");setError("");setImgData(null);setImgType(null);}}/></Card>}</div>);
 }
 
 
@@ -1497,10 +1659,11 @@ Return ONLY valid JSON, no markdown fences:
       const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
       setRes(r);
       setGenId(g=>g+1);
-      if(user)HS.save(user.email,"academic",{title:"Review: "+(text.slice(0,40)||"essay"),input:"reviewer",output:"Grade "+(r.grade||"?")+" — "+(r.summary||"")});
+      if(user)HS.save(user.email,"academic",{title:"Review: "+(text.slice(0,40)||"essay"),input:text||"(submitted as an image)",output:fmtReview(r)});
     }catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
   };
+  const reset=()=>{setText("");setRes(null);setError("");setImgData(null);setImgType(null);};
 
   const gradeColor=g=>g==="A"?C.green:g==="B"?C.blue:g==="C"?C.yellow:C.red;
   const barColor=s=>s>=8?C.green:s>=6?C.blue:s>=4?C.yellow:C.red;
@@ -1568,6 +1731,7 @@ Return ONLY valid JSON, no markdown fences:
             context={"STUDENT ESSAY:\n"+(text||"(submitted as an image)")+"\n\nFEEDBACK GIVEN:\n"+JSON.stringify({grade:res.grade,numeric:res.numeric,summary:res.summary,categories:res.categories,strengths:res.strengths,improvements:res.improvements,revisions:res.revisions})}
             intro="Ask anything about your feedback — e.g. why a category scored low, or how to fix a specific weakness."
             accent={C.blue}/>
+          <GenerateMoreBtn onReset={reset}/>
         </div>
       )}
     </div>
@@ -1636,6 +1800,7 @@ function ResearchAssistant({user}){
           <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>{RESEARCH_TASKS.find(t=>t.id===task)?.label} · Guidance</div>
           <div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap"}}>{out}</div>
           <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={out}/><ListenBtn text={out}/></div>
+          <GenerateMoreBtn onReset={()=>{setTopic("");setCtx("");setOut("");setError("");}}/>
         </Card>
       )}
     </div>
@@ -1688,6 +1853,7 @@ function DraftBuilder({user}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Example Draft · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div>
         <div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif"}}>{essay}</div>
         <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Draft · "+style}/></div>
+        <GenerateMoreBtn onReset={()=>{setTopic("");setDetails("");setCites([{type:"url",value:""}]);setEssay("");setError("");setImgData(null);setImgType(null);}}/>
       </Card>}
     </div>
   );
@@ -1804,7 +1970,7 @@ function CVMode({user}){
       const raw=await callClaude(sys,u,2000);
       const data=JSON.parse(raw.replace(/```json|```/g,"").trim());
       setCvData(data);setStep("preview");
-      if(user)HS.save(user.email,"cv",{title:"CV: "+(tr||personal.title||personal.name||"Untitled"),input:template,output:(data.summary||"")+"\n\n"+(data.experience||[]).map(e=>e.role+" at "+e.company).join("\n")});
+      if(user)HS.save(user.email,"cv",{title:"CV: "+(tr||personal.title||personal.name||"Untitled"),input:"Template: "+template+(tr?" · Target role: "+tr:""),output:fmtCv(data,personal)});
     }catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
   };
@@ -1854,6 +2020,10 @@ function CVMode({user}){
           <button onClick={gen} disabled={loading} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{loading?"Regenerating...":"Regenerate Content"}</button>
         </div>
         <div style={{fontSize:12,color:C.muted,marginTop:10,lineHeight:1.6}}>Tip: "Download as PDF" opens your browser's print dialog. Choose "Save as PDF" as the destination.</div>
+        {/* Generate More: clears the CV content back to a fresh form. Personal
+            identity fields (name, email, photo...) are deliberately KEPT —
+            they don't change between CVs and re-typing them is pure friction. */}
+        <GenerateMoreBtn onReset={()=>{setTr("");setExp("");setSki("");setEdu("");setAch("");setCvData(null);setError("");setStep("form");}}/>
         {error&&<ErrBox msg={error}/>}
       </div>
     );
@@ -1924,7 +2094,9 @@ function StoryAnalyzer({user}){
       const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
       if(r.error){setError(r.error);return;}
       setRes(r);
-      if(user)HS.save(user.email,"story",{title:(isBook?"📚 ":"🎬 ")+title,input:type+(notes?" · "+notes.slice(0,30):""),output:r.overview||""});
+      // Full guide (structure, characters, themes, conflicts, chapters) — not
+      // just the overview — so History "Details" shows everything generated.
+      if(user)HS.save(user.email,"story",{title:(isBook?"📚 ":"🎬 ")+title,input:type+(notes?" · "+notes.slice(0,30):""),output:fmtStoryGuide(r)});
     }catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
   };
@@ -2021,6 +2193,7 @@ function StoryAnalyzer({user}){
               ))}
             </>
           )}
+          <GenerateMoreBtn onReset={()=>{setTitle("");setNotes("");setRes(null);setOpen({});setError("");}}/>
         </div>
       )}
     </div>
@@ -2033,7 +2206,7 @@ function AuthorMode({user}){
   const ag=cat==="fiction"?FICTION_GENRES.find(g=>g.id===genre):NONFICTION_GENRES.find(g=>g.id===nfg);
   const wt={short:"~300 words",medium:"~600 words",long:"~1200 words"}[len];
   const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\\n"+prompt+"\\n"+(chars?"Characters: "+chars+"\\n":"")+(setting?"Setting: "+setting+"\\n":"")+(isFic?"POV: "+pm[pov]+"\\n":"")+"Length: "+wt+"\\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>{[{id:"fiction",label:"📖 Fiction"},{id:"nonfiction",label:"📰 Non-Fiction"}].map(c=><button key={c.id} onClick={()=>setCat(c.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:cat===c.id?C.blue:"transparent",color:cat===c.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{c.label}</button>)}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Genre</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>{(cat==="fiction"?FICTION_GENRES:NONFICTION_GENRES).map(g=>{const a=cat==="fiction"?genre===g.id:nfg===g.id;return<button key={g.id} onClick={()=>cat==="fiction"?setGenre(g.id):setNfg(g.id)} style={{background:a?C.accentSoft:C.surface,border:`1px solid ${a?C.blue:C.border}`,borderRadius:8,padding:"8px 9px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s",display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16,flexShrink:0}}>{g.icon}</span><div><div style={{fontSize:13,fontWeight:700}}>{g.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{g.desc}</div></div></button>;})}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What to Generate</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>{OT.map(o=><button key={o.id} onClick={()=>setOt(o.id)} style={{background:ot===o.id?C.accentSoft:C.surface,border:`1px solid ${ot===o.id?C.blue:C.border}`,borderRadius:7,padding:"8px 6px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:13,fontWeight:700}}>{o.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{o.desc}</div></button>)}</div><FArea label="Story / Piece Brief" placeholder={cat==="fiction"?"e.g. A young mage discovers a forbidden spell...":"e.g. The day I realized I had been living someone else's life..."} value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} voice/><FArea label="Characters (optional)" placeholder={cat==="fiction"?"e.g. Kira — 23, skeptical...":"e.g. My father, my old boss..."} value={chars} onChange={e=>setChars(e.target.value)} rows={2} voice/><FArea label="Setting (optional)" placeholder={cat==="fiction"?"e.g. Floating island city":"e.g. Rural Thailand, 2018"} value={setting} onChange={e=>setSetting(e.target.value)} rows={2}/><div style={{display:"grid",gridTemplateColumns:cat==="fiction"?"1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short (~300w)"},{value:"medium",label:"Medium (~600w)"},{value:"long",label:"Long (~1200w)"}]}/>{cat==="fiction"&&<FSelect label="POV" value={pov} onChange={setPov} options={[{value:"first",label:"First Person"},{value:"third",label:"Third Limited"},{value:"omniscient",label:"Omniscient"}]}/>}<FSelect label="Output" value={ot} onChange={setOt} options={OT.map(o=>({value:o.id,label:o.label}))}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!prompt.trim()}>📖 Generate {ot.charAt(0).toUpperCase()+ot.slice(1)}</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{ag?.label} · {ot}</span><span style={{fontSize:12,color:C.muted}}>~{res.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic"}}>{res}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res}/><ListenBtn text={res}/><SaveAsImageBtn text={res} title={ag?.label+" · "+ot}/></div></Card>}</div>);
+  return(<div><div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>{[{id:"fiction",label:"📖 Fiction"},{id:"nonfiction",label:"📰 Non-Fiction"}].map(c=><button key={c.id} onClick={()=>setCat(c.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:cat===c.id?C.blue:"transparent",color:cat===c.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{c.label}</button>)}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Genre</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>{(cat==="fiction"?FICTION_GENRES:NONFICTION_GENRES).map(g=>{const a=cat==="fiction"?genre===g.id:nfg===g.id;return<button key={g.id} onClick={()=>cat==="fiction"?setGenre(g.id):setNfg(g.id)} style={{background:a?C.accentSoft:C.surface,border:`1px solid ${a?C.blue:C.border}`,borderRadius:8,padding:"8px 9px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s",display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16,flexShrink:0}}>{g.icon}</span><div><div style={{fontSize:13,fontWeight:700}}>{g.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{g.desc}</div></div></button>;})}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What to Generate</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>{OT.map(o=><button key={o.id} onClick={()=>setOt(o.id)} style={{background:ot===o.id?C.accentSoft:C.surface,border:`1px solid ${ot===o.id?C.blue:C.border}`,borderRadius:7,padding:"8px 6px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:13,fontWeight:700}}>{o.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{o.desc}</div></button>)}</div><FArea label="Story / Piece Brief" placeholder={cat==="fiction"?"e.g. A young mage discovers a forbidden spell...":"e.g. The day I realized I had been living someone else's life..."} value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} voice/><FArea label="Characters (optional)" placeholder={cat==="fiction"?"e.g. Kira — 23, skeptical...":"e.g. My father, my old boss..."} value={chars} onChange={e=>setChars(e.target.value)} rows={2} voice/><FArea label="Setting (optional)" placeholder={cat==="fiction"?"e.g. Floating island city":"e.g. Rural Thailand, 2018"} value={setting} onChange={e=>setSetting(e.target.value)} rows={2}/><div style={{display:"grid",gridTemplateColumns:cat==="fiction"?"1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short (~300w)"},{value:"medium",label:"Medium (~600w)"},{value:"long",label:"Long (~1200w)"}]}/>{cat==="fiction"&&<FSelect label="POV" value={pov} onChange={setPov} options={[{value:"first",label:"First Person"},{value:"third",label:"Third Limited"},{value:"omniscient",label:"Omniscient"}]}/>}<FSelect label="Output" value={ot} onChange={setOt} options={OT.map(o=>({value:o.id,label:o.label}))}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}}/><PriBtn onClick={gen} loading={loading} disabled={!prompt.trim()}>📖 Generate {ot.charAt(0).toUpperCase()+ot.slice(1)}</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{ag?.label} · {ot}</span><span style={{fontSize:12,color:C.muted}}>~{res.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic"}}>{res}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res}/><ListenBtn text={res}/><SaveAsImageBtn text={res} title={ag?.label+" · "+ot}/></div><GenerateMoreBtn onReset={()=>{setPrompt("");setChars("");setSetting("");setRes("");setError("");setImgData(null);setImgType(null);}}/></Card>}</div>);
 }
 
 function HumanizeMode({user}){
@@ -2095,6 +2268,7 @@ function HumanizeMode({user}){
         <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:10}}>{[{id:"output",label:"✅ Final Output"},{id:"compare",label:"🔍 Before vs After"}].map(v=>(<button key={v.id} onClick={()=>setView(v.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:view===v.id?C.violet:"transparent",color:view===v.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{v.label}</button>))}</div>
         {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(155,127,232,0.06)",border:"1px solid rgba(155,127,232,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><span style={{fontSize:14,flexShrink:0}}>ℹ️</span><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/></div></Card>)}
         {view==="compare"&&(<div><div style={{display:"flex",gap:10,marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(240,107,107,0.25)",border:"1px solid rgba(240,107,107,0.5)"}}/>Original</div><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(155,127,232,0.25)",border:"1px solid rgba(155,127,232,0.5)"}}/>Changed words</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Before</div><div style={{background:"rgba(240,107,107,0.05)",border:"1px solid rgba(240,107,107,0.2)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{text}</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>After</div><div style={{background:"rgba(155,127,232,0.05)",border:"1px solid rgba(155,127,232,0.25)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{diffWords(text,res.humanized).map((w,i)=>(<span key={i}><span style={{background:w.changed?"rgba(155,127,232,0.22)":"transparent",borderRadius:w.changed?3:0,padding:w.changed?"1px 2px":0,color:w.changed?C.violet:C.text,fontWeight:w.changed?700:400}}>{w.word}</span>{i<res.humanized.split(/\s+/).length-1?" ":""}</span>))}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{[{label:"Original words",val:text.split(/\s+/).filter(Boolean).length},{label:"Final words",val:res.humanized.split(/\s+/).filter(Boolean).length},{label:"Words changed",val:diffWords(text,res.humanized).filter(w=>w.changed).length},{label:"Change rate",val:Math.round(diffWords(text,res.humanized).filter(w=>w.changed).length/Math.max(res.humanized.split(/\s+/).filter(Boolean).length,1)*100)+"%"}].map(s=>(<div key={s.label} style={{flex:1,minWidth:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",textAlign:"center"}}><div style={{fontSize:14,fontWeight:900,color:C.violet}}>{s.val}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{s.label}</div></div>))}</div><OutputActions text={res.humanized}/></div>)}
+        <GenerateMoreBtn color={C.violet} onReset={()=>{setText("");setRes(null);setError("");setView("output");}}/>
       </div>)}
     </div>
   );
@@ -2520,7 +2694,7 @@ export default function GhostwriterMeApp(){
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
   if(screen==="pricing")return <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
-  if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete}/>;
+  if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>{setPaymentInfo(null);setScreen("pricing");}}/>;
 
   return(
     <>
