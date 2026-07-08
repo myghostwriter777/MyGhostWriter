@@ -46,7 +46,7 @@ body{background:#000;}
 .ink3{stroke-dasharray:70;animation:inkDraw 2s ease-in-out 0.8s infinite;}
 `;
 
-const CONTACT_EMAIL = "myghosthehezjspt@gmail.com";
+const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
 
 const MODES = [
   { id:"reply",    icon:"💬", label:"AI Replies", access:"free"        },
