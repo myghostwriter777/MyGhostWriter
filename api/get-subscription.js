@@ -4,6 +4,12 @@
  * Called every time the user logs in or the app loads.
  *
  * Returns: { plan: "pro" | "student" | "free", billing, renewsAt, cancelAtPeriodEnd }
+ *
+ * NOTE ON THE FILENAME: this file MUST be named get-subscription.js.
+ * Vercel routes serverless functions by filename, and the frontend's
+ * checkSubscription() fetches /api/get-subscription — the previous file
+ * was named get-subcription.js (missing "s"), so every plan-restore call
+ * 404'd silently and paying customers on a new device appeared as Free.
  */
 
 const Stripe = require("stripe");
@@ -48,7 +54,7 @@ module.exports = async function handler(req, res) {
     let subscription = null;
 
     for (const status of priority) {
-      subscription = subscriptions.data.find(s => s.status === status);
+      subscription = subscriptions.data.find((s) => s.status === status);
       if (subscription) break;
     }
 
@@ -61,15 +67,45 @@ module.exports = async function handler(req, res) {
     const priceId = subscription.items.data[0]?.price?.id;
 
     const PRICE_TO_PLAN = {
-      [process.env.STRIPE_PRICE_PRO_MONTHLY]:  { plan: "pro",     billing: "monthly"  },
-      [process.env.STRIPE_PRICE_PRO_REGULAR]:  { plan: "pro",     billing: "monthly"  },
-      [process.env.STRIPE_PRICE_PRO_YEARLY]:   { plan: "pro",     billing: "yearly"   },
+      [process.env.STRIPE_PRICE_PRO_MONTHLY]:  { plan: "pro",     billing: "monthly" },
+      [process.env.STRIPE_PRICE_PRO_REGULAR]:  { plan: "pro",     billing: "monthly" },
+      [process.env.STRIPE_PRICE_PRO_YEARLY]:   { plan: "pro",     billing: "yearly"  },
       [process.env.STRIPE_PRICE_STUDENT_MONTHLY]: { plan: "student", billing: "monthly" },
       [process.env.STRIPE_PRICE_STUDENT_REGULAR]: { plan: "student", billing: "monthly" },
       [process.env.STRIPE_PRICE_STUDENT_YEARLY]:  { plan: "student", billing: "yearly"  },
     };
 
-    const matched = PRICE_TO_PLAN[priceId] || { plan: "pro", billing: "monthly" };
+    let matched = PRICE_TO_PLAN[priceId];
+
+    // Edge case: unknown price ID (env var typo in Vercel, or a price
+    // created after this deploy). Previously this defaulted straight to
+    // pro/monthly, which would silently DOWNGRADE a Student subscriber's
+    // feature access while they keep paying the Student price.
+    // create-subscription.js stamps metadata:{plan,billing} on every
+    // subscription it creates, so trust that before guessing — and log
+    // loudly either way so the misconfiguration is visible in Vercel logs.
+    if (!matched) {
+      const metaPlan = subscription.metadata?.plan;
+      const metaBilling = subscription.metadata?.billing;
+      if (metaPlan === "pro" || metaPlan === "student") {
+        console.warn(
+          `[get-subscription] Price ${priceId} not in PRICE_TO_PLAN — ` +
+          `recovered plan "${metaPlan}" from subscription metadata. ` +
+          `Check the STRIPE_PRICE_* env vars in Vercel.`
+        );
+        matched = {
+          plan: metaPlan,
+          billing: metaBilling === "yearly" ? "yearly" : "monthly",
+        };
+      } else {
+        console.warn(
+          `[get-subscription] Price ${priceId} not in PRICE_TO_PLAN and no ` +
+          `usable metadata — defaulting to pro/monthly. ` +
+          `Check the STRIPE_PRICE_* env vars in Vercel.`
+        );
+        matched = { plan: "pro", billing: "monthly" };
+      }
+    }
 
     // 5. Return the plan details
     return res.status(200).json({
