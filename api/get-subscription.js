@@ -59,8 +59,25 @@ module.exports = async function handler(req, res) {
     }
 
     if (!subscription) {
-      // No active subscription found
-      return res.status(200).json({ plan: "free" });
+      // No Stripe subscription — but a cardless trial may be recorded in
+      // customer metadata (written by /api/start-trial). Surfacing it here is
+      // the cross-device fix: a phone/tablet login restores the same trial
+      // that was started on the laptop instead of showing "free".
+      const m = customer.metadata || {};
+      if (m.trialEndsAt && new Date(m.trialEndsAt) > new Date()) {
+        return res.status(200).json({
+          plan: m.trialPlan === "student" ? "student" : "pro",
+          status: "local_trial",
+          trialEndsAt: m.trialEndsAt,
+          trialUsed: true,
+          billing: null,
+          renewsAt: null,
+          cancelAtPeriodEnd: false,
+        });
+      }
+      // Trial consumed and expired (or never started) — tell the frontend
+      // either way so a second device can't start a duplicate trial.
+      return res.status(200).json({ plan: "free", trialUsed: m.trialUsed === "true" });
     }
 
     // 4. Determine plan from the price ID
