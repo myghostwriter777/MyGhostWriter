@@ -50,7 +50,19 @@ module.exports = async function handler(req, res) {
       customer = await stripe.customers.create({ email });
     }
 
-    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    // Backfill support: a device whose trial predates this server system can
+    // send its ORIGINAL end date so every device shows the same countdown.
+    // Clamped hard: must be in the future and at most TRIAL_DAYS away — a
+    // forged far-future date gets ignored, not honored (edge case: abuse).
+    let trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const requested = req.body?.trialEndsAt ? new Date(req.body.trialEndsAt) : null;
+    if (
+      requested && !isNaN(requested) &&
+      requested.getTime() > Date.now() &&
+      requested.getTime() <= Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000
+    ) {
+      trialEndsAt = requested.toISOString();
+    }
     await stripe.customers.update(customer.id, {
       metadata: {
         trialPlan: plan,

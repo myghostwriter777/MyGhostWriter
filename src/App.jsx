@@ -140,9 +140,28 @@ const PRIVACY_CONTENT = [
 
 const HS = {
   key:(email,mode)=>"gwm2_"+email+"_"+mode,
-  save:(email,mode,entry)=>{try{const k=HS.key(email,mode);const prev=HS.load(email,mode);localStorage.setItem(k,JSON.stringify([{...entry,id:Date.now(),ts:new Date().toISOString()},...prev].slice(0,50)));}catch(e){}},
+  // Cross-device history: every save is written locally FIRST (instant and
+  // offline-safe), then the same enriched entry is pushed to /api/history
+  // (Upstash Redis) fire-and-forget — a failed push never blocks the UI, the
+  // item still exists locally and gets backfilled on the next History open.
+  // id gets a random suffix so two devices saving in the same millisecond
+  // can't collide (edge case that pure Date.now() ids allowed).
+  save:(email,mode,entry)=>{
+    const full={...entry,id:Date.now()+"-"+Math.random().toString(36).slice(2,7),ts:new Date().toISOString(),mode};
+    try{const k=HS.key(email,mode);localStorage.setItem(k,JSON.stringify([full,...HS.load(email,mode)].slice(0,50)));}catch(e){}
+    try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
+  },
   load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
   loadAll:(email)=>{const ms=["reply","email","essay","academic","cv","author","grammar","humanize","story"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
+  // Pull the server copy; null on ANY failure so callers fall back to local.
+  fetchRemote:async(email)=>{try{const r=await fetch("/api/history?email="+encodeURIComponent(email));if(!r.ok)return null;const d=await r.json();return Array.isArray(d.items)?d.items:null;}catch{return null;}},
+  // Write synced items back into the per-mode localStorage cache so History
+  // still works offline after a sync and both stores converge.
+  hydrate:(email,items)=>{try{
+    const byMode={};
+    items.forEach(it=>{if(it&&it.mode){(byMode[it.mode]=byMode[it.mode]||[]).push(it);}});
+    Object.keys(byMode).forEach(m=>localStorage.setItem(HS.key(email,m),JSON.stringify(byMode[m].slice(0,50))));
+  }catch(e){}},
 };
 
 const hasSR=typeof window!=="undefined"&&("SpeechRecognition" in window||"webkitSpeechRecognition" in window);
@@ -1407,7 +1426,28 @@ function HistoryMode({user}){
   const [filter,setFilter]=useState("all");const [items,setItems]=useState([]);const [exp,setExp]=useState(null);const [detail,setDetail]=useState(null);
   const ML=HIST_ML;
   const MI=HIST_MI;
-  useEffect(()=>{setItems(HS.loadAll(user.email));},[user.email]);
+  useEffect(()=>{
+    setItems(HS.loadAll(user.email)); // instant local view, no waiting
+    let alive=true;
+    HS.fetchRemote(user.email).then(remote=>{
+      if(!alive||!remote)return; // offline / DB not set up yet → local only
+      const dedupeKey=it=>String(it.id)+"|"+(it.ts||"");
+      const local=HS.loadAll(user.email);
+      // Backfill UP: items saved before the sync system (or while offline)
+      // exist only on this device — push them so other devices get them too.
+      const remoteKeys=new Set(remote.map(dedupeKey));
+      local.filter(it=>!remoteKeys.has(dedupeKey(it))).slice(0,50).forEach(it=>{
+        fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:user.email,item:it})}).catch(()=>{});
+      });
+      // Merge DOWN: server + local, newest first, deduped.
+      const seen=new Set();
+      const merged=[...remote,...local].filter(it=>{const k=dedupeKey(it);if(seen.has(k))return false;seen.add(k);return true;})
+        .sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,200);
+      HS.hydrate(user.email,merged);
+      setItems(merged);
+    });
+    return()=>{alive=false;};
+  },[user.email]);
   const filtered=filter==="all"?items:items.filter(i=>i.mode===filter);
   if(!items.length)return(<div style={{textAlign:"center",padding:"44px 0"}}><div style={{fontSize:40,marginBottom:10}}>🕐</div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted}}>Generated content will appear here.</div></div>);
   return(<div><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>(<Card key={item.id} style={{marginBottom:8}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:exp===item.id?9:0}}><div style={{display:"flex",alignItems:"center",gap:7,flex:1,minWidth:0}}><span style={{fontSize:16,flexShrink:0}}>{MI[item.mode]||"📝"}</span><div style={{minWidth:0}}><div style={{fontSize:12,color:C.muted}}>{ML[item.mode]||item.mode} · {new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div></div></div><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>{exp===item.id?"Hide":"View"}</button></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease"}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</Card>))}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
@@ -2460,7 +2500,13 @@ export default function GhostwriterMeApp(){
         if(!sub)return;
         setUser(u=>{
           const hasActiveLocalTrial=u.trialPlan&&u.trialEndsAt&&new Date(u.trialEndsAt)>new Date();
-          if(sub.plan==="free"&&hasActiveLocalTrial)return{...u,trialUsed:u.trialUsed||!!sub.trialUsed}; // protect the trial
+          if(sub.plan==="free"&&hasActiveLocalTrial){
+            // Backfill: this trial predates the server-side system, so Stripe
+            // has no record of it. Push the ORIGINAL end date up so the iPad/
+            // phone restore the SAME countdown (server clamps to ≤3 days out).
+            if(!sub.trialEndsAt){fetch("/api/start-trial",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:u.email,plan:u.trialPlan,trialEndsAt:u.trialEndsAt})}).catch(()=>{});}
+            return{...u,trialUsed:u.trialUsed||!!sub.trialUsed}; // protect the trial
+          }
           return{...u,
             plan:sub.plan,
             billing:sub.billing||u.billing,
