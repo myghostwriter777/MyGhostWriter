@@ -1,99 +1,129 @@
 /**
- * /api/history.js — cross-device History storage on Upstash Redis.
+ * /api/history.js — cross-device History storage on Supabase (Postgres).
  *
- * Setup: install "Upstash for Redis" from the Vercel Marketplace (Storage tab).
- * The integration automatically injects KV_REST_API_URL / KV_REST_API_TOKEN
- * (some flows use the UPSTASH_REDIS_REST_* names — both are accepted below).
- * Uses Upstash's plain REST interface via fetch, so NO npm package is needed.
+ * Setup (one-time):
+ *  1. Install "Supabase" from the Vercel Marketplace Storage tab (Free plan is
+ *     plenty) and connect it to this project. The integration auto-injects
+ *     SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+ *  2. Open the database (Vercel → Storage → your Supabase DB → Open in
+ *     Supabase Studio) → SQL Editor → run create-history-table.sql once.
+ *  3. Redeploy so the env vars take effect.
  *
- * GET  /api/history?email=x          → { items: [...] }   (empty array if none)
- * POST /api/history {email, item}    → { ok: true, count }
+ * Uses Supabase's REST interface (PostgREST) via plain fetch — NO npm package.
+ * The endpoint contract is identical to the previous Redis version, so the
+ * frontend needs no changes:
+ *   GET  /api/history?email=x        → { items: [...] }  (newest first)
+ *   POST /api/history {email, item}  → { ok: true }
  *
- * One key per user: gwm:hist:<email> holding a JSON array, newest first,
- * capped at 200 items and ~800KB (Upstash free-tier request ceiling is 1MB).
+ * Each item is a ROW with primary key (email, id): re-POSTing the same item
+ * (the frontend backfills on every History open) is a harmless upsert — the
+ * database itself guarantees no duplicates.
  */
 
-const REDIS_URL =
-  process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN =
-  process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+const SUPABASE_URL =
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+// Service-role key: server-side ONLY (bypasses row security). Never expose
+// it to the browser — it lives here in a serverless function, which is safe.
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const MAX_ITEMS = 200;
-const MAX_BYTES = 800_000;     // total array budget
-const MAX_ITEM_BYTES = 100_000; // single item budget (longest study guides fit easily)
-
-// Single Redis command via Upstash REST: body is the command as a JSON array,
-// e.g. ["GET", "key"] — avoids URL-encoding pitfalls with emails in key names.
-async function redis(command) {
-  const r = await fetch(REDIS_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${REDIS_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(command),
-  });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error);
-  return d.result;
-}
+const MAX_ITEM_BYTES = 100_000; // longest study guides fit comfortably
+const LIST_LIMIT = 200;
 
 module.exports = async function handler(req, res) {
-  if (!REDIS_URL || !REDIS_TOKEN) {
+  // CORS + preflight — mirrors claude.js, which needed this for mobile browsers.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  // req.body can arrive as a raw STRING on some Vercel configs (same issue
+  // claude.js guards against) — parse defensively.
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  }
+  body = body || {};
+
+  if (!SUPABASE_URL || !SERVICE_KEY) {
     return res.status(500).json({
       error:
-        "History database not configured. Install 'Upstash for Redis' from the Vercel Marketplace Storage tab, connect it to this project, then redeploy.",
+        "History database not configured. Install 'Supabase' from the Vercel Marketplace Storage tab, connect it to this project, run create-history-table.sql in the SQL Editor, then redeploy.",
     });
   }
 
-  const email = (req.method === "GET" ? req.query.email : req.body?.email || "")
+  const email = (req.method === "GET" ? req.query.email : body.email || "")
     .toString()
     .trim()
     .toLowerCase();
   if (!email || !email.includes("@")) {
     return res.status(400).json({ error: "Valid email is required" });
   }
-  const key = "gwm:hist:" + email;
+
+  const headers = {
+    apikey: SERVICE_KEY,
+    Authorization: `Bearer ${SERVICE_KEY}`,
+    "Content-Type": "application/json",
+  };
 
   try {
     if (req.method === "GET") {
-      const raw = await redis(["GET", key]);
-      return res.status(200).json({ items: raw ? JSON.parse(raw) : [] });
+      const url =
+        `${SUPABASE_URL}/rest/v1/history` +
+        `?email=eq.${encodeURIComponent(email)}` +
+        `&select=id,ts,mode,title,input,output` +
+        `&order=ts.desc&limit=${LIST_LIMIT}`;
+      const r = await fetch(url, { headers });
+      if (!r.ok) {
+        const msg = await r.text();
+        // The most common first-run failure: the table hasn't been created yet.
+        if (r.status === 404 || /relation .* does not exist|Could not find the table/i.test(msg)) {
+          return res.status(500).json({
+            error: "History table missing — run create-history-table.sql in the Supabase SQL Editor, then try again.",
+          });
+        }
+        return res.status(500).json({ error: "Database error: " + msg.slice(0, 140) });
+      }
+      const rows = await r.json();
+      return res.status(200).json({ items: rows });
     }
 
     if (req.method === "POST") {
-      const item = req.body?.item;
-      if (!item || !item.mode || item.output == null) {
-        return res.status(400).json({ error: "item with mode and output is required" });
+      const item = body.item;
+      if (!item || !item.mode || item.output == null || !item.id) {
+        return res.status(400).json({ error: "item with id, mode and output is required" });
       }
       if (JSON.stringify(item).length > MAX_ITEM_BYTES) {
         return res.status(413).json({ error: "Item too large" });
       }
-
-      const raw = await redis(["GET", key]);
-      const items = raw ? JSON.parse(raw) : [];
-
-      // Dedupe: the frontend backfills old local items on every History open,
-      // so the same item can legitimately be POSTed twice — keep one copy.
-      const dk = (it) => String(it.id) + "|" + (it.ts || "");
-      if (items.some((it) => dk(it) === dk(item))) {
-        return res.status(200).json({ ok: true, count: items.length });
+      const row = {
+        email,
+        id: String(item.id),
+        ts: item.ts || new Date().toISOString(),
+        mode: String(item.mode),
+        title: item.title != null ? String(item.title) : null,
+        input: item.input != null ? String(item.input) : null,
+        output: String(item.output),
+      };
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/history`, {
+        method: "POST",
+        headers: {
+          ...headers,
+          // Upsert on the (email,id) primary key: re-sending an existing item
+          // updates it in place instead of erroring or duplicating.
+          Prefer: "resolution=merge-duplicates,return=minimal",
+        },
+        body: JSON.stringify([row]),
+      });
+      if (!r.ok) {
+        const msg = await r.text();
+        if (r.status === 404 || /relation .* does not exist|Could not find the table/i.test(msg)) {
+          return res.status(500).json({
+            error: "History table missing — run create-history-table.sql in the Supabase SQL Editor, then try again.",
+          });
+        }
+        return res.status(500).json({ error: "Database error: " + msg.slice(0, 140) });
       }
-
-      let next = [item, ...items]
-        .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
-        .slice(0, MAX_ITEMS);
-
-      // Size guard: drop oldest entries until the array fits the byte budget
-      // (edge case: 200 maximum-length study guides would exceed 1MB).
-      let payload = JSON.stringify(next);
-      while (payload.length > MAX_BYTES && next.length > 1) {
-        next = next.slice(0, next.length - 10);
-        payload = JSON.stringify(next);
-      }
-
-      await redis(["SET", key, payload]);
-      return res.status(200).json({ ok: true, count: next.length });
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(405).json({ error: "Method not allowed" });
