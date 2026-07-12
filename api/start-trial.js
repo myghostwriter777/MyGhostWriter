@@ -16,11 +16,25 @@ const Stripe = require("stripe");
 const TRIAL_DAYS = 3;
 
 module.exports = async function handler(req, res) {
+  // CORS + preflight — mirrors claude.js, which needed this for mobile browsers.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { email, plan } = req.body || {};
+  // BUG FIX: on some Vercel configs req.body arrives as a raw STRING, not a
+  // parsed object (same issue claude.js already guards against). Without this,
+  // every POST failed validation and history sync silently did nothing.
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  }
+  body = body || {};
+  const { email, plan } = body;
   if (!email || !["pro", "student"].includes(plan)) {
     return res.status(400).json({ error: "email and plan (pro|student) are required" });
   }
@@ -30,8 +44,14 @@ module.exports = async function handler(req, res) {
   });
 
   try {
-    // Find or create the customer by email (same lookup create-subscription uses)
-    const existing = await stripe.customers.list({ email, limit: 1 });
+    // Find or create the customer by email. Stripe's email filter is
+    // CASE-SENSITIVE — try as-given, then lowercased, and always CREATE with
+    // the lowercased form so future lookups are consistent.
+    const emailNorm = email.trim().toLowerCase();
+    let existing = await stripe.customers.list({ email: email.trim(), limit: 1 });
+    if (existing.data.length === 0 && email.trim() !== emailNorm) {
+      existing = await stripe.customers.list({ email: emailNorm, limit: 1 });
+    }
     let customer = existing.data[0];
 
     if (customer) {
@@ -47,7 +67,7 @@ module.exports = async function handler(req, res) {
         return res.status(409).json({ error: "trial_used" });
       }
     } else {
-      customer = await stripe.customers.create({ email });
+      customer = await stripe.customers.create({ email: emailNorm });
     }
 
     // Backfill support: a device whose trial predates this server system can
@@ -55,7 +75,7 @@ module.exports = async function handler(req, res) {
     // Clamped hard: must be in the future and at most TRIAL_DAYS away — a
     // forged far-future date gets ignored, not honored (edge case: abuse).
     let trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
-    const requested = req.body?.trialEndsAt ? new Date(req.body.trialEndsAt) : null;
+    const requested = body.trialEndsAt ? new Date(body.trialEndsAt) : null;
     if (
       requested && !isNaN(requested) &&
       requested.getTime() > Date.now() &&

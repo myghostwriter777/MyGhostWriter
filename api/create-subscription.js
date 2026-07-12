@@ -53,6 +53,11 @@ module.exports = async function handler(req, res) {
   // ── Input validation ─────────────────────────────────────────────
   // Edge case: reject unknown plan/billing values outright rather than
   // falling through to an undefined price id and a confusing Stripe error.
+  // Normalize the email once here — Stripe email lookups are case-sensitive,
+  // so a customer created as "Ghosty@x.com" is invisible to a later lookup
+  // for "ghosty@x.com" (this silently showed paying users as free at login).
+  const emailNorm = typeof email === "string" ? email.trim().toLowerCase() : email;
+
   if (!paymentMethodId || !email || !plan || !billing) {
     return res.status(400).json({ error: "Missing required fields." });
   }
@@ -91,13 +96,17 @@ module.exports = async function handler(req, res) {
   try {
     // ── 1. Find or create the Stripe Customer by email ─────────────
     let customer;
-    const existing = await stripe.customers.list({ email, limit: 1 });
+    let existing = await stripe.customers.list({ email: emailNorm, limit: 1 });
+    if (existing.data.length === 0 && email !== emailNorm) {
+      // fallback: customer created before normalization existed
+      existing = await stripe.customers.list({ email, limit: 1 });
+    }
     customer =
       existing.data.length > 0
         ? existing.data[0]
         : await stripe.customers.create({
-            email,
-            name: name || email,
+            email: emailNorm,
+            name: name || emailNorm,
             metadata: { source: "ghostwriterme" },
           });
 

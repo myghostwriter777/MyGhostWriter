@@ -30,8 +30,14 @@ module.exports = async function handler(req, res) {
   });
 
   try {
-    // 1. Find the Stripe customer by email
-    const customers = await stripe.customers.list({ email, limit: 1 });
+    // 1. Find the Stripe customer by email.
+    // Stripe's email filter is CASE-SENSITIVE (item-1 bug: "Ghosty@x.com" at
+    // purchase vs "ghosty@x.com" at login found no customer → user shown as
+    // free). Try as-given first, then lowercased.
+    let customers = await stripe.customers.list({ email: email.trim(), limit: 1 });
+    if (customers.data.length === 0 && email.trim() !== email.trim().toLowerCase()) {
+      customers = await stripe.customers.list({ email: email.trim().toLowerCase(), limit: 1 });
+    }
 
     if (customers.data.length === 0) {
       // No Stripe customer found — they are on free plan
