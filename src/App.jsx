@@ -1239,10 +1239,20 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
     }
 
     // Step 2: ask our backend to create the subscription with 3-day trial + intro pricing.
-    try{
-      const res=await fetch("/api/create-subscription",{
+    // Hardened error handling: the old version showed "Network error" for EVERY
+    // failure kind (server crash, timeout, non-JSON response), which hid the
+    // real cause and wrongly blamed the user's connection. Now:
+    //  - 30s timeout so a hung request can't spin forever
+    //  - one automatic retry when the request genuinely never got out (mobile
+    //    data blip) — safe because the backend refuses duplicate subscriptions
+    //  - a server crash/timeout surfaces its real status instead of "network"
+    const callBackend=()=>{
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),30000);
+      return fetch("/api/create-subscription",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
+        signal:ctrl.signal,
         body:JSON.stringify({
           paymentMethodId:paymentMethod.id,
           email:user?.email||"",
@@ -1251,8 +1261,28 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
           billing:billing,     // "monthly" | "yearly"
           skipTrial:!!skipTrial, // true if they already used a cardless trial for this plan
         }),
-      });
-      const data=await res.json();
+      }).finally(()=>clearTimeout(timer));
+    };
+    try{
+      let res;
+      try{
+        res=await callBackend();
+      }catch(firstErr){
+        if(firstErr.name==="AbortError")throw firstErr; // timeout: don't double-wait
+        await new Promise(r=>setTimeout(r,1500)); // brief pause, then one retry
+        res=await callBackend();
+      }
+
+      let data;
+      try{
+        data=await res.json();
+      }catch(parseErr){
+        // Non-JSON response = the server crashed or timed out (e.g. a Vercel
+        // error page) — NOT the user's connection. Say so, with the status.
+        setCardErr("Payment server error ("+res.status+"). Your card was NOT charged \u2014 please try again in a minute, and contact support if it keeps happening.");
+        setLoading(false);
+        return;
+      }
 
       if(!res.ok){
         // Edge case: backend returned a Stripe error (declined card, etc.)
@@ -1274,8 +1304,9 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
 
       setStep("success");
     }catch(networkErr){
-      // Edge case: network drop mid-request.
-      setCardErr("Network error. Please check your connection and try again.");
+      setCardErr(networkErr.name==="AbortError"
+        ?"The payment server took too long to respond. Your card was NOT charged \u2014 please try again."
+        :"Network error. Please check your connection and try again.");
       setLoading(false);
     }
   };

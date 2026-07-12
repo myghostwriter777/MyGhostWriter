@@ -47,8 +47,17 @@ module.exports = async function handler(req, res) {
     apiVersion: "2024-04-10",
   });
 
+  // req.body can arrive as a raw STRING on some Vercel configs — the exact
+  // issue that broke /api/history in this project. Parse defensively BEFORE
+  // destructuring, otherwise every field reads undefined (or worse, throws
+  // outside the try/catch and Vercel returns a non-JSON crash page, which the
+  // frontend used to misreport as "Network error").
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch (e) { body = {}; }
+  }
   const { paymentMethodId, email, name, plan, billing, skipTrial = false } =
-    req.body || {};
+    body || {};
 
   // ── Input validation ─────────────────────────────────────────────
   // Edge case: reject unknown plan/billing values outright rather than
@@ -203,3 +212,9 @@ module.exports = async function handler(req, res) {
     return res.status(402).json({ error: err.message || "Payment failed." });
   }
 };
+
+// Extend the execution budget: this handler makes 6+ sequential Stripe API
+// calls, which can exceed Vercel's default 10s function limit on a slow
+// moment — the timeout page is non-JSON and looked like a "network error"
+// to the payment form. Harmless if the platform ignores this property.
+module.exports.config = { maxDuration: 30 };
