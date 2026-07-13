@@ -12,7 +12,19 @@
  * 404'd silently and paying customers on a new device appeared as Free.
  */
 
-const Stripe = require("stripe");
+// The server-side "stripe" package is a SEPARATE dependency from the
+// frontend @stripe/* packages. If it isn't in package.json, requiring it at
+// module load crashes the whole function into a non-JSON Vercel error page
+// (seen as "Payment server error (500)"). Requiring it lazily inside the
+// handler turns that crash into a readable JSON message naming the fix.
+function loadStripeSdk() {
+  try {
+    return require("stripe");
+  } catch (e) {
+    return null;
+  }
+}
+
 
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
@@ -25,6 +37,13 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "Email is required" });
   }
 
+  const Stripe = loadStripeSdk();
+  if (!Stripe) {
+    return res.status(500).json({
+      error:
+        "Server dependency missing: the 'stripe' package is not installed. Run `npm install stripe` in the project folder, then commit and push.",
+    });
+  }
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
     apiVersion: "2024-04-10",
   });
