@@ -531,10 +531,9 @@ function TarotCard({tool}){
     <div onClick={()=>setFlipped(f=>!f)} style={{aspectRatio:"244/294",cursor:"pointer",perspective:"900px",userSelect:"none"}}>
       <div style={{position:"relative",width:"100%",height:"100%",transition:"transform 0.55s cubic-bezier(0.4,0.2,0.2,1)",transformStyle:"preserve-3d",transform:flipped?"rotateY(180deg)":"none"}}>
         {/* FRONT — tarot illustration */}
-        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",border:"1.5px solid "+TZ.gold,background:"#0c0a14",boxShadow:"0 2px 12px rgba(0,0,0,0.55)"}}>
+        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.55)"}}>
           {CARD_IMG[tool.id]?(
-            <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",filter:tool.id==="story"?"saturate(0.9) brightness(0.95) contrast(1.05)":"none"}}/>
-            {tool.id==="story"&&<div style={{position:"absolute",inset:0,background:"rgba(21,16,33,0.20)",mixBlendMode:"multiply",pointerEvents:"none"}}/>} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
           ):(
             /* Ornamental fallback front for any future card added without a
                commissioned illustration (all 10 current cards have one).
@@ -687,9 +686,9 @@ function LandingScreen({onGetStarted,onSignIn}){
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
               </div>
               <div style={{textAlign:"center",fontSize:25,fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.15}}>Explore Our Writing Tools</div>
-              <div style={{textAlign:"center",fontSize:13.5,color:"#9a8f78",marginTop:8,marginBottom:22,lineHeight:1.6}}>Ten focused tools, each built for a specific kind of writing.</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:9,justifyContent:"center"}}>
-                {TAROT_TOOLS.map(t=>(<div key={t.id} style={{flex:"0 0 calc((100% - 18px)/3)",maxWidth:"calc((100% - 18px)/3)"}}><TarotCard tool={t}/></div>))}
+              <div style={{textAlign:"center",fontSize:13.5,color:"#9a8f78",marginTop:8,marginBottom:22,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
+                {TAROT_TOOLS.map(t=>(<TarotCard key={t.id} tool={t}/>))}
               </div>
               <div style={{textAlign:"center",marginTop:16,fontSize:12,color:"#7d7257"}}>✦ Tap any card to reveal what it does ✦</div>
             </div>
