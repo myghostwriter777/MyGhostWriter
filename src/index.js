@@ -1,3 +1,4 @@
+import registerServiceWorker from "./registerServiceWorker";
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
@@ -20,3 +21,4 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js");
   });
 }
+registerServiceWorker();
