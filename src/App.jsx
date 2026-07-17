@@ -121,6 +121,26 @@ const SOCIAL_PROVIDERS = [
 const SESSION_KEY="gwm_session_v1";
 const TRIAL_DURATION_MS=3*24*60*60*1000; // 3 days, used for the cardless trial clock
 
+// === TWA (Play Store app) detection ===
+// The Android app (Trusted Web Activity) opens the site as
+// https://ghostwriterofficial.com/?src=twa — that query param is configured in
+// the TWA's start URL and is the ONLY way this flag gets set. Regular website
+// visitors never trigger it, so the website keeps full Stripe checkout.
+// Why sessionStorage and not localStorage: the flag must survive in-app
+// navigation, but must NOT stick if the same person later opens the real
+// website in Chrome (edge case: shared browser storage on some devices).
+// Belt-and-braces: TWAs also set document.referrer to android-app://<package>,
+// so we accept that signal too in case the query param is ever stripped.
+const TWA_KEY="gwm_twa";
+try{
+  if(typeof window!=="undefined"){
+    const fromParam=new URLSearchParams(window.location.search).get("src")==="twa";
+    const fromReferrer=typeof document!=="undefined"&&(document.referrer||"").startsWith("android-app://");
+    if(fromParam||fromReferrer)sessionStorage.setItem(TWA_KEY,"1");
+  }
+}catch(e){/* storage blocked (private mode) — fall through to website behavior */}
+const isTwaApp=()=>{try{return sessionStorage.getItem(TWA_KEY)==="1";}catch(e){return false;}};
+
 // Notice versioning: bump a version number to force users to re-accept after content changes.
 const NOTICE_VERSION={academic:1,humanize:1,safety:1};
 const noticeKey=type=>"gwm_notice_"+type;
@@ -2538,6 +2558,34 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   );
 }
 
+// Shown INSTEAD of PricingScreen/PaymentScreen when running inside the Play
+// Store app. Google Play policy compliance:
+//  1. No in-app purchase UI (Stripe would violate the Payments policy), and
+//  2. No link or instruction to "buy on our website" (anti-steering rule —
+//     even a plain sentence pointing users to external checkout is a common
+//     rejection reason outside the US/UK/EEA).
+// Existing subscribers are unaffected: sign-in + Stripe-side verification
+// already unlocks their plan cross-device, which we ARE allowed to say.
+function TwaSubscriptionNotice({onBack}){
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:420}}>
+        <Card style={{textAlign:"center",padding:"28px 20px"}}>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:10}}><GhostLogo size={96}/></div>
+          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:8}}>Subscriptions unavailable in this app</div>
+          <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:6}}>
+            New subscriptions can't be purchased inside this app.
+          </div>
+          <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:18}}>
+            Already subscribed? Just sign in with the same account — your plan unlocks automatically on every device.
+          </div>
+          <PriBtn onClick={onBack} variant="blue">← Back to the App</PriBtn>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function GhostwriterMeApp(){
   // Verify subscription status with Stripe by email
   const checkSubscription=async(email)=>{
@@ -2786,8 +2834,13 @@ export default function GhostwriterMeApp(){
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
   if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
   if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
-  if(screen==="pricing")return <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
-  if(screen==="payment")return <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")}/>;
+  // TWA gate: EVERY path into checkout (upgrade buttons, Change Plan, the
+  // trial-ended prompt, the 409 trial-conflict redirect) funnels through
+  // setScreen("pricing"/"payment"), so this single check covers them all —
+  // no per-button gating that could drift out of sync (DRY). The website
+  // (isTwaApp()===false) renders the exact same screens as before.
+  if(screen==="pricing")return isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
+  if(screen==="payment")return isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")}/>;
 
   return(
     <>
