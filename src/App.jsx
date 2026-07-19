@@ -855,6 +855,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const [notifPromo,setNotifPromo]=useState(()=>localStorage.getItem("gwm_notif_promo")!=="false");
   const [saved,setSaved]=useState(false);
   const [cancelConfirm,setCancelConfirm]=useState(false);
+  const [showReport,setShowReport]=useState(false);
 
   const planMap={free:{label:"Free Plan",color:C.green,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blue,bg:C.accentSoft},student:{label:"Student Plan",color:C.violet,bg:C.violetSoft}};
   const planInfo=planMap[user.plan]||planMap.free;
@@ -998,6 +999,12 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
           <Row icon="🔒" label="Privacy Policy" onClick={onShowPrivacy}>
             <span style={{color:C.muted,fontSize:13}}>›</span>
           </Row>
+          <Row icon="🚩" label="Report AI Content" onClick={()=>setShowReport(true)}>
+            <span style={{color:C.muted,fontSize:13}}>›</span>
+          </Row>
+          <Row icon="🗑️" label="Delete Account" onClick={()=>{window.location.href="/delete-account";}}>
+            <span style={{color:C.muted,fontSize:13}}>›</span>
+          </Row>
           <Row icon="✉️" label="Contact Us" onClick={onContact}>
             <span style={{color:C.muted,fontSize:13}}>›</span>
           </Row>
@@ -1013,6 +1020,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         <button onClick={onSignOut} style={{width:"100%",padding:"12px",borderRadius:10,background:"transparent",border:"1px solid rgba(240,107,107,0.3)",color:C.red,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.07)";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
           Sign Out
         </button>
+        {showReport&&<ReportContentModal onClose={()=>setShowReport(false)}/>}
       </div>
     </div>
   );
@@ -2586,7 +2594,72 @@ function TwaSubscriptionNotice({onBack}){
   );
 }
 
-export default function GhostwriterMeApp(){
+function LegalPage({title,sections}){
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+        <img src={GHOSTY_ICON} alt="Ghosty" width={26} height={26} style={{borderRadius:7,display:"block"}}/>
+        <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{title} — GhostwriterMe</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>
+        {sections.map((s,i)=>(
+          <div key={i} style={{marginBottom:20}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div>
+            <div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>
+            {i<sections.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}
+          </div>
+        ))}
+        <a href="/" style={{display:"block",textAlign:"center",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",maxWidth:460,margin:"14px auto 0"}}>← Back to GhostwriterMe</a>
+      </div>
+    </div>
+  );
+}
+
+function DeleteAccountPage(){
+  const mailto="mailto:"+CONTACT_EMAIL
+    +"?subject="+encodeURIComponent("Account Deletion Request — GhostwriterMe")
+    +"&body="+encodeURIComponent("Please delete my GhostwriterMe account and associated data.\n\nAccount email (the one I sign in with): \n\nI understand this is permanent.");
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:560}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <img src={GHOSTY_ICON} alt="Ghosty" width={30} height={30} style={{borderRadius:8,display:"block"}}/>
+          <div style={{fontSize:18,fontWeight:900,color:"#fff"}}>Delete Your Account</div>
+        </div>
+        <Card style={{marginBottom:14}}>
+          <div style={{fontSize:14,color:C.muted,lineHeight:1.75}}>You can request deletion of your GhostwriterMe account and personal data at any time. Deletion covers:</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.9,marginTop:8}}>
+            • Your account details (name, email, Google profile photo)<br/>
+            • Your subscription customer record (any active subscription is cancelled first — Stripe retains payment records only as required by law)<br/>
+            • Your synced writing history stored on our servers
+          </div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.75,marginTop:10}}>Writing history saved in your browser's local storage stays on your own device; clear your browser data to remove it. Requests are processed within 30 days and deletion is permanent.</div>
+        </Card>
+        <a href={mailto} style={{display:"block",textAlign:"center",padding:"13px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none"}}>Request Deletion by Email ✉️</a>
+        <div style={{fontSize:12,color:C.muted,textAlign:"center",marginTop:10,lineHeight:1.6}}>Or write to {CONTACT_EMAIL} from your account email with the subject "Account Deletion Request".</div>
+        <a href="/" style={{display:"block",textAlign:"center",fontSize:13,color:C.blue,fontWeight:700,textDecoration:"none",marginTop:16}}>← Back to GhostwriterMe</a>
+      </div>
+    </div>
+  );
+}
+
+function ReportContentModal({onClose}){
+  const mailto="mailto:"+CONTACT_EMAIL
+    +"?subject="+encodeURIComponent("Report AI Content — GhostwriterMe")
+    +"&body="+encodeURIComponent("I want to report AI-generated content.\n\nWhich writing mode was it? \n\nPaste the problematic content here:\n\n\nWhy is it problematic (offensive, harmful, inaccurate, other)?\n");
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:420,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px"}}>
+        <div style={{fontSize:16,fontWeight:900,color:"#fff",marginBottom:8}}>🚩 Report AI Content</div>
+        <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:16}}>Saw something offensive, harmful, or wrong in a generated result? Tell us — we review every report and use them to improve GhostwriterMe's safeguards.</div>
+        <a href={mailto} style={{display:"block",textAlign:"center",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",marginBottom:10}}>Send a Report ✉️</a>
+        <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
+      </div>
+    </div>
+  );
+}
+
+function MainApp(){
   // Verify subscription status with Stripe by email
   const checkSubscription=async(email)=>{
     try{
@@ -2849,4 +2922,12 @@ export default function GhostwriterMeApp(){
       {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>
   );
+}
+
+export default function GhostwriterMeApp(){
+  const path=(typeof window!=="undefined"?window.location.pathname:"/").replace(/\/+$/,"")||"/";
+  if(path==="/privacy")return <LegalPage title="Privacy Policy" sections={PRIVACY_CONTENT}/>;
+  if(path==="/terms")return <LegalPage title="Terms & Conditions" sections={TERMS_CONTENT}/>;
+  if(path==="/delete-account")return <DeleteAccountPage/>;
+  return <MainApp/>;
 }
