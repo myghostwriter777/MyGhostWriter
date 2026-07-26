@@ -1124,6 +1124,10 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   );
 }
 
+const GiftIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a1 1 0 01-1 1H6a1 1 0 01-1-1v-7"/><path d="M7.5 8a2.5 2.5 0 010-5C11 3 12 8 12 8"/><path d="M16.5 8a2.5 2.5 0 000-5C13 3 12 8 12 8"/></svg>);
+const LockIcon=({size=12,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>);
+const StarIcon=({size=11,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M12 2l2.6 6.6L21.5 9l-5.4 4.5L17.8 21 12 17.3 6.2 21l1.7-7.5L2.5 9l6.9-0.4z"/></svg>);
+const InfoIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>);
 function PricingScreen({user,onSelect,onContact,onBack}){
   const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("monthly");
   // True once this browser has consumed its cardless trial (trialPlan covers
@@ -1171,16 +1175,16 @@ function PricingScreen({user,onSelect,onContact,onBack}){
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{background:C.violetSoft,border:"1px solid rgba(155,127,232,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><span style={{fontSize:16,flexShrink:0}}>🎓</span><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(155,127,232,0.07),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.4)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.violetGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
-          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,background:tab==="student"?"linear-gradient(135deg,#9b7fe8,#c4b5fd)":`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>{tab==="student"?"🎓 STUDENT PLAN":"MOST POPULAR"}</div>)}
+          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?"linear-gradient(135deg,#9b7fe8,#c4b5fd)":`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:"none"}}>{tab==="student"?<>🎓 STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
           <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}><span style={{fontSize:34,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span><span style={{fontSize:13,color:C.muted}}>{price.per}</span></div>
           {price.sub&&<div style={{fontSize:13,color:C.green,marginBottom:price.intro?2:14}}>{price.sub}</div>}
           {price.intro&&<div style={{fontSize:12,color:C.muted,marginBottom:14}}>{price.intro}</div>}
           {!price.sub&&<div style={{marginBottom:14}}/>}
-          <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:5,maxHeight:270,overflowY:"auto"}}>
-            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;return(<li key={feat} style={{fontSize:13,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:6}}><span style={{color:isStuEx?C.violet:isProEx?C.blue:isProBas?C.blue:C.green,flexShrink:0,marginTop:1}}>✓</span>{feat}</li>);})}
+          <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
+            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;return(<li key={feat} style={{fontSize:13,lineHeight:1.5,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:6}}><span style={{color:isStuEx?C.violet:isProEx?C.blue:isProBas?C.blue:C.green,flexShrink:0,marginTop:2}}>✓</span>{feat}</li>);})}
           </ul>
-          {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16}}>🎁</span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
+          {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(155,127,232,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{width:28,height:28,borderRadius:"50%",background:tab==="student"?"rgba(155,127,232,0.15)":C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:tabColor}}><GiftIcon size={14} color={tabColor}/></span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
           {tab==="free"&&<SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
           {tab==="pro"&&<PriBtn onClick={handleCTA}>{trialUsed?"Continue with Pro →":"Start Free Trial →"}</PriBtn>}
           {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet">{trialUsed?"Continue with Student 🎓":"Start Student Free Trial 🎓"}</PriBtn>}
@@ -1248,6 +1252,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   const [loading,setLoading]=useState(false);
   const [cardErr,setCardErr]=useState("");
   const [step,setStep]=useState("form"); // "form" | "success"
+  const [cardFocus,setCardFocus]=useState(false);
 
   const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":"$15 / month"):(billing==="yearly"?"$60 / year":"$7 / month");
   const introNote=isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
@@ -1255,7 +1260,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   // Styles the CardElement's internal iframe to match the app's dark theme
   const CARD_STYLE={
     style:{
-      base:{color:"#ffffff",fontFamily:"'Cabinet Grotesk',sans-serif",fontSize:"14px","::placeholder":{color:C.muted}},
+      base:{color:"#ffffff",fontFamily:"'Cabinet Grotesk',sans-serif",fontSize:"14px",iconColor:C.muted,"::placeholder":{color:C.muted}},
       invalid:{color:C.red,iconColor:C.red},
     },
   };
@@ -1391,16 +1396,16 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
         </Card>
         <Card style={{marginBottom:16}}>
           <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:12}}>Card Details</div>
-          <div style={{background:C.surface,border:`1px solid ${cardErr?C.red:C.border}`,borderRadius:8,padding:"12px 14px",marginBottom:6}}>
-            <CardElement options={CARD_STYLE} onChange={e=>setCardErr(e.error?e.error.message:"")}/>
+          <div style={{background:C.surface,border:`1px solid ${cardErr?C.red:cardFocus?C.blue:C.border}`,borderRadius:8,padding:"12px 14px",marginBottom:6,transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:cardErr?"none":cardFocus?`0 0 0 3px ${C.blueGlow}`:"none"}}>
+            <CardElement options={CARD_STYLE} onChange={e=>setCardErr(e.error?e.error.message:"")} onFocus={()=>setCardFocus(true)} onBlur={()=>setCardFocus(false)}/>
           </div>
           {cardErr&&<div style={{fontSize:12,color:C.red,marginTop:4}}>⚠️ {cardErr}</div>}
-          <div style={{fontSize:12,color:C.muted,marginTop:10}}>🔒 Processed by Stripe. We never store card data.</div>
+          <div style={{fontSize:12,color:C.muted,marginTop:10,display:"flex",alignItems:"center",gap:6}}><LockIcon size={11} color={C.muted}/>Processed by Stripe. We never store card data.</div>
         </Card>
         <PriBtn loading={loading} onClick={handlePay} variant={isStudent?"violet":"blue"} disabled={!stripe}>
           {skipTrial?"Confirm & Subscribe →":"Confirm & Start Free Trial →"}
         </PriBtn>
-        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>🔒 Secure{skipTrial?" · Cancel anytime":" · No charge today · Cancel anytime"}</div>
+        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><LockIcon size={11} color={C.muted}/>Secure{skipTrial?" · Cancel anytime":" · No charge today · Cancel anytime"}</div>
       </div>
     </div>
   );
@@ -2412,7 +2417,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
               <div style={{fontSize:12,color:C.muted,marginTop:1}}>billed in USD</div>
             </div>
             <div style={{background:isStudent?C.violetSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
-              <div style={{fontSize:12,color:planColor,fontWeight:800}}>🎁 3 DAYS FREE</div>
+              <div style={{fontSize:12,color:planColor,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><GiftIcon size={12} color={planColor}/>3 DAYS FREE</div>
               <div style={{fontSize:11,color:C.muted,marginTop:1}}>No card required</div>
             </div>
           </div>
@@ -2614,15 +2619,18 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 function TwaSubscriptionNotice({onBack}){
   return(
     <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
-      <div style={{width:"100%",maxWidth:420}}>
-        <Card style={{textAlign:"center",padding:"28px 20px"}}>
-          <div style={{display:"flex",justifyContent:"center",marginBottom:10}}><GhostLogo size={96}/></div>
-          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:8}}>Subscriptions unavailable in this app</div>
-          <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:6}}>
+      <div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}>
+        <Card style={{textAlign:"center",padding:"30px 22px"}}>
+          <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><GhostLogo size={92}/></div>
+          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:10,letterSpacing:"-0.01em"}}>Subscriptions unavailable in this app</div>
+          <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:14}}>
             New subscriptions can't be purchased inside this app.
           </div>
-          <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:18}}>
-            Already subscribed? Just sign in with the same account — your plan unlocks automatically on every device.
+          <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:9,padding:"12px 14px",marginBottom:20,textAlign:"left",display:"flex",gap:9}}>
+            <InfoIcon size={15} color={C.blue}/>
+            <div style={{fontSize:13,color:C.text,lineHeight:1.6}}>
+              Already subscribed? Just sign in with the same account — your plan unlocks automatically on every device.
+            </div>
           </div>
           <PriBtn onClick={onBack} variant="blue">← Back to the App</PriBtn>
         </Card>
