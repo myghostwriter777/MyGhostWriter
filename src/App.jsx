@@ -2171,6 +2171,13 @@ function StoryAnalyzer({user}){
   const [error,setError]=useState("");
   const [open,setOpen]=useState({});
   const toggle=k=>setOpen(o=>({...o,[k]:!o[k]}));
+  const [progressIdx,setProgressIdx]=useState(0);
+  const PROGRESS_MSGS=["Researching the "+type+"...","Mapping the story structure...","Analyzing characters & themes...","Polishing your study guide..."];
+  useEffect(()=>{
+    if(!loading){setProgressIdx(0);return;}
+    const id=setInterval(()=>setProgressIdx(i=>(i+1)%PROGRESS_MSGS.length),2200);
+    return()=>clearInterval(id);
+  },[loading,PROGRESS_MSGS.length]);
 
   const gen=async()=>{
     if(!title.trim())return;
@@ -2201,7 +2208,7 @@ function StoryAnalyzer({user}){
   const Acc=({k,icon,label,count,children})=>(
     <Card style={{marginBottom:8,padding:0,overflow:"hidden"}}>
       <button onClick={()=>toggle(k)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"12px 14px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
-        <span style={{fontSize:14,fontWeight:800,color:open[k]?"#fff":C.text}}>{icon} {label}{count!=null&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}> · {count}</span>}</span>
+        <span style={{fontSize:14,fontWeight:800,color:open[k]?"#fff":C.text}}>{icon?icon+" ":""}{label}{count!=null&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}> · {count}</span>}</span>
         <span style={{fontSize:16,color:open[k]?C.blue:C.muted,transform:open[k]?"rotate(45deg)":"none",transition:"transform 0.2s",flexShrink:0}}>+</span>
       </button>
       {open[k]&&<div style={{padding:"0 14px 13px",animation:"fadeUp 0.2s ease"}}>{children}</div>}
@@ -2226,6 +2233,7 @@ function StoryAnalyzer({user}){
       <FInput label={type==="book"?"Book Title":"Movie Title"} placeholder={type==="book"?"e.g. To Kill a Mockingbird":"e.g. Inception"} value={title} onChange={e=>setTitle(e.target.value)} icoL={type==="book"?"📚":"🎬"} voice/>
       <FArea label="Focus (optional)" placeholder="e.g. Focus on the protagonist's moral development..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2} voice/>
       <PriBtn onClick={gen} loading={loading} disabled={!title.trim()}>🎬 Build Study Guide</PriBtn>
+      {loading&&<div key={progressIdx} style={{marginTop:9,display:"flex",alignItems:"center",justifyContent:"center",gap:7,fontSize:12.5,color:C.muted,animation:"fadeUp 0.3s ease"}}><Spin size={12} color={C.blue}/>{PROGRESS_MSGS[progressIdx]}</div>}
       {error&&<ErrBox msg={error}/>}
 
       {res&&(
@@ -2237,14 +2245,25 @@ function StoryAnalyzer({user}){
           </Card>
 
           <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Story Structure</div>
-          {(res.structure||[]).map((st,i)=>(
-            <Acc key={i} k={"st"+i} icon={STAGE_ICONS[st.stage]||"📖"} label={st.stage}>
-              <div style={{fontSize:13,lineHeight:1.7,color:C.text,marginBottom:(st.keyEvents||[]).length?8:0}}>{st.summary}</div>
-              {(st.keyEvents||[]).map((ev,j)=>(
-                <div key={j} style={{display:"flex",gap:7,fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:3}}><span style={{color:C.blue,flexShrink:0}}>•</span>{ev}</div>
-              ))}
-            </Acc>
-          ))}
+          {(res.structure||[]).map((st,i)=>{
+            const k="st"+i;const isLast=i===(res.structure.length-1);
+            return(
+              <div key={i} style={{display:"flex",gap:10}}>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
+                  <div style={{width:26,height:26,borderRadius:"50%",background:open[k]?C.blue:C.surface,border:`2px solid ${open[k]?C.blue:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,transition:"background 0.2s, border-color 0.2s",flexShrink:0}}>{STAGE_ICONS[st.stage]||"📖"}</div>
+                  {!isLast&&<div style={{width:2,flex:1,minHeight:16,background:C.border,margin:"3px 0"}}/>}
+                </div>
+                <div style={{flex:1,minWidth:0,paddingBottom:isLast?0:2}}>
+                  <Acc k={k} label={st.stage}>
+                    <div style={{fontSize:13,lineHeight:1.7,color:C.text,marginBottom:(st.keyEvents||[]).length?8:0}}>{st.summary}</div>
+                    {(st.keyEvents||[]).map((ev,j)=>(
+                      <div key={j} style={{display:"flex",gap:7,fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:3}}><span style={{color:C.blue,flexShrink:0}}>•</span>{ev}</div>
+                    ))}
+                  </Acc>
+                </div>
+              </div>
+            );
+          })}
 
           <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",margin:"14px 0 8px"}}>Analysis</div>
           {(res.characters||[]).length>0&&(
