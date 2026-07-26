@@ -1096,7 +1096,11 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
-      <div style={{textAlign:"center",marginBottom:26,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><img src={GHOSTY_ICON} alt="Ghosty" width={42} height={42} style={{borderRadius:10}}/><span style={{fontSize:32,fontWeight:900,letterSpacing:"-0.02em",color:"#fff",lineHeight:1}}>GhostwriterMe</span></div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.18em",marginTop:5}}>AI WRITING SUITE</div></div>
+      <div style={{textAlign:"center",marginBottom:22,animation:"fadeUp 0.4s ease"}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:2}}><GhostLogo size={78}/></div>
+        <div style={{fontSize:26,fontWeight:900,letterSpacing:"-0.02em",color:"#fff",lineHeight:1}}>GhostwriterMe</div>
+        <div style={{fontSize:11,color:C.muted,letterSpacing:"0.18em",marginTop:6}}>AI WRITING SUITE</div>
+      </div>
       <div style={{width:"100%",maxWidth:370,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px",animation:"fadeUp 0.4s 0.08s ease both",boxShadow:"0 20px 50px rgba(0,0,0,0.7)"}}>
         <div style={{textAlign:"center",marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>{tab==="signin"?"Sign In":"Create Account"}</div>
@@ -1508,6 +1512,10 @@ const fmtGrammarHistory=r=>[
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
 const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
 const HIST_MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠",story:"🎬"};
+// Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
+// so a history item's tag color matches the tool's tier elsewhere in the app.
+const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,m.access==="free"?C.green:m.access==="student"?C.violet:C.blue]));
+const ClockIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>);
 
 // "More Details" bottom sheet (Item 2): full prompt, full output, precise
 // timestamp, and mode — the inline View row truncates output to 200px, this
@@ -1524,7 +1532,7 @@ function HistoryDetailModal({item,onClose}){
             <div style={{fontSize:12,color:C.muted}}>{HIST_ML[item.mode]||item.mode}</div>
           </div>
         </div>
-        <div style={{fontSize:12,color:C.muted,marginBottom:14}}>🕐 {new Date(item.ts).toLocaleString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:14,display:"flex",alignItems:"center",gap:5}}><ClockIcon size={12} color={C.muted}/>{new Date(item.ts).toLocaleString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
         {item.input&&(
           <div style={{marginBottom:12}}>
             <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Prompt / Input</div>
@@ -1591,8 +1599,25 @@ function HistoryMode({user}){
     </div>
   );
   const filtered=filter==="all"?items:items.filter(i=>i.mode===filter);
-  if(!items.length)return(<div><SyncStatus/><div style={{textAlign:"center",padding:"44px 0"}}><div style={{fontSize:40,marginBottom:10}}>🕐</div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted}}>Generated content will appear here.</div></div></div>);
-  return(<div><SyncStatus/><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>(<Card key={item.id} style={{marginBottom:8}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:exp===item.id?9:0}}><div style={{display:"flex",alignItems:"center",gap:7,flex:1,minWidth:0}}><span style={{fontSize:16,flexShrink:0}}>{MI[item.mode]||"📝"}</span><div style={{minWidth:0}}><div style={{fontSize:12,color:C.muted}}>{ML[item.mode]||item.mode} · {new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</div><div style={{fontSize:13,color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div></div></div><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",marginLeft:6}}>{exp===item.id?"Hide":"View"}</button></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease"}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</Card>))}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
+  // Skeleton only for the genuine first-ever load (nothing cached locally yet
+  // and the initial sync hasn't settled) — everyone else already sees their
+  // local history instantly, so this never flashes on a normal repeat visit.
+  if(sync.state==="syncing"&&!items.length)return(
+    <div>
+      <SyncStatus/>
+      {[0,1,2].map(i=>(
+        <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:8,display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,borderRadius:8,background:C.surface,animation:"shimmerDot 1.4s ease infinite",flexShrink:0}}/>
+          <div style={{flex:1}}>
+            <div style={{width:"55%",height:11,borderRadius:4,background:C.surface,marginBottom:8,animation:"shimmerDot 1.4s ease infinite"}}/>
+            <div style={{width:"35%",height:9,borderRadius:4,background:C.surface,animation:"shimmerDot 1.4s ease infinite"}}/>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+  if(!items.length)return(<div><SyncStatus/><div style={{textAlign:"center",padding:"48px 20px"}}><div style={{width:60,height:60,borderRadius:"50%",background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><ClockIcon size={26} color={C.muted}/></div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>Generated content will appear here.</div></div></div>);
+  return(<div><SyncStatus/><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>{const tagColor=MODE_TAG_COLOR[item.mode]||C.blue;return(<div key={item.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:8,transition:"border-color 0.2s, transform 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=tagColor;e.currentTarget.style.transform="translateY(-1px)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="translateY(0)";}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:exp===item.id?9:0}}><div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,color:"#fff",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:6}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:tagColor,background:tagColor+"1a",padding:"2px 8px",borderRadius:20,flexShrink:0}}>{MI[item.mode]||"📝"} {ML[item.mode]||item.mode}</span><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,color:C.muted}}><ClockIcon size={10} color={C.muted}/>{new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</span></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{exp===item.id?"Hide":"View"}</button></div></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease",marginTop:9}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</div>);})}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
 }
 
 function ReplyMode({user,isPro,onUpgradeClick}){
@@ -2535,9 +2560,9 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           </div>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
             <PlanBadge plan={user.plan}/>
-            <button onClick={()=>setShowSettings(true)} style={{border:"none",background:"transparent",cursor:"pointer",padding:0,flexShrink:0,borderRadius:"50%"}}>
-  <Avatar avatar={user.avatar} size={34}/>
-</button>
+            <button onClick={()=>setShowSettings(true)} aria-label="Open settings" style={{border:"2px solid transparent",background:"transparent",cursor:"pointer",padding:0,flexShrink:0,borderRadius:"50%",lineHeight:0,transition:"border-color 0.2s, transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="scale(1.06)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="transparent";e.currentTarget.style.transform="scale(1)";}}>
+              <Avatar avatar={user.avatar} size={34}/>
+            </button>
           </div>
         </div>
       </div>
