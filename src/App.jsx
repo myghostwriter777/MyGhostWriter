@@ -844,6 +844,20 @@ function LandingScreen({onGetStarted,onSignIn}){
   );
 }
 
+const ChevronRightIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>);
+const MailIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>);
+const MoonIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>);
+const BellIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>);
+const GraduationCapIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>);
+const ZapIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/></svg>);
+const TagIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.59 13.41L11 3.83A2 2 0 009.59 3H4a1 1 0 00-1 1v5.59a2 2 0 00.59 1.41l9.58 9.58a2 2 0 002.83 0l4.59-4.59a2 2 0 000-2.83z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>);
+const CalendarIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>);
+const RefreshIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 01-15 6.7L3 16"/></svg>);
+const PlayIcon=({size=13,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>);
+const XCircleIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>);
+const DocumentIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8"/></svg>);
+const FlagIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V15"/></svg>);
+const TrashIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>);
 const Section=({title,children})=>(
   <div style={{marginBottom:22}}>
     <div style={{fontSize:11,letterSpacing:"0.12em",color:C.muted,textTransform:"uppercase",marginBottom:10,paddingLeft:2}}>{title}</div>
@@ -854,11 +868,11 @@ const Section=({title,children})=>(
 );
 
 const Row=({icon,label,children,onClick,danger,last})=>(
-  <div onClick={onClick} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",borderBottom:last?"none":`1px solid ${C.border}`,cursor:onClick?"pointer":"default",transition:"background 0.15s"}}
+  <div onClick={onClick} role={onClick?"button":undefined} tabIndex={onClick?0:undefined} onKeyDown={onClick?(e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onClick();}}):undefined} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"13px 14px",borderBottom:last?"none":`1px solid ${C.border}`,cursor:onClick?"pointer":"default",transition:"background 0.15s"}}
     onMouseEnter={e=>{if(onClick)e.currentTarget.style.background=danger?"rgba(240,107,107,0.05)":C.surface;}}
     onMouseLeave={e=>{if(onClick)e.currentTarget.style.background="transparent";}}>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <span style={{fontSize:16,width:22,textAlign:"center"}}>{icon}</span>
+      <span style={{width:22,display:"flex",alignItems:"center",justifyContent:"center",color:danger?C.red:C.muted,flexShrink:0}}>{icon}</span>
       <span style={{fontSize:14,color:danger?C.red:C.text}}>{label}</span>
     </div>
     <div>{children}</div>
@@ -915,13 +929,13 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
             <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:6,textTransform:"uppercase"}}>Display Name</label>
             <input value={displayName} onChange={e=>setDisplayName(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:14,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
           </div>
-          <Row icon="✉️" label={user.email} last>
+          <Row icon={<MailIcon/>} label={user.email} last>
             <span style={{fontSize:12,color:C.muted}}>Email</span>
           </Row>
         </Section>
 
         <Section title="Appearance">
-          <Row icon="🌙" label="Dark Mode" last>
+          <Row icon={<MoonIcon/>} label="Dark Mode" last>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:12,color:C.muted}}>Always on</span>
               <Toggle on={true} set={()=>{}}/>
@@ -947,16 +961,16 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
 
         <Section title="Notifications">
-          <Row icon="📬" label="Email Updates">
+          <Row icon={<BellIcon/>} label="Email Updates">
             <Toggle on={notifEmail} set={()=>setNotifEmail(!notifEmail)}/>
           </Row>
-          <Row icon="🎁" label="Promotions & Offers" last>
+          <Row icon={<GiftIcon/>} label="Promotions & Offers" last>
             <Toggle on={notifPromo} set={()=>setNotifPromo(!notifPromo)}/>
           </Row>
         </Section>
 
         <Section title="My Plan">
-          <Row icon={user.plan==="student"?"🎓":user.plan==="pro"?"⚡":"🆓"} label={planInfo.label}>
+          <Row icon={user.plan==="student"?<GraduationCapIcon/>:user.plan==="pro"?<ZapIcon/>:<TagIcon/>} label={planInfo.label}>
             {!isPaid&&<span style={{fontSize:12,color:C.muted}}>Current</span>}
             {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellow}}>Cancelled</span>}
             {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.green}}>Active ✓</span>}
@@ -964,7 +978,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
           {/* Item 4: active cardless-trial countdown. renewsAt is null during a
               local trial so the "Renews on" row below never collides with this. */}
           {user.trialEndsAt&&new Date(user.trialEndsAt)>new Date()&&(
-            <Row icon="🎁" label="Free Trial">
+            <Row icon={<GiftIcon/>} label="Free Trial">
               <span style={{fontSize:12,color:C.green}}>Ends {fmtDate(user.trialEndsAt)} · {daysLeft(user.trialEndsAt)} day{daysLeft(user.trialEndsAt)===1?"":"s"} left</span>
             </Row>
           )}
@@ -976,21 +990,21 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
             </div>
           )}
           {isPaid&&!user.cancelAtPeriodEnd&&user.renewsAt&&(
-            <Row icon="📅" label="Renews on">
+            <Row icon={<CalendarIcon/>} label="Renews on">
               <span style={{fontSize:12,color:C.muted}}>{fmtDate(user.renewsAt)}</span>
             </Row>
           )}
-          <Row icon="🔄" label="Change Plan" onClick={onChangePlan} last={!isPaid}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<RefreshIcon/>} label="Change Plan" onClick={onChangePlan} last={!isPaid}>
+            <ChevronRightIcon size={14} color={C.muted}/>
           </Row>
           {isPaid&&user.cancelAtPeriodEnd&&(
-            <Row icon="▶" label="Resume Subscription" onClick={()=>onCancelPlan(false)} last>
-              <span style={{color:C.green,fontSize:13}}>›</span>
+            <Row icon={<PlayIcon/>} label="Resume Subscription" onClick={()=>onCancelPlan(false)} last>
+              <ChevronRightIcon size={14} color={C.green}/>
             </Row>
           )}
           {isPaid&&!user.cancelAtPeriodEnd&&!cancelConfirm&&(
-            <Row icon="✕" label="Cancel Subscription" onClick={()=>setCancelConfirm(true)} danger last>
-              <span style={{color:C.muted,fontSize:13}}>›</span>
+            <Row icon={<XCircleIcon/>} label="Cancel Subscription" onClick={()=>setCancelConfirm(true)} danger last>
+              <ChevronRightIcon size={14} color={C.red}/>
             </Row>
           )}
           {isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
@@ -1011,22 +1025,22 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         )}
 
         <Section title="About">
-          <Row icon="📄" label="Terms & Conditions" onClick={onShowTerms}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<DocumentIcon/>} label="Terms & Conditions" onClick={onShowTerms}>
+            <ChevronRightIcon size={14} color={C.muted}/>
           </Row>
-          <Row icon="🔒" label="Privacy Policy" onClick={onShowPrivacy}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<LockIcon/>} label="Privacy Policy" onClick={onShowPrivacy}>
+            <ChevronRightIcon size={14} color={C.muted}/>
           </Row>
-          <Row icon="🚩" label="Report AI Content" onClick={()=>setShowReport(true)}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<FlagIcon/>} label="Report AI Content" onClick={()=>setShowReport(true)}>
+            <ChevronRightIcon size={14} color={C.muted}/>
           </Row>
-          <Row icon="🗑️" label="Delete Account" onClick={()=>{window.location.href="/delete-account";}}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<TrashIcon/>} label="Delete Account" onClick={()=>{window.location.href="/delete-account";}} danger>
+            <ChevronRightIcon size={14} color={C.red}/>
           </Row>
-          <Row icon="✉️" label="Contact Us" onClick={onContact}>
-            <span style={{color:C.muted,fontSize:13}}>›</span>
+          <Row icon={<MailIcon/>} label="Contact Us" onClick={onContact}>
+            <ChevronRightIcon size={14} color={C.muted}/>
           </Row>
-          <Row icon="ℹ️" label="Version" last>
+          <Row icon={<InfoIcon/>} label="Version" last>
             <span style={{fontSize:12,color:C.muted}}>1.0.0</span>
           </Row>
         </Section>
@@ -2671,12 +2685,12 @@ function LegalPage({title,sections}){
         <img src={GHOSTY_ICON} alt="Ghosty" width={26} height={26} style={{borderRadius:7,display:"block"}}/>
         <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{title} — GhostwriterMe</div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,margin:"0 auto",boxSizing:"border-box"}}>
         {sections.map((s,i)=>(
-          <div key={i} style={{marginBottom:20}}>
-            <div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div>
-            <div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>
-            {i<sections.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}
+          <div key={i} style={{marginBottom:22}}>
+            <div style={{fontSize:15,fontWeight:800,color:C.blue,marginBottom:7,letterSpacing:"-0.005em"}}>{s.h}</div>
+            <div style={{fontSize:13.5,color:C.muted,lineHeight:1.8,maxWidth:"68ch"}}>{s.b}</div>
+            {i<sections.length-1&&<div style={{height:1,background:C.border,marginTop:18}}/>}
           </div>
         ))}
         <a href="/" style={{display:"block",textAlign:"center",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",maxWidth:460,margin:"14px auto 0"}}>← Back to GhostwriterMe</a>
@@ -2698,14 +2712,14 @@ function DeleteAccountPage(){
         </div>
         <Card style={{marginBottom:14}}>
           <div style={{fontSize:14,color:C.muted,lineHeight:1.75}}>You can request deletion of your GhostwriterMe account and personal data at any time. Deletion covers:</div>
-          <div style={{fontSize:13,color:C.muted,lineHeight:1.9,marginTop:8}}>
-            • Your account details (name, email, Google profile photo)<br/>
-            • Your subscription customer record (any active subscription is cancelled first — Stripe retains payment records only as required by law)<br/>
-            • Your synced writing history stored on our servers
-          </div>
+          <ul style={{fontSize:13,color:C.muted,lineHeight:1.7,marginTop:8,paddingLeft:18,display:"flex",flexDirection:"column",gap:6}}>
+            <li>Your account details (name, email, Google profile photo)</li>
+            <li>Your subscription customer record (any active subscription is cancelled first — Stripe retains payment records only as required by law)</li>
+            <li>Your synced writing history stored on our servers</li>
+          </ul>
           <div style={{fontSize:13,color:C.muted,lineHeight:1.75,marginTop:10}}>Writing history saved in your browser's local storage stays on your own device; clear your browser data to remove it. Requests are processed within 30 days and deletion is permanent.</div>
         </Card>
-        <a href={mailto} style={{display:"block",textAlign:"center",padding:"13px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none"}}>Request Deletion by Email ✉️</a>
+        <a href={mailto} style={{display:"block",textAlign:"center",padding:"13px",borderRadius:8,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:14,fontWeight:800,textDecoration:"none",transition:"background 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(240,107,107,0.12)";}}>Request Deletion by Email ✉️</a>
         <div style={{fontSize:12,color:C.muted,textAlign:"center",marginTop:10,lineHeight:1.6}}>Or write to {CONTACT_EMAIL} from your account email with the subject "Account Deletion Request".</div>
         <a href="/" style={{display:"block",textAlign:"center",fontSize:13,color:C.blue,fontWeight:700,textDecoration:"none",marginTop:16}}>← Back to GhostwriterMe</a>
       </div>
@@ -2717,10 +2731,30 @@ function ReportContentModal({onClose}){
   const mailto="mailto:"+CONTACT_EMAIL
     +"?subject="+encodeURIComponent("Report AI Content — GhostwriterMe")
     +"&body="+encodeURIComponent("I want to report AI-generated content.\n\nWhich writing mode was it? \n\nPaste the problematic content here:\n\n\nWhy is it problematic (offensive, harmful, inaccurate, other)?\n");
+  const panelRef=useRef(null);
+  // Focus trap + Escape-to-close, self-contained to this modal. Tab/Shift+Tab
+  // cycle only between this panel's own focusable elements (the mailto link
+  // and Close button) instead of leaking focus to the Settings screen behind it.
+  useEffect(()=>{
+    const prevFocus=document.activeElement;
+    panelRef.current?.focus();
+    const onKeyDown=e=>{
+      if(e.key==="Escape"){onClose();return;}
+      if(e.key==="Tab"){
+        const focusables=panelRef.current?.querySelectorAll('a[href],button:not([disabled])');
+        if(!focusables||!focusables.length)return;
+        const first=focusables[0],last=focusables[focusables.length-1];
+        if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+        else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+      }
+    };
+    document.addEventListener("keydown",onKeyDown);
+    return()=>{document.removeEventListener("keydown",onKeyDown);if(prevFocus&&prevFocus.focus)prevFocus.focus();};
+  },[onClose]);
   return(
     <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:420,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px"}}>
-        <div style={{fontSize:16,fontWeight:900,color:"#fff",marginBottom:8}}>🚩 Report AI Content</div>
+      <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="report-modal-title" onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:420,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px",outline:"none"}}>
+        <div id="report-modal-title" style={{fontSize:16,fontWeight:900,color:"#fff",marginBottom:8}}>🚩 Report AI Content</div>
         <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:16}}>Saw something offensive, harmful, or wrong in a generated result? Tell us — we review every report and use them to improve GhostwriterMe's safeguards.</div>
         <a href={mailto} style={{display:"block",textAlign:"center",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",marginBottom:10}}>Send a Report ✉️</a>
         <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
