@@ -511,7 +511,7 @@ function GhostLogo({size=140}){
 
 // === LANDING SCREEN ===
 // ============ TAROT TOOLS (Explore section) ============
-const TZ={gold:"#c9a227",goldL:"#e6c965",cream:"#f2e8d0",purple:"#a98bf0"};
+const TZ={gold:"#c9a227",goldL:"#e6c965",cream:"#f2e8d0",purple:"#c084fc"};
 
 // Ghosty — the app mascot. Cropped from the full app icon; used for the small
 // header/auth logos. The full icon files (favicon.ico, logo192/512, apple-touch)
@@ -546,12 +546,16 @@ const TAROT_TOOLS=[
 
 function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
+  const [hover,setHover]=React.useState(false);
+  const [pressed,setPressed]=React.useState(false);
   const tierColor=tool.tier==="Student"?TZ.purple:tool.tier==="Pro"?"#79BAEC":"#3ddba4";
+  const locked=tool.tier!=="Free";
+  const toggle=()=>setFlipped(f=>!f);
   return(
-    <div onClick={()=>setFlipped(f=>!f)} style={{aspectRatio:"244/294",cursor:"pointer",perspective:"900px",userSelect:"none"}}>
+    <div onClick={toggle} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>{setHover(false);setPressed(false);}} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onTouchStart={()=>setPressed(true)} onTouchEnd={()=>setPressed(false)} role="button" tabIndex={0} aria-pressed={flipped} aria-label={tool.name+", "+tool.tier+" tier. Press to reveal details."} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}}} style={{aspectRatio:"244/294",cursor:"pointer",perspective:"900px",userSelect:"none",transform:pressed?"scale(0.96)":hover?"translateY(-4px)":"translateY(0) scale(1)",transition:"transform 200ms cubic-bezier(0.16,1,0.3,1)"}}>
       <div style={{position:"relative",width:"100%",height:"100%",transition:"transform 0.55s cubic-bezier(0.4,0.2,0.2,1)",transformStyle:"preserve-3d",transform:flipped?"rotateY(180deg)":"none"}}>
         {/* FRONT — tarot illustration */}
-        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,0.55)"}}>
+        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",boxShadow:hover?"0 8px 22px rgba(0,0,0,0.6), 0 0 0 1px "+tierColor+"55":"0 2px 12px rgba(0,0,0,0.55)",transition:"box-shadow 200ms ease"}}>
           {CARD_IMG[tool.id]?(
             <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
           ):(
@@ -562,9 +566,15 @@ function TarotCard({tool}){
             <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
               <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
               <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
-              <div style={{fontSize:34}}>🎬</div>
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={TZ.goldL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
               <div style={{fontSize:13,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",textAlign:"center",padding:"0 8px",lineHeight:1.2}}>{tool.name}</div>
               <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
+            </div>
+          )}
+          {locked&&(
+            <div style={{position:"absolute",top:5,right:5,display:"flex",alignItems:"center",gap:3,background:"rgba(0,0,0,0.6)",border:"1px solid "+tierColor+"88",borderRadius:20,padding:"2px 6px 2px 4px"}}>
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={tierColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+              <span style={{fontSize:7,fontWeight:800,letterSpacing:"0.04em",color:tierColor,textTransform:"uppercase"}}>{tool.tier}</span>
             </div>
           )}
         </div>
@@ -628,7 +638,7 @@ function LandingScreen({onGetStarted,onSignIn}){
   const SectionTitle=({kicker,title,sub})=>(
     <div style={{textAlign:"center",marginBottom:20}}>
       {kicker&&<div style={{fontSize:12,letterSpacing:"0.18em",color:C.blue,fontWeight:800,textTransform:"uppercase",marginBottom:7}}>{kicker}</div>}
-      <div style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</div>
+      <h2 style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h2>
       {sub&&<div style={{fontSize:14,color:C.muted,marginTop:8,lineHeight:1.6,maxWidth:380,margin:"8px auto 0"}}>{sub}</div>}
     </div>
   );
@@ -668,7 +678,7 @@ function LandingScreen({onGetStarted,onSignIn}){
             <GhostLogo size={132}/>
           </div>
           <div style={{textAlign:"center",marginBottom:10,animation:"fadeUp 0.5s 0.1s ease both"}}>
-            <div style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.05}}>GhostwriterMe</div>
+            <h1 style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.05}}>GhostwriterMe</h1>
             <div style={{fontSize:13,color:"#3d5a75",letterSpacing:"0.2em",marginTop:5,fontWeight:700,textTransform:"uppercase"}}>Your Words. Perfected.</div>
           </div>
           <div style={{textAlign:"center",marginBottom:24,animation:"fadeUp 0.5s 0.18s ease both"}}>
@@ -697,7 +707,7 @@ function LandingScreen({onGetStarted,onSignIn}){
           {/* MODES — tarot section */}
           <div style={{margin:"0 -20px",padding:"34px 20px 30px",background:"radial-gradient(ellipse at 50% 0%,rgba(169,139,240,0.08),transparent 60%),linear-gradient(180deg,#070b16,#090d1a)",borderTop:"1px solid #1a2236",borderBottom:"1px solid #1a2236",position:"relative",overflow:"hidden"}}>
             <div style={{position:"absolute",inset:0,pointerEvents:"none",opacity:0.5}}>
-              <svg width="100%" height="100%"><defs><radialGradient id="tgl" cx="50%" cy="0%" r="70%"><stop offset="0%" stopColor="#a98bf0" stopOpacity="0.06"/><stop offset="100%" stopColor="transparent"/></radialGradient></defs><rect width="100%" height="100%" fill="url(#tgl)"/></svg>
+              <svg width="100%" height="100%"><defs><radialGradient id="tgl" cx="50%" cy="0%" r="70%"><stop offset="0%" stopColor="#c084fc" stopOpacity="0.06"/><stop offset="100%" stopColor="transparent"/></radialGradient></defs><rect width="100%" height="100%" fill="url(#tgl)"/></svg>
             </div>
             <div style={{position:"relative"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:7}}>
@@ -705,9 +715,9 @@ function LandingScreen({onGetStarted,onSignIn}){
                 <span style={{fontSize:11,letterSpacing:"0.28em",color:"#c9a227",fontWeight:700}}>✧ FEATURES ✧</span>
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
               </div>
-              <div style={{textAlign:"center",fontSize:25,fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.15}}>Explore Our Writing Tools</div>
+              <h2 style={{textAlign:"center",fontSize:25,fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.15}}>Explore Our Writing Tools</h2>
               <div style={{textAlign:"center",fontSize:13.5,color:"#9a8f78",marginTop:8,marginBottom:22,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
+              <div role="group" aria-label="Writing tools" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
                 {TAROT_TOOLS.map(t=>(<TarotCard key={t.id} tool={t}/>))}
               </div>
               <div style={{textAlign:"center",marginTop:16,fontSize:12,color:"#7d7257"}}>✦ Tap any card to reveal what it does ✦</div>
