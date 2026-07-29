@@ -21,3 +21,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# TWA signing / build artifacts — never commit
+*.keystore
+*.aab
+*.apk
+signing-key-info*
+App.backup*.jsx

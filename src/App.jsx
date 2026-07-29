@@ -1089,6 +1089,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
           });
           const profile=await profileRes.json();
           setLoading(null);
+          fetch("/api/upsert-user",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:profile.email,name:profile.name||profile.given_name||"User",googleId:profile.sub})}).catch(()=>{});
           onAuth({
             name:profile.name||profile.given_name||"User",
             email:profile.email,
