@@ -39,9 +39,15 @@ body{background:#000;}
 @keyframes hatTilt{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
 @keyframes shimmerDot{0%{opacity:0.4}50%{opacity:1}100%{opacity:0.4}}
 @keyframes heroCinema{0%{opacity:0.72;transform:scale(0.98) rotate(-1.5deg)}100%{opacity:1;transform:scale(1.025) rotate(1.5deg)}}
+@keyframes heroGhostBoop{0%,100%{transform:translate3d(var(--hero-shift-x,0px),var(--hero-shift-y,0px),0) rotateX(var(--hero-tilt-x,0deg)) rotateY(var(--hero-tilt-y,0deg)) scale(1)}38%{transform:translate3d(var(--hero-shift-x,0px),calc(var(--hero-shift-y,0px) + 7px),0) rotate(-5deg) scale(0.9,0.84)}72%{transform:translate3d(var(--hero-shift-x,0px),calc(var(--hero-shift-y,0px) - 8px),0) rotate(4deg) scale(1.08,1.1)}}
+@keyframes heroGhostWiggle{0%,100%{transform:translate3d(var(--hero-shift-x,0px),var(--hero-shift-y,0px),0) rotate(0) scale(1)}25%{transform:translate3d(calc(var(--hero-shift-x,0px) - 7px),var(--hero-shift-y,0px),0) rotate(-6deg) scale(1.03)}58%{transform:translate3d(calc(var(--hero-shift-x,0px) + 7px),calc(var(--hero-shift-y,0px) - 5px),0) rotate(6deg) scale(1.05)}82%{transform:translate3d(calc(var(--hero-shift-x,0px) - 2px),var(--hero-shift-y,0px),0) rotate(-2deg) scale(1.01)}}
+@keyframes heroGhostHop{0%,100%{transform:translate3d(var(--hero-shift-x,0px),var(--hero-shift-y,0px),0) rotate(0) scale(1)}42%{transform:translate3d(var(--hero-shift-x,0px),calc(var(--hero-shift-y,0px) - 17px),0) rotate(3deg) scale(1.06)}68%{transform:translate3d(var(--hero-shift-x,0px),calc(var(--hero-shift-y,0px) + 3px),0) rotate(-2deg) scale(0.97,0.92)}}
+@keyframes heroHatPop{0%,100%{transform:rotate(-2deg) translateY(0)}42%{transform:rotate(8deg) translateY(-15px) scale(1.08)}72%{transform:rotate(-5deg) translateY(2px)}}
+@keyframes heroSparkBurst{0%{opacity:0;transform:translate3d(0,0,0) rotate(45deg) scale(0.25)}28%{opacity:1}100%{opacity:0;transform:translate3d(var(--spark-x),var(--spark-y),0) rotate(165deg) scale(1)}}
 button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:2px solid ${C.blue};outline-offset:2px;}
 .ghost-group{animation:floatGhost 3.2s ease-in-out infinite;}
 .blink-group{animation:blinkGhost 4.5s ease-in-out infinite;transform-origin:200px 189px;}
+.ghost-eyes-follow{transform:translate(var(--hero-eye-x,0px),var(--hero-eye-y,0px));transform-box:fill-box;transform-origin:center;transition:transform 90ms ease-out;}
 .pen-group{animation:wiggleGhost 2.2s ease-in-out infinite;transform-origin:261px 175px;}
 .hat-group{animation:hatTilt 3.2s ease-in-out infinite;transform-origin:200px 124px;}
 .ink1{stroke-dasharray:70;animation:inkDraw 2s ease-in-out infinite;}
@@ -53,10 +59,24 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .hero-copy{width:min(100%,460px);position:relative;z-index:2;}
 .hero-kicker{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:6px 14px;border-radius:999px;background:rgba(8,13,20,0.78);border:1px solid rgba(121,186,236,0.28);box-shadow:0 8px 30px rgba(0,0,0,0.35);font-size:12px;color:${C.blue};font-weight:800;letter-spacing:0.02em;}
 .hero-kicker-dot{width:7px;height:7px;border-radius:50%;background:${C.blue};box-shadow:0 0 14px rgba(121,186,236,0.8);flex:0 0 auto;}
-.hero-visual{width:clamp(230px,min(40vw,38vh),390px);aspect-ratio:1;position:relative;margin:clamp(6px,1.5vh,16px) auto -4px;isolation:isolate;}
+.hero-visual{width:clamp(230px,min(40vw,38vh),390px);aspect-ratio:1;position:relative;margin:clamp(6px,1.5vh,16px) auto -4px;isolation:isolate;display:block;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
 .hero-visual::before{content:"";position:absolute;inset:15%;border-radius:50%;background:radial-gradient(circle,rgba(168,212,245,0.16),rgba(121,186,236,0.04) 47%,transparent 70%);filter:blur(14px);}
 .hero-aura{position:absolute;inset:-7%;width:114%;height:114%;overflow:visible;animation:heroCinema 8s ease-in-out infinite alternate;transform-origin:center;}
-.hero-ghost-shell{position:absolute;inset:19%;filter:drop-shadow(0 18px 34px rgba(0,0,0,0.72)) drop-shadow(0 0 24px rgba(121,186,236,0.14));z-index:2;}
+.hero-ghost-shell{position:absolute;inset:19%;filter:drop-shadow(0 18px 34px rgba(0,0,0,0.72)) drop-shadow(0 0 24px rgba(121,186,236,0.14));z-index:2;transform:translate3d(var(--hero-shift-x,0px),var(--hero-shift-y,0px),0) rotateX(var(--hero-tilt-x,0deg)) rotateY(var(--hero-tilt-y,0deg));transform-style:preserve-3d;will-change:transform;transition:transform 150ms cubic-bezier(0.16,1,0.3,1),filter 180ms ease;}
+.hero-ghost-playground:hover .hero-ghost-shell,.hero-ghost-playground:focus-visible .hero-ghost-shell{filter:drop-shadow(0 20px 36px rgba(0,0,0,0.7)) drop-shadow(0 0 32px rgba(121,186,236,0.3));}
+.hero-ghost-playground:focus-visible{outline:2px solid ${C.blue};outline-offset:-18px;border-radius:50%;}
+.hero-ghost-playground.is-reacting[data-reaction="boop"] .hero-ghost-shell{animation:heroGhostBoop 560ms cubic-bezier(0.16,1,0.3,1);}
+.hero-ghost-playground.is-reacting[data-reaction="wiggle"] .hero-ghost-shell{animation:heroGhostWiggle 680ms cubic-bezier(0.16,1,0.3,1);}
+.hero-ghost-playground.is-reacting[data-reaction="hop"] .hero-ghost-shell{animation:heroGhostHop 650ms cubic-bezier(0.16,1,0.3,1);}
+.hero-ghost-playground.is-reacting[data-reaction="hat"] .hat-group{animation:heroHatPop 680ms cubic-bezier(0.16,1,0.3,1);}
+.hero-ghost-bubble{position:absolute;z-index:6;top:11%;right:-5%;max-width:172px;padding:9px 12px;border:1px solid rgba(121,186,236,0.34);border-radius:13px 13px 13px 3px;background:rgba(6,11,17,0.94);box-shadow:0 14px 34px rgba(0,0,0,0.46),0 0 24px rgba(121,186,236,0.08);backdrop-filter:blur(10px);color:#e9f5fc;font-size:11px;font-weight:800;line-height:1.4;text-align:left;opacity:0;pointer-events:none;transform:translate3d(-8px,8px,0) scale(0.94);transform-origin:bottom left;transition:opacity 180ms ease,transform 240ms cubic-bezier(0.16,1,0.3,1);}
+.hero-ghost-bubble::after{content:"";position:absolute;left:13px;bottom:-5px;width:9px;height:9px;background:rgba(6,11,17,0.94);border-right:1px solid rgba(121,186,236,0.34);border-bottom:1px solid rgba(121,186,236,0.34);transform:rotate(45deg);}
+.hero-ghost-playground:hover .hero-ghost-bubble,.hero-ghost-playground.is-hovering .hero-ghost-bubble,.hero-ghost-playground.is-reacting .hero-ghost-bubble,.hero-ghost-playground:focus-visible .hero-ghost-bubble{opacity:1;transform:translate3d(0,0,0) scale(1);}
+.hero-ghost-hint{display:block;margin-top:3px;color:${C.blue};font-size:9px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;opacity:0.72;}
+.hero-cursor-glow{position:absolute;z-index:1;left:50%;top:50%;width:82px;height:82px;margin:-41px 0 0 -41px;border-radius:50%;background:radial-gradient(circle,rgba(121,186,236,0.18),transparent 68%);transform:translate3d(var(--hero-cursor-x,0px),var(--hero-cursor-y,0px),0) scale(0.7);opacity:0;pointer-events:none;transition:opacity 180ms ease,transform 140ms ease-out;}
+.hero-ghost-playground:hover .hero-cursor-glow,.hero-ghost-playground.is-hovering .hero-cursor-glow{opacity:1;transform:translate3d(var(--hero-cursor-x,0px),var(--hero-cursor-y,0px),0) scale(1);}
+.hero-reaction-spark{position:absolute;z-index:7;left:50%;top:51%;width:7px;height:7px;margin:-3px;border:1px solid ${C.accent};background:rgba(121,186,236,0.5);box-shadow:0 0 13px rgba(121,186,236,0.9);opacity:0;pointer-events:none;transform:rotate(45deg);}
+.hero-ghost-playground.is-reacting .hero-reaction-spark{animation:heroSparkBurst 660ms cubic-bezier(0.16,1,0.3,1) both;}
 .hero-title{font-size:clamp(42px,7vw,68px);font-weight:900;color:#fff;letter-spacing:-0.055em;line-height:0.98;text-wrap:balance;}
 .hero-signature{font-size:12px;color:${C.muted};letter-spacing:0.24em;margin-top:10px;font-weight:800;text-transform:uppercase;}
 .hero-intro{margin:18px auto 24px;font-size:clamp(17px,2vw,20px);color:${C.accent};font-weight:700;line-height:1.5;}
@@ -172,8 +192,9 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 @media (max-width:420px){.cinematic-hero{padding-top:max(28px,env(safe-area-inset-top));padding-bottom:68px}.hero-visual{width:min(70vw,34svh,268px);margin-top:4px}.hero-title{font-size:42px}.hero-intro{margin-top:14px;margin-bottom:20px}.hero-signature{font-size:10px;letter-spacing:0.19em}.tarot-section{padding-left:16px;padding-right:16px;margin-left:-16px;margin-right:-16px}.tarot-grid{gap:12px}}
 @media (max-width:760px){.tool-showcase-backdrop{padding:0;align-items:stretch}.tool-showcase-modal{max-height:100dvh;height:100dvh;border:0;border-radius:0}.tool-showcase-scroll{max-height:100dvh}.tool-showcase-stage{min-height:720px;grid-template-columns:1fr;align-content:center;gap:22px;padding:74px 20px 42px}.tool-showcase-copy{align-self:auto}.tool-showcase-title{font-size:50px}.tool-showcase-note{font-size:13px}.tool-demo-wrap{min-height:330px}.tool-demo-orbit{width:min(92vw,400px)}.tool-demo-panel{width:min(92vw,450px);transform:none;animation:showcaseFloatMobile 6s ease-in-out infinite}.tool-showcase-details{grid-template-columns:1fr;padding:32px 20px 44px}.tool-showcase-actions{align-self:auto}}
 @media (max-width:600px){.scroll-ghosty{right:8px;bottom:max(10px,env(safe-area-inset-bottom));width:76px;height:94px}.ghosty-button{width:68px;height:68px}.ghosty-bubble{right:58px;bottom:51px;max-width:176px;padding:8px 10px;font-size:11px;border-radius:12px 12px 3px 12px}.ghosty-spark.s1{left:4px}.ghosty-spark.s3{left:10px;top:18px}}
+@media (max-width:420px){.hero-ghost-bubble{top:7%;right:-2%;max-width:148px;padding:8px 10px;font-size:10px}.hero-ghost-hint{font-size:8px}.hero-ghost-playground:focus-visible{outline-offset:-12px}}
 @keyframes showcaseFloatMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after,.ghosty-aura,.ghosty-spark,.scroll-ghosty.is-booped .ghosty-art{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary,.scroll-ghosty,.ghosty-button,.ghosty-art,.scroll-reveal,.tarot-tool-item,.scroll-divider,.scroll-scene-title::after{transition-duration:0.01ms!important}.scroll-reveal,.tarot-tool-item{opacity:1!important;filter:none!important;transform:none!important}.scroll-divider{opacity:1!important;transform:scaleX(1)!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.hero-ghost-playground.is-reacting .hero-ghost-shell,.hero-reaction-spark,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after,.ghosty-aura,.ghosty-spark,.scroll-ghosty.is-booped .ghosty-art{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary,.hero-ghost-shell,.ghost-eyes-follow,.hero-cursor-glow,.hero-ghost-bubble,.scroll-ghosty,.ghosty-button,.ghosty-art,.scroll-reveal,.tarot-tool-item,.scroll-divider,.scroll-scene-title::after{transition-duration:0.01ms!important}.hero-ghost-shell,.ghost-eyes-follow{transform:none!important}.hero-cursor-glow,.hero-reaction-spark{display:none!important}.scroll-reveal,.tarot-tool-item{opacity:1!important;filter:none!important;transform:none!important}.scroll-divider{opacity:1!important;transform:scaleX(1)!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
@@ -609,12 +630,14 @@ function GhostLogo({size=140}){
           <ellipse cx="164" cy="204" rx="19" ry="11" fill="url(#blushL)"/>
           <ellipse cx="236" cy="204" rx="19" ry="11" fill="url(#blushR)"/>
           <g className="blink-group">
-            <ellipse cx="180" cy="189" rx="12" ry="14" fill="#1a2535"/>
-            <ellipse cx="176" cy="184" rx="4.5" ry="4.5" fill="white"/>
-            <ellipse cx="184" cy="193" rx="2" ry="2" fill="white" opacity="0.45"/>
-            <ellipse cx="220" cy="189" rx="12" ry="14" fill="#1a2535"/>
-            <ellipse cx="216" cy="184" rx="4.5" ry="4.5" fill="white"/>
-            <ellipse cx="224" cy="193" rx="2" ry="2" fill="white" opacity="0.45"/>
+            <g className="ghost-eyes-follow">
+              <ellipse cx="180" cy="189" rx="12" ry="14" fill="#1a2535"/>
+              <ellipse cx="176" cy="184" rx="4.5" ry="4.5" fill="white"/>
+              <ellipse cx="184" cy="193" rx="2" ry="2" fill="white" opacity="0.45"/>
+              <ellipse cx="220" cy="189" rx="12" ry="14" fill="#1a2535"/>
+              <ellipse cx="216" cy="184" rx="4.5" ry="4.5" fill="white"/>
+              <ellipse cx="224" cy="193" rx="2" ry="2" fill="white" opacity="0.45"/>
+            </g>
           </g>
           <path d="M 191 210 Q 200 218 209 210" fill="none" stroke="#1a2535" strokeWidth="2.8" strokeLinecap="round"/>
           <g className="hat-group">
@@ -802,9 +825,99 @@ const LANDING_UPDATES=[
 ];
 
 function CinematicHeroVisual(){
+  const visualRef=useRef(null);
+  const pointerFrame=useRef(0);
+  const reactionFrame=useRef(0);
+  const reactionTimer=useRef(0);
+  const reactionIndex=useRef(0);
+  const hoveringRef=useRef(false);
+  const [hovering,setHovering]=useState(false);
+  const [reacting,setReacting]=useState(false);
+  const [reaction,setReaction]=useState({kind:"boop",message:"I can follow your cursor.",run:0});
+  const reactions=[
+    {kind:"boop",message:"Boop! You found my ticklish spot."},
+    {kind:"hat",message:"My hat says you have excellent ideas."},
+    {kind:"wiggle",message:"Look at us — already writing buddies."},
+    {kind:"hop",message:"Quick! Tell me what we’re writing."},
+  ];
+
+  const resetPointer=()=>{
+    const el=visualRef.current;
+    if(!el)return;
+    ["--hero-shift-x","--hero-shift-y","--hero-eye-x","--hero-eye-y","--hero-tilt-x","--hero-tilt-y","--hero-cursor-x","--hero-cursor-y"].forEach(name=>el.style.removeProperty(name));
+  };
+
+  const updateHovering=next=>{
+    if(hoveringRef.current===next)return;
+    hoveringRef.current=next;
+    setHovering(next);
+  };
+
+  const followPointer=e=>{
+    if(e.pointerType&&e.pointerType!=="mouse"&&e.pointerType!=="pen")return;
+    const el=visualRef.current;
+    if(!el)return;
+    updateHovering(true);
+    const rect=el.getBoundingClientRect();
+    const nx=Math.max(-1,Math.min(1,((e.clientX-rect.left)/rect.width-0.5)*2));
+    const ny=Math.max(-1,Math.min(1,((e.clientY-rect.top)/rect.height-0.5)*2));
+    if(pointerFrame.current)window.cancelAnimationFrame(pointerFrame.current);
+    pointerFrame.current=window.requestAnimationFrame(()=>{
+      el.style.setProperty("--hero-shift-x",(nx*9).toFixed(2)+"px");
+      el.style.setProperty("--hero-shift-y",(ny*7).toFixed(2)+"px");
+      el.style.setProperty("--hero-eye-x",(nx*4.5).toFixed(2)+"px");
+      el.style.setProperty("--hero-eye-y",(ny*3.5).toFixed(2)+"px");
+      el.style.setProperty("--hero-tilt-x",(-ny*3).toFixed(2)+"deg");
+      el.style.setProperty("--hero-tilt-y",(nx*5).toFixed(2)+"deg");
+      el.style.setProperty("--hero-cursor-x",(nx*rect.width*0.32).toFixed(2)+"px");
+      el.style.setProperty("--hero-cursor-y",(ny*rect.height*0.32).toFixed(2)+"px");
+      pointerFrame.current=0;
+    });
+  };
+
+  const playWithGhosty=()=>{
+    const next=reactions[reactionIndex.current%reactions.length];
+    reactionIndex.current+=1;
+    window.clearTimeout(reactionTimer.current);
+    if(reactionFrame.current)window.cancelAnimationFrame(reactionFrame.current);
+    setReaction({...next,run:reactionIndex.current});
+    setReacting(false);
+    reactionFrame.current=window.requestAnimationFrame(()=>{
+      setReacting(true);
+      reactionFrame.current=0;
+    });
+    reactionTimer.current=window.setTimeout(()=>setReacting(false),2200);
+  };
+
+  useEffect(()=>()=>{
+    if(pointerFrame.current)window.cancelAnimationFrame(pointerFrame.current);
+    if(reactionFrame.current)window.cancelAnimationFrame(reactionFrame.current);
+    window.clearTimeout(reactionTimer.current);
+  },[]);
+
+  const sparkPaths=[[-96,-58],[-72,56],[-18,-92],[42,-82],[91,-38],[84,54],[18,92],[-104,8]];
   return(
-    <div className="hero-visual" aria-hidden="true">
-      <svg className="hero-aura" viewBox="0 0 520 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <button
+      ref={visualRef}
+      type="button"
+      className={"hero-visual hero-ghost-playground"+(hovering?" is-hovering":"")+(reacting?" is-reacting":"")}
+      data-reaction={reaction.kind}
+      onPointerEnter={e=>{if(e.pointerType!=="touch")updateHovering(true);}}
+      onPointerMove={followPointer}
+      onPointerLeave={()=>{updateHovering(false);resetPointer();}}
+      onMouseLeave={()=>{updateHovering(false);resetPointer();}}
+      onFocus={()=>updateHovering(true)}
+      onBlur={()=>{updateHovering(false);resetPointer();}}
+      onClick={playWithGhosty}
+      aria-label="Play with Ghosty. Move your pointer to make Ghosty follow it, then click for a cute reaction."
+    >
+      <span key={reaction.run} className="hero-ghost-bubble" role="status" aria-live="polite">
+        {reacting?reaction.message:"I can follow your cursor."}
+        <span className="hero-ghost-hint">Click Ghosty to play</span>
+      </span>
+      <span className="hero-cursor-glow" aria-hidden="true"/>
+      {sparkPaths.map(([x,y],i)=><span key={reaction.run+"-"+i} className="hero-reaction-spark" aria-hidden="true" style={{"--spark-x":x+"px","--spark-y":y+"px",animationDelay:(i*24)+"ms"}}/>)}
+      <svg className="hero-aura" viewBox="0 0 520 520" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
         <defs>
           <radialGradient id="heroCoreGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(260 260) rotate(90) scale(205)">
             <stop stopColor="#a8d4f5" stopOpacity="0.22"/>
@@ -841,8 +954,8 @@ function CinematicHeroVisual(){
           <circle cx="328" cy="448" r="6" opacity="0.4"/>
         </g>
       </svg>
-      <div className="hero-ghost-shell"><GhostLogo size="100%"/></div>
-    </div>
+      <span className="hero-ghost-shell" aria-hidden="true"><GhostLogo size="100%"/></span>
+    </button>
   );
 }
 
