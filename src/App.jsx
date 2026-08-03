@@ -79,12 +79,69 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .tarot-card:hover .tarot-card-sheen{opacity:0.45;transform:translateX(42%);}
 .tarot-card:hover .tarot-card-face{box-shadow:1px 1px 0 #31455c,2px 2px 0 #24364a,4px 4px 0 #182637,10px 20px 38px rgba(0,0,0,0.68),0 0 26px rgba(121,186,236,0.13);}
 .tarot-card:focus-visible{outline:2px solid ${C.blue};outline-offset:5px;border-radius:12px;}
+.tarot-tool-item{min-width:0;display:flex;flex-direction:column;gap:10px;}
+.tarot-preview-button{min-height:44px;width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border:1px solid rgba(121,186,236,0.18);border-radius:9px;background:rgba(8,13,20,0.84);color:${C.muted};font-size:10px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;cursor:pointer;transition:color 200ms ease,border-color 200ms ease,background 200ms ease,transform 200ms ease;}
+.tarot-preview-button:hover{color:#fff;border-color:rgba(121,186,236,0.52);background:rgba(121,186,236,0.09);transform:translateY(-2px);}
+.tool-showcase-backdrop{position:fixed;inset:0;z-index:700;background:rgba(0,0,0,0.84);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:clamp(10px,3vw,34px);animation:showcaseScrim 220ms ease both;}
+.tool-showcase-modal{width:min(1080px,100%);max-height:min(920px,94dvh);overflow:hidden;border:1px solid rgba(121,186,236,0.2);border-radius:22px;background:#070a0f;box-shadow:0 36px 100px rgba(0,0,0,0.82),0 0 70px rgba(121,186,236,0.08);position:relative;animation:showcaseEnter 420ms cubic-bezier(0.16,1,0.3,1) both;}
+.tool-showcase-scroll{max-height:min(920px,94dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+.tool-showcase-close{position:absolute;top:14px;right:14px;z-index:8;width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,0.14);background:rgba(0,0,0,0.72);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 180ms ease,border-color 180ms ease,transform 180ms ease;}
+.tool-showcase-close:hover{background:#121923;border-color:rgba(121,186,236,0.5);transform:rotate(4deg);}
+.tool-showcase-stage{min-height:clamp(430px,62vh,650px);position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,0.9fr) minmax(340px,1.1fr);align-items:center;gap:clamp(24px,5vw,70px);padding:clamp(44px,7vw,84px);isolation:isolate;background:radial-gradient(circle at 73% 48%,rgba(121,186,236,0.2),transparent 28%),radial-gradient(circle at 12% 8%,rgba(192,132,252,0.09),transparent 24%),linear-gradient(140deg,#07111a 0%,#05070b 46%,#080d14 100%);}
+.tool-showcase-stage::before{content:"";position:absolute;inset:0;z-index:-2;background-image:linear-gradient(rgba(121,186,236,0.035) 1px,transparent 1px),linear-gradient(90deg,rgba(121,186,236,0.035) 1px,transparent 1px);background-size:42px 42px;mask-image:radial-gradient(circle at 70% 50%,black,transparent 72%);}
+.tool-showcase-stage::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(5,7,11,0.05),transparent 35%,rgba(5,7,11,0.16));pointer-events:none;}
+.tool-showcase-copy{position:relative;z-index:2;align-self:end;padding-bottom:8px;}
+.tool-showcase-kicker{display:flex;align-items:center;gap:9px;color:${C.blue};font-size:11px;font-weight:900;letter-spacing:0.16em;text-transform:uppercase;margin-bottom:18px;}
+.tool-showcase-kicker::before{content:"";width:28px;height:1px;background:${C.blue};box-shadow:0 0 10px ${C.blue};}
+.tool-showcase-title{font-family:'Instrument Serif',Georgia,serif;font-size:clamp(44px,6vw,76px);font-weight:400;line-height:0.94;letter-spacing:-0.035em;color:#fff;text-wrap:balance;}
+.tool-showcase-title em{color:${C.accent};font-weight:400;}
+.tool-showcase-note{max-width:420px;margin-top:18px;color:${C.muted};font-size:14px;line-height:1.7;}
+.tool-demo-wrap{position:relative;min-height:400px;display:flex;align-items:center;justify-content:center;perspective:1200px;}
+.tool-demo-orbit{position:absolute;width:min(38vw,440px);aspect-ratio:1;border:1px solid rgba(121,186,236,0.2);border-radius:50%;animation:showcaseOrbit 18s linear infinite;}
+.tool-demo-orbit::before,.tool-demo-orbit::after{content:"";position:absolute;border-radius:50%;background:${C.accent};box-shadow:0 0 18px rgba(121,186,236,0.9);}
+.tool-demo-orbit::before{width:7px;height:7px;top:12%;left:20%;}
+.tool-demo-orbit::after{width:4px;height:4px;right:4%;top:55%;}
+.tool-demo-panel{width:min(100%,470px);position:relative;z-index:2;transform:rotateY(-7deg) rotateX(3deg);border:1px solid rgba(255,255,255,0.13);border-radius:18px;background:linear-gradient(160deg,rgba(14,24,35,0.98),rgba(6,10,16,0.98));box-shadow:18px 30px 70px rgba(0,0,0,0.62),-12px -12px 50px rgba(121,186,236,0.08);overflow:hidden;animation:showcaseFloat 6s ease-in-out infinite;}
+.tool-demo-bar{height:48px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;padding:0 15px;background:rgba(255,255,255,0.025);}
+.tool-demo-brand{display:flex;align-items:center;gap:8px;color:#fff;font-size:11px;font-weight:900;letter-spacing:0.06em;}
+.tool-demo-brand-mark{width:20px;height:20px;border-radius:7px;display:grid;place-items:center;background:${C.blue};color:#000;}
+.tool-demo-live{display:flex;align-items:center;gap:6px;color:${C.green};font-size:9px;font-weight:900;letter-spacing:0.1em;text-transform:uppercase;}
+.tool-demo-live::before{content:"";width:6px;height:6px;border-radius:50%;background:${C.green};box-shadow:0 0 9px rgba(61,219,164,0.8);animation:showcasePulse 1.8s ease infinite;}
+.tool-demo-body{padding:18px;}
+.tool-demo-label{font-size:9px;color:${C.muted};font-weight:900;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:8px;}
+.tool-demo-prompt{border:1px solid rgba(121,186,236,0.18);border-radius:11px;background:#080d14;padding:12px 13px;color:#dceaf4;font-size:12px;line-height:1.55;}
+.tool-demo-output{margin-top:12px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.025);padding:15px;position:relative;overflow:hidden;}
+.tool-demo-output::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 28%,rgba(121,186,236,0.07) 45%,transparent 62%);transform:translateX(-100%);animation:showcaseShimmer 4s ease-in-out infinite;pointer-events:none;}
+.tool-demo-output-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;}
+.tool-demo-output-title{font-size:11px;color:#fff;font-weight:900;}
+.tool-demo-tone{border-radius:99px;border:1px solid rgba(121,186,236,0.25);padding:3px 7px;color:${C.blue};font-size:8px;font-weight:900;letter-spacing:0.08em;text-transform:uppercase;}
+.tool-demo-result{font-family:'Instrument Serif',Georgia,serif;color:#edf6fc;font-size:clamp(16px,2vw,20px);line-height:1.45;}
+.tool-demo-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;padding-top:11px;border-top:1px solid rgba(255,255,255,0.06);font-size:9px;color:${C.muted};}
+.tool-showcase-details{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,0.62fr);gap:clamp(28px,5vw,70px);padding:clamp(30px,6vw,68px);background:#080b10;border-top:1px solid rgba(255,255,255,0.07);}
+.tool-showcase-tagrow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+.tool-showcase-tag{border:1px solid ${C.border};border-radius:999px;padding:6px 10px;color:${C.muted};font-size:10px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;}
+.tool-showcase-details h3{font-size:clamp(28px,4vw,44px);color:#fff;line-height:1.04;letter-spacing:-0.035em;margin-bottom:14px;}
+.tool-showcase-details p{color:${C.muted};font-size:14px;line-height:1.75;max-width:620px;}
+.tool-showcase-actions{display:flex;flex-direction:column;gap:10px;align-self:end;}
+.tool-showcase-primary,.tool-showcase-secondary{min-height:48px;width:100%;border-radius:10px;padding:12px 16px;font-size:13px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;transition:transform 180ms ease,border-color 180ms ease,background 180ms ease;}
+.tool-showcase-primary{border:0;background:linear-gradient(135deg,${C.blue},${C.accent});color:#000;box-shadow:0 12px 30px rgba(121,186,236,0.18);}
+.tool-showcase-secondary{border:1px solid ${C.border};background:transparent;color:#fff;}
+.tool-showcase-primary:hover,.tool-showcase-secondary:hover{transform:translateY(-2px);}
+.tool-showcase-secondary:hover{border-color:rgba(121,186,236,0.46);background:rgba(121,186,236,0.06);}
+@keyframes showcaseScrim{from{opacity:0}to{opacity:1}}
+@keyframes showcaseEnter{from{opacity:0;transform:translateY(30px) scale(0.975)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes showcaseOrbit{to{transform:rotate(360deg)}}
+@keyframes showcaseFloat{0%,100%{transform:rotateY(-7deg) rotateX(3deg) translateY(0)}50%{transform:rotateY(-5deg) rotateX(2deg) translateY(-9px)}}
+@keyframes showcasePulse{0%,100%{opacity:0.55;transform:scale(0.9)}50%{opacity:1;transform:scale(1.18)}}
+@keyframes showcaseShimmer{0%,22%{transform:translateX(-110%)}60%,100%{transform:translateX(110%)}}
 .landing-reading-column{width:100%;max-width:440px;margin:0 auto;}
 @media (min-width:600px){.tarot-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.tarot-section{margin-left:0;margin-right:0;border-radius:24px;border:1px solid rgba(121,186,236,0.14)}}
 @media (min-width:900px){.tarot-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:20px}.hero-visual{margin-top:6px}}
 @media (max-height:820px) and (min-width:421px){.cinematic-hero{padding-top:24px;padding-bottom:56px}.hero-visual{width:min(34vh,280px)}.hero-intro{margin-top:12px;margin-bottom:16px}.hero-trust{margin-top:10px}}
 @media (max-width:420px){.cinematic-hero{padding-top:max(28px,env(safe-area-inset-top));padding-bottom:68px}.hero-visual{width:min(70vw,34svh,268px);margin-top:4px}.hero-title{font-size:42px}.hero-intro{margin-top:14px;margin-bottom:20px}.hero-signature{font-size:10px;letter-spacing:0.19em}.tarot-section{padding-left:16px;padding-right:16px;margin-left:-16px;margin-right:-16px}.tarot-grid{gap:12px}}
-@media (prefers-reduced-motion:reduce){.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg{transition-duration:0.01ms!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
+@media (max-width:760px){.tool-showcase-backdrop{padding:0;align-items:stretch}.tool-showcase-modal{max-height:100dvh;height:100dvh;border:0;border-radius:0}.tool-showcase-scroll{max-height:100dvh}.tool-showcase-stage{min-height:720px;grid-template-columns:1fr;align-content:center;gap:22px;padding:74px 20px 42px}.tool-showcase-copy{align-self:auto}.tool-showcase-title{font-size:50px}.tool-showcase-note{font-size:13px}.tool-demo-wrap{min-height:330px}.tool-demo-orbit{width:min(92vw,400px)}.tool-demo-panel{width:min(92vw,450px);transform:none;animation:showcaseFloatMobile 6s ease-in-out infinite}.tool-showcase-details{grid-template-columns:1fr;padding:32px 20px 44px}.tool-showcase-actions{align-self:auto}}
+@keyframes showcaseFloatMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@media (prefers-reduced-motion:reduce){.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary{transition-duration:0.01ms!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
@@ -592,6 +649,19 @@ const TAROT_TOOLS=[
   {id:"history", name:"History",      tier:"Free",    desc:"Saves and organizes all your past creations for easy access."},
 ];
 
+const TOOL_SHOWCASES={
+  reply:{kicker:"Conversation intelligence",title:"Say the right thing,",accent:"without overthinking it.",prompt:"My manager asked if I can present the project tomorrow. I need more time, but I want to sound proactive.",output:"Absolutely — I’d be happy to present. Could we move it to Thursday? That gives me time to tighten the final details and make the session genuinely useful for the team.",tone:"Confident",meta:"Ready in 4 seconds"},
+  email:{kicker:"Professional communication",title:"From blank page",accent:"to ready to send.",prompt:"Follow up after an interview. Warm, professional, not pushy. Mention the product strategy conversation.",output:"Hi Maya, thank you again for the thoughtful conversation yesterday. I especially enjoyed our discussion about where the product strategy is heading, and I left even more excited about the role.",tone:"Professional",meta:"Subject line included"},
+  grammar:{kicker:"Clarity engine",title:"Keep your voice.",accent:"Lose the friction.",prompt:"I wanted to let you know that the report are almost finish and I will sending it by tomorrow morning.",output:"I wanted to let you know that the report is almost finished, and I’ll send it by tomorrow morning.",tone:"Natural",meta:"4 improvements"},
+  essay:{kicker:"Long-form studio",title:"Turn a thesis",accent:"into a compelling case.",prompt:"Argumentative essay on whether remote work improves productivity. B2 English, 900 words, balanced evidence.",output:"Remote work has changed from an emergency measure into a lasting model of modern employment. Its effect on productivity, however, depends less on location than on how work is designed.",tone:"Academic",meta:"Structured outline"},
+  academic:{kicker:"Research companion",title:"Sharper reasoning.",accent:"Stronger academic writing.",prompt:"Review my introduction for argument strength, evidence gaps, and APA-style academic tone.",output:"Your central claim is clear, but the opening needs a stronger link between the cited trend and your research question. Add one recent source here, then define the scope of your argument.",tone:"Reviewer",meta:"Actionable feedback"},
+  cv:{kicker:"Career story builder",title:"Make experience",accent:"read like impact.",prompt:"Product designer with 4 years of experience. Rewrite my project bullet for ATS and show measurable impact.",output:"Led the end-to-end redesign of the onboarding flow, reducing time-to-value by 38% and increasing new-user activation across mobile and web.",tone:"Executive",meta:"ATS optimized"},
+  author:{kicker:"Creative writing room",title:"Find the scene",accent:"only you could write.",prompt:"A quiet sci-fi opening: a botanist on Mars discovers that one of her plants is responding to music.",output:"On the eighty-third morning, the fern leaned toward the old piano recording. Elara stopped the track. The fronds went still. She pressed play again, and the whole greenhouse seemed to listen.",tone:"Literary",meta:"Original prose"},
+  humanize:{kicker:"Natural language pass",title:"Sound unmistakably",accent:"like yourself.",prompt:"Humanize this formal paragraph. Keep the meaning, but make it warm and conversational.",output:"We’ve spent the past few months listening, testing, and fixing the details that slowed people down. The result is a simpler experience that gets you where you’re going faster.",tone:"Human",meta:"Voice preserved"},
+  story:{kicker:"Narrative intelligence",title:"See what makes",accent:"a story work.",prompt:"Analyze the central conflict and character arc in a coming-of-age film I just watched.",output:"The visible conflict is the protagonist’s fight to leave home, but the deeper conflict is permission: she is waiting for her family to approve the person she is becoming.",tone:"Analytical",meta:"Themes connected"},
+  history:{kicker:"Personal writing archive",title:"Every good idea,",accent:"ready when you are.",prompt:"Find the cover letter draft I made last week and the follow-up email connected to it.",output:"Found 2 related pieces. Your cover letter was created 6 days ago; the follow-up email was created the next morning. Both are ready to reopen or copy.",tone:"Organized",meta:"Synced across devices"},
+};
+
 function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
   const [hover,setHover]=React.useState(false);
@@ -704,8 +774,101 @@ function CinematicHeroVisual(){
   );
 }
 
+function ToolShowcaseModal({tool,onClose,onGetStarted}){
+  const closeRef=useRef(null);
+  const modalRef=useRef(null);
+  const copy=TOOL_SHOWCASES[tool.id]||TOOL_SHOWCASES.reply;
+  const tierColor=tool.tier==="Student"?C.violet:tool.tier==="Pro"?C.blue:C.green;
+
+  useEffect(()=>{
+    const previousOverflow=document.body.style.overflow;
+    const previousFocus=document.activeElement;
+    document.body.style.overflow="hidden";
+    const handleKey=e=>{
+      if(e.key==="Escape"){onClose();return;}
+      if(e.key!=="Tab")return;
+      const focusable=modalRef.current?.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])');
+      if(!focusable?.length)return;
+      const first=focusable[0];
+      const last=focusable[focusable.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+    };
+    window.addEventListener("keydown",handleKey);
+    const focusTimer=window.setTimeout(()=>closeRef.current?.focus(),0);
+    return()=>{
+      document.body.style.overflow=previousOverflow;
+      window.removeEventListener("keydown",handleKey);
+      window.clearTimeout(focusTimer);
+      previousFocus?.focus?.();
+    };
+  },[onClose]);
+
+  const start=()=>{onClose();onGetStarted();};
+  return(
+    <div className="tool-showcase-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div ref={modalRef} className="tool-showcase-modal" role="dialog" aria-modal="true" aria-labelledby="tool-showcase-title">
+        <button ref={closeRef} className="tool-showcase-close" onClick={onClose} aria-label="Close tool preview">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+        <div className="tool-showcase-scroll">
+          <section className="tool-showcase-stage">
+            <div className="tool-showcase-copy">
+              <div className="tool-showcase-kicker">{copy.kicker}</div>
+              <h2 id="tool-showcase-title" className="tool-showcase-title">{copy.title}<br/><em>{copy.accent}</em></h2>
+              <p className="tool-showcase-note">A focused GhostwriterMe workspace that turns your intent into polished writing while keeping your tone, context, and voice intact.</p>
+            </div>
+            <div className="tool-demo-wrap" aria-label={tool.name+" interface preview"}>
+              <div className="tool-demo-orbit" aria-hidden="true"/>
+              <div className="tool-demo-panel">
+                <div className="tool-demo-bar">
+                  <div className="tool-demo-brand"><span className="tool-demo-brand-mark">G</span> GhostwriterMe</div>
+                  <div className="tool-demo-live">Live preview</div>
+                </div>
+                <div className="tool-demo-body">
+                  <div className="tool-demo-label">Your brief</div>
+                  <div className="tool-demo-prompt">{copy.prompt}</div>
+                  <div className="tool-demo-output">
+                    <div className="tool-demo-output-head">
+                      <div className="tool-demo-output-title">{tool.name} result</div>
+                      <div className="tool-demo-tone">{copy.tone}</div>
+                    </div>
+                    <div className="tool-demo-result">“{copy.output}”</div>
+                    <div className="tool-demo-meta"><span>{copy.meta}</span><span>Ready to copy</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section className="tool-showcase-details">
+            <div>
+              <div className="tool-showcase-tagrow">
+                <span className="tool-showcase-tag" style={{color:tierColor,borderColor:tierColor+"55"}}>{tool.tier}</span>
+                <span className="tool-showcase-tag">Purpose-built</span>
+                <span className="tool-showcase-tag">Editable output</span>
+              </div>
+              <h3>{tool.name}</h3>
+              <p>{tool.desc} Give it the situation, audience, and tone you want; GhostwriterMe handles the structure and phrasing so you can focus on the idea behind the words.</p>
+            </div>
+            <div className="tool-showcase-actions">
+              <button className="tool-showcase-primary" onClick={start}>
+                <span>Try {tool.name}</span>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </button>
+              <button className="tool-showcase-secondary" onClick={onClose}>
+                <span>Keep exploring</span><span aria-hidden="true">10 tools</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LandingScreen({onGetStarted,onSignIn}){
   const [faqOpen,setFaqOpen]=useState(null);
+  const [showcaseTool,setShowcaseTool]=useState(null);
   const [cfName,setCfName]=useState("");
   const [cfEmail,setCfEmail]=useState("");
   const [cfType,setCfType]=useState("Question");
@@ -762,6 +925,7 @@ function LandingScreen({onGetStarted,onSignIn}){
 
   return(
     <>
+    {showcaseTool&&<ToolShowcaseModal tool={showcaseTool} onClose={()=>setShowcaseTool(null)} onGetStarted={onGetStarted}/>}
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
       <div style={{maxWidth:1040,margin:"0 auto",padding:"0 20px 48px",position:"relative"}}>
         <div style={{position:"relative",zIndex:1}}>
@@ -800,9 +964,17 @@ function LandingScreen({onGetStarted,onSignIn}){
               <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
               <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
               <div className="tarot-grid" role="group" aria-label="Writing tools">
-                {TAROT_TOOLS.map(t=>(<TarotCard key={t.id} tool={t}/>))}
+                {TAROT_TOOLS.map(t=>(
+                  <div className="tarot-tool-item" key={t.id}>
+                    <TarotCard tool={t}/>
+                    <button className="tarot-preview-button" onClick={()=>setShowcaseTool(t)} aria-label={"View the "+t.name+" experience"}>
+                      <span>View experience</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                    </button>
+                  </div>
+                ))}
               </div>
-              <div style={{textAlign:"center",marginTop:24,fontSize:12,color:"#a99b7d",letterSpacing:"0.03em"}}>✦ Tap any card to reveal what it does ✦</div>
+              <div style={{textAlign:"center",marginTop:24,fontSize:12,color:"#a99b7d",letterSpacing:"0.03em"}}>✦ Tap a card to flip it, or open the full experience ✦</div>
             </div>
           </section>
 
