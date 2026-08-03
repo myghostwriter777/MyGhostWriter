@@ -23,6 +23,7 @@ input,button,select,textarea{font-family:inherit;outline:none;}
 ::-webkit-scrollbar-thumb{background:#162030;border-radius:2px;}
 select{-webkit-appearance:none;appearance:none;}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+html{scroll-behavior:smooth;}
 body{background:#000;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
@@ -66,7 +67,8 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .hero-scroll-cue svg{transition:transform 200ms ease;}
 .hero-scroll-cue:hover svg{transform:translateY(3px);}
 .tarot-section{scroll-margin-top:16px;margin:0 -20px;padding:clamp(56px,8vw,88px) 20px clamp(48px,7vw,76px);background:radial-gradient(ellipse at 50% 0%,rgba(121,186,236,0.1),transparent 42%),linear-gradient(180deg,#070b12,#080b12 70%,#05070b);border-top:1px solid rgba(121,186,236,0.16);border-bottom:1px solid ${C.border};position:relative;overflow:hidden;}
-.tarot-section::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(121,186,236,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(121,186,236,0.025) 1px,transparent 1px);background-size:40px 40px;mask-image:linear-gradient(180deg,black,transparent 78%);pointer-events:none;}
+.tarot-section::before{content:"";position:absolute;inset:-12%;background-image:linear-gradient(rgba(121,186,236,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(121,186,236,0.025) 1px,transparent 1px);background-size:40px 40px;mask-image:linear-gradient(180deg,black,transparent 78%);pointer-events:none;transform:translateY(var(--landing-drift,0px)) scale(1.08);will-change:transform;}
+.tarot-section::after{content:"";position:absolute;width:340px;height:340px;border-radius:50%;right:-150px;top:14%;background:radial-gradient(circle,rgba(121,186,236,0.13),transparent 68%);filter:blur(16px);transform:translate3d(0,var(--landing-drift-soft,0px),0);pointer-events:none;will-change:transform;}
 .tarot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:920px;margin:0 auto;}
 .tarot-card{aspect-ratio:244/294;cursor:pointer;perspective:1400px;user-select:none;touch-action:manipulation;outline:none;}
 .tarot-card-shell{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;transition:transform 220ms cubic-bezier(0.16,1,0.3,1),filter 220ms ease;}
@@ -134,14 +136,44 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 @keyframes showcaseFloat{0%,100%{transform:rotateY(-7deg) rotateX(3deg) translateY(0)}50%{transform:rotateY(-5deg) rotateX(2deg) translateY(-9px)}}
 @keyframes showcasePulse{0%,100%{opacity:0.55;transform:scale(0.9)}50%{opacity:1;transform:scale(1.18)}}
 @keyframes showcaseShimmer{0%,22%{transform:translateX(-110%)}60%,100%{transform:translateX(110%)}}
-.landing-reading-column{width:100%;max-width:440px;margin:0 auto;}
+.landing-reading-column{width:100%;max-width:440px;margin:0 auto;position:relative;}
+.scroll-reveal,.tarot-tool-item{opacity:0;filter:blur(4px);transform:translateY(18px) scale(0.992);transition:opacity 480ms cubic-bezier(0.16,1,0.3,1),transform 480ms cubic-bezier(0.16,1,0.3,1),filter 380ms ease;}
+.tarot-tool-item{transform:translateY(24px) rotateX(4deg) scale(0.985);transform-origin:center 70%;}
+.scroll-reveal.is-visible,.tarot-tool-item.is-visible{opacity:1;filter:blur(0);transform:translateY(0) rotateX(0) scale(1);}
+.scroll-divider{height:1px;background:linear-gradient(90deg,transparent,#162030,transparent);margin:40px 0;transform:scaleX(0.2);opacity:0;transition:transform 520ms cubic-bezier(0.16,1,0.3,1),opacity 380ms ease;}
+.scroll-divider.is-visible{transform:scaleX(1);opacity:1;}
+.scroll-scene-title{position:relative;}
+.scroll-scene-title::after{content:"";position:absolute;left:50%;bottom:-11px;width:28px;height:1px;background:${C.blue};box-shadow:0 0 12px rgba(121,186,236,0.7);transform:translateX(-50%) scaleX(0);transition:transform 420ms 160ms cubic-bezier(0.16,1,0.3,1);}
+.scroll-scene-title.is-visible::after{transform:translateX(-50%) scaleX(1);}
+.scroll-ghosty{position:fixed;right:max(18px,calc((100vw - 1180px)/2));bottom:22px;z-index:180;width:92px;height:112px;opacity:0;pointer-events:none;transform:translate3d(24px,18px,0) scale(0.72);transition:opacity 260ms ease,transform 440ms cubic-bezier(0.16,1,0.3,1);filter:drop-shadow(0 16px 28px rgba(0,0,0,0.62));}
+.scroll-ghosty.is-visible{opacity:1;pointer-events:auto;transform:translate3d(0,0,0) scale(1);}
+.ghosty-button{position:absolute;right:0;bottom:0;width:82px;height:82px;border:0;background:transparent;padding:4px;border-radius:50%;cursor:pointer;color:#fff;touch-action:manipulation;transition:transform 180ms ease,filter 180ms ease;}
+.ghosty-button:hover{transform:translateY(-5px) rotate(-2deg);filter:drop-shadow(0 0 18px rgba(121,186,236,0.32));}
+.ghosty-button:active{transform:translateY(-1px) scale(0.94);}
+.ghosty-progress-ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(${C.blue} 0deg,var(--landing-progress,0deg),rgba(121,186,236,0.1) var(--landing-progress,0deg),rgba(121,186,236,0.1) 360deg);-webkit-mask:radial-gradient(circle,transparent 62%,black 64%);mask:radial-gradient(circle,transparent 62%,black 64%);opacity:0.86;}
+.ghosty-aura{position:absolute;inset:9px;border-radius:50%;background:radial-gradient(circle,rgba(121,186,236,0.2),rgba(121,186,236,0.04) 56%,transparent 72%);animation:ghostyAura 2.8s ease-in-out infinite;}
+.ghosty-art{position:absolute;inset:2px;display:grid;place-items:center;transition:transform 220ms ease;transform-origin:center 62%;}
+.scroll-ghosty[data-direction="down"] .ghosty-art{transform:rotate(3deg) translateY(2px);}
+.scroll-ghosty[data-direction="up"] .ghosty-art{transform:rotate(-3deg) translateY(-2px);}
+.scroll-ghosty.is-booped .ghosty-art{animation:ghostyBoop 520ms cubic-bezier(0.16,1,0.3,1);}
+.ghosty-bubble{position:absolute;right:72px;bottom:61px;width:max-content;max-width:230px;padding:10px 13px;border:1px solid rgba(121,186,236,0.28);border-radius:14px 14px 3px 14px;background:rgba(8,13,20,0.94);box-shadow:0 12px 32px rgba(0,0,0,0.5),0 0 24px rgba(121,186,236,0.06);backdrop-filter:blur(12px);color:#dcecf7;font-size:12px;font-weight:700;line-height:1.42;animation:ghostyBubbleIn 320ms cubic-bezier(0.16,1,0.3,1) both;pointer-events:none;}
+.scroll-ghosty[data-mood="celebrate"] .ghosty-bubble{border-color:rgba(192,132,252,0.42);box-shadow:0 12px 32px rgba(0,0,0,0.5),0 0 26px rgba(192,132,252,0.1);}
+.scroll-ghosty[data-mood="celebrate"] .ghosty-progress-ring{background:conic-gradient(${C.violet} 0deg,var(--landing-progress,0deg),rgba(192,132,252,0.1) var(--landing-progress,0deg),rgba(192,132,252,0.1) 360deg);}
+.scroll-ghosty[data-mood="warm"] .ghosty-bubble{border-color:rgba(61,219,164,0.34);}
+.ghosty-spark{position:absolute;width:5px;height:5px;border-radius:50%;background:${C.accent};box-shadow:0 0 11px rgba(168,212,245,0.9);pointer-events:none;animation:ghostySpark 2.4s ease-in-out infinite;}
+.ghosty-spark.s1{left:2px;bottom:18px;animation-delay:-0.4s}.ghosty-spark.s2{right:2px;top:22px;width:3px;height:3px;animation-delay:-1.2s}.ghosty-spark.s3{left:12px;top:14px;width:4px;height:4px;animation-delay:-1.8s}
+@keyframes ghostyAura{0%,100%{transform:scale(0.94);opacity:0.58}50%{transform:scale(1.08);opacity:1}}
+@keyframes ghostyBoop{0%{transform:scale(1)}38%{transform:scale(0.84) rotate(-8deg)}72%{transform:scale(1.12) rotate(5deg)}100%{transform:scale(1)}}
+@keyframes ghostyBubbleIn{from{opacity:0;transform:translate3d(9px,7px,0) scale(0.94)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
+@keyframes ghostySpark{0%,100%{opacity:0;transform:translate3d(0,8px,0) scale(0.6)}45%{opacity:1}70%{opacity:0;transform:translate3d(-8px,-14px,0) scale(1)}}
 @media (min-width:600px){.tarot-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.tarot-section{margin-left:0;margin-right:0;border-radius:24px;border:1px solid rgba(121,186,236,0.14)}}
 @media (min-width:900px){.tarot-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:20px}.hero-visual{margin-top:6px}}
 @media (max-height:820px) and (min-width:421px){.cinematic-hero{padding-top:24px;padding-bottom:56px}.hero-visual{width:min(34vh,280px)}.hero-intro{margin-top:12px;margin-bottom:16px}.hero-trust{margin-top:10px}}
 @media (max-width:420px){.cinematic-hero{padding-top:max(28px,env(safe-area-inset-top));padding-bottom:68px}.hero-visual{width:min(70vw,34svh,268px);margin-top:4px}.hero-title{font-size:42px}.hero-intro{margin-top:14px;margin-bottom:20px}.hero-signature{font-size:10px;letter-spacing:0.19em}.tarot-section{padding-left:16px;padding-right:16px;margin-left:-16px;margin-right:-16px}.tarot-grid{gap:12px}}
 @media (max-width:760px){.tool-showcase-backdrop{padding:0;align-items:stretch}.tool-showcase-modal{max-height:100dvh;height:100dvh;border:0;border-radius:0}.tool-showcase-scroll{max-height:100dvh}.tool-showcase-stage{min-height:720px;grid-template-columns:1fr;align-content:center;gap:22px;padding:74px 20px 42px}.tool-showcase-copy{align-self:auto}.tool-showcase-title{font-size:50px}.tool-showcase-note{font-size:13px}.tool-demo-wrap{min-height:330px}.tool-demo-orbit{width:min(92vw,400px)}.tool-demo-panel{width:min(92vw,450px);transform:none;animation:showcaseFloatMobile 6s ease-in-out infinite}.tool-showcase-details{grid-template-columns:1fr;padding:32px 20px 44px}.tool-showcase-actions{align-self:auto}}
+@media (max-width:600px){.scroll-ghosty{right:8px;bottom:max(10px,env(safe-area-inset-bottom));width:76px;height:94px}.ghosty-button{width:68px;height:68px}.ghosty-bubble{right:58px;bottom:51px;max-width:176px;padding:8px 10px;font-size:11px;border-radius:12px 12px 3px 12px}.ghosty-spark.s1{left:4px}.ghosty-spark.s3{left:10px;top:18px}}
 @keyframes showcaseFloatMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-@media (prefers-reduced-motion:reduce){.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary{transition-duration:0.01ms!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after,.ghosty-aura,.ghosty-spark,.scroll-ghosty.is-booped .ghosty-art{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary,.scroll-ghosty,.ghosty-button,.ghosty-art,.scroll-reveal,.tarot-tool-item,.scroll-divider,.scroll-scene-title::after{transition-duration:0.01ms!important}.scroll-reveal,.tarot-tool-item{opacity:1!important;filter:none!important;transform:none!important}.scroll-divider{opacity:1!important;transform:scaleX(1)!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
@@ -614,6 +646,46 @@ function GhostLogo({size=140}){
   );
 }
 
+function ScrollGhosty({visible,message,mood,direction}){
+  const [booped,setBooped]=useState(false);
+  const [quip,setQuip]=useState("");
+  const quipIndex=useRef(0);
+  const timers=useRef([]);
+  const quips=[
+    "Boop accepted. Carry on.",
+    "Tiny ghost, big writing energy.",
+    "You found my nose. Sort of.",
+    "I’m floating right beside you.",
+  ];
+
+  const play=()=>{
+    timers.current.forEach(window.clearTimeout);
+    const next=quips[quipIndex.current%quips.length];
+    quipIndex.current+=1;
+    setBooped(false);
+    window.requestAnimationFrame(()=>setBooped(true));
+    setQuip(next);
+    timers.current=[
+      window.setTimeout(()=>setBooped(false),560),
+      window.setTimeout(()=>setQuip(""),2300),
+    ];
+  };
+
+  useEffect(()=>()=>timers.current.forEach(window.clearTimeout),[]);
+
+  return(
+    <aside className={"scroll-ghosty"+(visible?" is-visible":"")+(booped?" is-booped":"")} data-mood={mood} data-direction={direction} aria-hidden={!visible}>
+      <div key={quip||message} className="ghosty-bubble" role="status" aria-live="polite">{quip||message}</div>
+      <span className="ghosty-spark s1"/><span className="ghosty-spark s2"/><span className="ghosty-spark s3"/>
+      <button className="ghosty-button" onClick={play} aria-label="Play with Ghosty" tabIndex={visible?0:-1}>
+        <span className="ghosty-progress-ring" aria-hidden="true"/>
+        <span className="ghosty-aura" aria-hidden="true"/>
+        <span className="ghosty-art" aria-hidden="true"><GhostLogo size="100%"/></span>
+      </button>
+    </aside>
+  );
+}
+
 // === LANDING SCREEN ===
 // ============ TAROT TOOLS (Explore section) ============
 const TZ={gold:"#c9a227",goldL:"#e6c965",cream:"#f2e8d0",purple:"#c084fc"};
@@ -869,10 +941,74 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
 function LandingScreen({onGetStarted,onSignIn}){
   const [faqOpen,setFaqOpen]=useState(null);
   const [showcaseTool,setShowcaseTool]=useState(null);
+  const [ghostVisible,setGhostVisible]=useState(false);
+  const [ghostDirection,setGhostDirection]=useState("down");
+  const [ghostCue,setGhostCue]=useState({message:"I’ll float with you from here.",mood:"curious"});
   const [cfName,setCfName]=useState("");
   const [cfEmail,setCfEmail]=useState("");
   const [cfType,setCfType]=useState("Question");
   const [cfMsg,setCfMsg]=useState("");
+
+  useEffect(()=>{
+    const reduceMotion=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const revealItems=Array.from(document.querySelectorAll(".scroll-reveal,.tarot-tool-item,.scroll-divider"));
+    let revealObserver=null;
+    let cueObserver=null;
+
+    if(reduceMotion||!("IntersectionObserver" in window)){
+      revealItems.forEach(el=>el.classList.add("is-visible"));
+    }else{
+      revealObserver=new IntersectionObserver(entries=>{
+        entries.forEach(entry=>{
+          if(entry.isIntersecting){entry.target.classList.add("is-visible");revealObserver.unobserve(entry.target);}
+        });
+      },{threshold:0.14,rootMargin:"0px 0px -8% 0px"});
+      revealItems.forEach(el=>revealObserver.observe(el));
+    }
+
+    if("IntersectionObserver" in window){
+      cueObserver=new IntersectionObserver(entries=>{
+        entries.forEach(entry=>{
+          if(entry.isIntersecting){
+            setGhostCue({message:entry.target.dataset.ghostMessage||"Keep going.",mood:entry.target.dataset.ghostMood||"curious"});
+          }
+        });
+      },{threshold:0.12,rootMargin:"-18% 0px -58% 0px"});
+      document.querySelectorAll("[data-ghost-message]").forEach(el=>cueObserver.observe(el));
+    }
+
+    let raf=0;
+    let lastY=window.scrollY;
+    const updateScroll=()=>{
+      const y=window.scrollY;
+      const max=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);
+      const progress=Math.min(1,Math.max(0,y/max));
+      const delta=y-lastY;
+      document.documentElement.style.setProperty("--landing-progress",(progress*360)+"deg");
+      document.documentElement.style.setProperty("--landing-drift",(-Math.min(y*0.035,110))+"px");
+      document.documentElement.style.setProperty("--landing-drift-soft",(Math.min(y*0.018,64))+"px");
+      const toolsTop=document.getElementById("writing-tools")?.offsetTop||Infinity;
+      const ghostStart=Math.min(window.innerHeight*0.58,toolsTop*0.86);
+      setGhostVisible(y>ghostStart);
+      if(Math.abs(delta)>6)setGhostDirection(delta>0?"down":"up");
+      lastY=y;
+      raf=0;
+    };
+    const onScroll=()=>{if(!raf)raf=window.requestAnimationFrame(updateScroll);};
+    updateScroll();
+    window.addEventListener("scroll",onScroll,{passive:true});
+    window.addEventListener("resize",onScroll);
+    return()=>{
+      revealObserver?.disconnect();
+      cueObserver?.disconnect();
+      window.removeEventListener("scroll",onScroll);
+      window.removeEventListener("resize",onScroll);
+      if(raf)window.cancelAnimationFrame(raf);
+      document.documentElement.style.removeProperty("--landing-progress");
+      document.documentElement.style.removeProperty("--landing-drift");
+      document.documentElement.style.removeProperty("--landing-drift-soft");
+    };
+  },[]);
 
   const scrollToTools=()=>{
     const toolsSection=document.getElementById("writing-tools");
@@ -902,8 +1038,8 @@ function LandingScreen({onGetStarted,onSignIn}){
     window.location.href="mailto:"+CONTACT_EMAIL+"?subject="+subject+"&body="+body;
   };
 
-  const SectionTitle=({kicker,title,sub})=>(
-    <div style={{textAlign:"center",marginBottom:20}}>
+  const SectionTitle=({kicker,title,sub,ghostMessage,ghostMood="curious"})=>(
+    <div className="scroll-reveal scroll-scene-title" data-ghost-message={ghostMessage} data-ghost-mood={ghostMood} style={{textAlign:"center",marginBottom:20}}>
       {kicker&&<div style={{fontSize:12,letterSpacing:"0.18em",color:C.blue,fontWeight:800,textTransform:"uppercase",marginBottom:7}}>{kicker}</div>}
       <h2 style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h2>
       {sub&&<div style={{fontSize:14,color:C.muted,marginTop:8,lineHeight:1.6,maxWidth:380,margin:"8px auto 0"}}>{sub}</div>}
@@ -921,11 +1057,12 @@ function LandingScreen({onGetStarted,onSignIn}){
     </div>
   );
 
-  const divider=<div style={{height:1,background:"linear-gradient(90deg,transparent,#162030,transparent)",margin:"40px 0"}}/>;
+  const divider=<div className="scroll-divider"/>;
 
   return(
     <>
     {showcaseTool&&<ToolShowcaseModal tool={showcaseTool} onClose={()=>setShowcaseTool(null)} onGetStarted={onGetStarted}/>}
+    <ScrollGhosty visible={ghostVisible&&!showcaseTool} message={ghostCue.message} mood={ghostCue.mood} direction={ghostDirection}/>
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
       <div style={{maxWidth:1040,margin:"0 auto",padding:"0 20px 48px",position:"relative"}}>
         <div style={{position:"relative",zIndex:1}}>
@@ -954,7 +1091,7 @@ function LandingScreen({onGetStarted,onSignIn}){
           </section>
 
           {/* MODES — tarot section */}
-          <section id="writing-tools" className="tarot-section" aria-labelledby="writing-tools-title">
+          <section id="writing-tools" className="tarot-section" aria-labelledby="writing-tools-title" data-ghost-message="Pick a card — I’ll show you what it can do." data-ghost-mood="curious">
             <div style={{position:"relative"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:7}}>
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,transparent,#c9a227)"}}/>
@@ -964,8 +1101,8 @@ function LandingScreen({onGetStarted,onSignIn}){
               <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
               <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
               <div className="tarot-grid" role="group" aria-label="Writing tools">
-                {TAROT_TOOLS.map(t=>(
-                  <div className="tarot-tool-item" key={t.id}>
+                {TAROT_TOOLS.map((t,i)=>(
+                  <div className="tarot-tool-item" key={t.id} style={{transitionDelay:(i*28)+"ms"}}>
                     <TarotCard tool={t}/>
                     <button className="tarot-preview-button" onClick={()=>setShowcaseTool(t)} aria-label={"View the "+t.name+" experience"}>
                       <span>View experience</span>
@@ -983,18 +1120,18 @@ function LandingScreen({onGetStarted,onSignIn}){
           {divider}
 
           {/* ABOUT US */}
-          <SectionTitle kicker="About Us" title="What is GhostwriterMe?"/>
-          <Card style={{lineHeight:1.75,marginBottom:0}}>
+          <SectionTitle kicker="About Us" title="What is GhostwriterMe?" ghostMessage="I was born to make blank pages less scary." ghostMood="warm"/>
+          <div className="scroll-reveal"><Card style={{lineHeight:1.75,marginBottom:0}}>
             <div style={{fontSize:14,color:C.text}}>
               GhostwriterMe is an AI writing suite that turns your ideas into clear, polished writing. Whether you're replying to a message, drafting an email, writing an essay, or building a resume, our tools help you write faster and sound your best. We focus on real writing assistance — boosting your productivity and creativity without taking your voice away. Trusted by students, professionals, and non-native English speakers who want to communicate with confidence.
             </div>
-          </Card>
+          </Card></div>
 
           {divider}
 
           {/* PRICING */}
-          <SectionTitle kicker="Pricing" title="Simple, fair pricing" sub="Start free. Upgrade only when you need more."/>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <SectionTitle kicker="Pricing" title="Simple, fair pricing" sub="Start free. Upgrade only when you need more." ghostMessage="Start free. No spooky surprises." ghostMood="helpful"/>
+          <div className="scroll-reveal" style={{display:"flex",flexDirection:"column",gap:10}}>
             {PLANS.map(p=>(
               <div key={p.name} style={{background:p.popular?`linear-gradient(150deg,${p.color}14,${C.card})`:C.card,border:`1px solid ${p.popular?p.color:C.border}`,borderRadius:12,padding:"16px",position:"relative",boxShadow:p.popular?`0 0 24px ${p.color}22`:"none"}}>
                 {p.popular&&<div style={{position:"absolute",top:-1,right:14,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:10,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>MOST POPULAR</div>}
@@ -1016,8 +1153,8 @@ function LandingScreen({onGetStarted,onSignIn}){
           {divider}
 
           {/* FAQ */}
-          <SectionTitle kicker="FAQ" title="Frequently asked questions"/>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <SectionTitle kicker="FAQ" title="Frequently asked questions" ghostMessage="Questions? I’ve got answers tucked under here." ghostMood="curious"/>
+          <div className="scroll-reveal" style={{display:"flex",flexDirection:"column",gap:8}}>
             {FAQS.map((f,i)=>{
               const open=faqOpen===i;
               return(
@@ -1035,8 +1172,8 @@ function LandingScreen({onGetStarted,onSignIn}){
           {divider}
 
           {/* LATEST UPDATES */}
-          <SectionTitle kicker="News" title="Latest Updates"/>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <SectionTitle kicker="News" title="Latest Updates" ghostMessage="I keep learning new tricks." ghostMood="celebrate"/>
+          <div className="scroll-reveal" style={{display:"flex",flexDirection:"column",gap:10}}>
             {LANDING_UPDATES.map((u,i)=>(
               <div key={i} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:11,padding:"14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -1052,8 +1189,8 @@ function LandingScreen({onGetStarted,onSignIn}){
           {divider}
 
           {/* CONTACT & FEEDBACK */}
-          <SectionTitle kicker="Contact" title="Help us shape GhostwriterMe" sub="We're constantly improving. Share questions, ideas, suggestions, or partnership opportunities — we'd love to hear from you."/>
-          <Card>
+          <SectionTitle kicker="Contact" title="Help us shape GhostwriterMe" sub="We're constantly improving. Share questions, ideas, suggestions, or partnership opportunities — we'd love to hear from you." ghostMessage="Tell us what Ghosty should learn next." ghostMood="warm"/>
+          <div className="scroll-reveal"><Card>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:8,padding:"9px 12px",marginBottom:14}}>
               <div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.05em"}}>EMAIL US</div><div style={{fontSize:13,fontWeight:700,color:C.blue}}>{CONTACT_EMAIL}</div></div>
               <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
@@ -1082,15 +1219,15 @@ function LandingScreen({onGetStarted,onSignIn}){
             </div>
             <button onClick={sendContact} disabled={!cfMsg.trim()} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:cfMsg.trim()?`linear-gradient(135deg,${C.blue},${C.accent})`:"#0c1220",color:cfMsg.trim()?"#000":C.muted,fontSize:14,fontWeight:800,cursor:cfMsg.trim()?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s"}}>Send Message →</button>
             <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:8}}>Opens your email app with the message pre-filled.</div>
-          </Card>
+          </Card></div>
 
           {divider}
 
           {/* FINAL CTA */}
-          <SectionTitle title="Ready to write better?" sub="Join now and start using nine AI writing tools — free."/>
-          {ctaButtons({})}
+          <SectionTitle title="Ready to write better?" sub="Join now and start using nine AI writing tools — free." ghostMessage="Ready? Let’s write something brilliant." ghostMood="celebrate"/>
+          <div className="scroll-reveal">{ctaButtons({})}</div>
 
-          <div style={{marginTop:32,textAlign:"center",fontSize:12,color:"#1e3448",lineHeight:1.8}}>
+          <div className="scroll-reveal" style={{marginTop:32,textAlign:"center",fontSize:12,color:"#1e3448",lineHeight:1.8}}>
             <div style={{fontSize:18,marginBottom:6}}>👻</div>
             GhostwriterMe &middot; Your Words. Perfected.<br/>
             © 2026 GhostwriterMe. All rights reserved.
