@@ -8,10 +8,11 @@
 
 **Project:** GhostwriterMe
 **Generated:** 2026-07-26 (ui-ux-pro-max `--design-system --persist`, hand-corrected against `src/App.jsx`)
+**Updated:** 2026-08-03 (Student brand color reconciled with the live app)
 **Category:** SaaS — AI writing assistant (dark theme, Create React App, inline styles)
 **Stack:** Create React App, inline style objects in `App.jsx`. No Tailwind, no CSS framework, no UI library. Env vars are `REACT_APP_*` only.
 
-> **Source of truth note:** every value below except the two flagged rows was pulled directly from the `C` and `TZ` color objects and `GLOBAL_CSS` block already live in `src/App.jsx` — this file documents the real brand, it does not invent one.
+> **Source of truth note:** every value below was verified against the `C` and `TZ` color objects and `GLOBAL_CSS` block in `src/App.jsx`. This file documents the real brand; it does not invent one.
 
 ---
 
@@ -41,11 +42,9 @@
 |------|-------|-----|--------|
 | Free | Green | `#3ddba4` | Live (`C.green`) |
 | Pro | Denim Blue | `#79BAEC` | Live — same token as primary/CTA (`C.blue`) |
-| Student | Purple | `#c084fc` ⚠️ | **See discrepancy below** |
+| Student | Purple | `#c084fc` | Live (`C.violet`) |
 | Elite | Gold | `#c9a227` (core) / `#e6c965` (light) | **Reserved — not yet implemented** |
 
-> ⚠️ **Discrepancy flagged, not resolved:** the brand spec fixes Student purple at `#c084fc`. The live code (`src/App.jsx:13`) currently implements Student/violet as `#9b7fe8` (`C.violet`, plus `violetSoft: rgba(155,127,232,0.1)` and `violetGlow: rgba(155,127,232,0.2)`). These are two different purples. This document records `#c084fc` because that's the value explicitly fixed as brand truth, but **nothing in the app has been changed to match it** — that reconciliation is a decision for you to make (update the doc to `#9b7fe8`, or update the code to `#c084fc`), not something silently picked here.
->
 > **Elite** does not exist anywhere in `App.jsx` (confirmed via search — only `free` / `pro` / `student` plan branches exist). It's documented here as a reserved future tier, reusing the gold values that already exist in the codebase (`TZ.gold` / `TZ.goldL`, currently used only for the tarot-card back design) rather than inventing a new gold.
 
 ### Typography
@@ -127,7 +126,7 @@ Reference only — these describe the values already in use as inline styles in 
 
 /* Secondary / Student variant (PriBtn, variant="violet") */
 .btn-secondary-violet {
-  background: linear-gradient(135deg, #9b7fe8, #c4b5fd); /* current code value — see purple discrepancy note */
+  background: linear-gradient(135deg, #c084fc, #c4b5fd); /* Student brand gradient */
   color: #000000;
   padding: 12px 24px;
   border-radius: 8px;
@@ -220,7 +219,7 @@ The generated "AI Personalization Landing" pattern doesn't match the real app. A
 These are frozen by explicit product decision — styling *around* them is fine, but do not alter their logic, content, or these specific color values:
 
 - **Tarot card images** — the embedded base64 tarot card art and the `TarotCard` component's flip logic/back design (gold `#c9a227`/`#e6c965` on `linear-gradient(165deg,#1a1226,#0c0a14)`). This is a fixed cosmetic motif for the tool-showcase grid only — never extend the tarot/mystical aesthetic to the rest of the app.
-- **Plan colors as brand identifiers** — Free = green `#3ddba4`, Pro = denim blue `#79BAEC`, Student = purple (`#c084fc` per brand spec / `#9b7fe8` per current code — pending reconciliation, see discrepancy note above), Elite = gold `#c9a227` (reserved). Don't reassign these colors to other plans or reuse them for unrelated UI meaning (e.g. don't use plan-purple as a generic decorative accent).
+- **Plan colors as brand identifiers** — Free = green `#3ddba4`, Pro = denim blue `#79BAEC`, Student = purple `#c084fc`, Elite = gold `#c9a227` (reserved). Don't reassign these colors to other plans or reuse them for unrelated UI meaning (e.g. don't use plan-purple as a generic decorative accent).
 - **`isTwaApp()` / `TwaSubscriptionNotice` logic**
 - **Stripe gating logic**
 - **Google Identity Services auth logic**
