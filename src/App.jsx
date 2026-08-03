@@ -37,6 +37,7 @@ body{background:#000;}
 @keyframes inkDraw{0%{stroke-dashoffset:70;opacity:0}20%{opacity:1}100%{stroke-dashoffset:0;opacity:0.7}}
 @keyframes hatTilt{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
 @keyframes shimmerDot{0%{opacity:0.4}50%{opacity:1}100%{opacity:0.4}}
+@keyframes heroCinema{0%{opacity:0.72;transform:scale(0.98) rotate(-1.5deg)}100%{opacity:1;transform:scale(1.025) rotate(1.5deg)}}
 button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:2px solid ${C.blue};outline-offset:2px;}
 .ghost-group{animation:floatGhost 3.2s ease-in-out infinite;}
 .blink-group{animation:blinkGhost 4.5s ease-in-out infinite;transform-origin:200px 189px;}
@@ -45,6 +46,45 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .ink1{stroke-dasharray:70;animation:inkDraw 2s ease-in-out infinite;}
 .ink2{stroke-dasharray:70;animation:inkDraw 2s ease-in-out 0.4s infinite;}
 .ink3{stroke-dasharray:70;animation:inkDraw 2s ease-in-out 0.8s infinite;}
+.cinematic-hero{min-height:100svh;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:clamp(40px,7vh,76px) 0 72px;text-align:center;isolation:isolate;}
+.cinematic-hero::before{content:"";position:absolute;inset:0 50%;width:100vw;transform:translateX(-50%);background:radial-gradient(circle at 50% 33%,rgba(121,186,236,0.13),transparent 30%),radial-gradient(circle at 50% 70%,rgba(121,186,236,0.05),transparent 38%),linear-gradient(180deg,#000 0%,#03070b 72%,#070b12 100%);z-index:-2;pointer-events:none;}
+.cinematic-hero::after{content:"";position:absolute;inset:auto 50% 0;width:100vw;height:160px;transform:translateX(-50%);background:linear-gradient(180deg,transparent,#070b12);z-index:-1;pointer-events:none;}
+.hero-copy{width:min(100%,460px);position:relative;z-index:2;}
+.hero-kicker{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:6px 14px;border-radius:999px;background:rgba(8,13,20,0.78);border:1px solid rgba(121,186,236,0.28);box-shadow:0 8px 30px rgba(0,0,0,0.35);font-size:12px;color:${C.blue};font-weight:800;letter-spacing:0.02em;}
+.hero-kicker-dot{width:7px;height:7px;border-radius:50%;background:${C.blue};box-shadow:0 0 14px rgba(121,186,236,0.8);flex:0 0 auto;}
+.hero-visual{width:clamp(230px,min(40vw,38vh),390px);aspect-ratio:1;position:relative;margin:clamp(6px,1.5vh,16px) auto -4px;isolation:isolate;}
+.hero-visual::before{content:"";position:absolute;inset:15%;border-radius:50%;background:radial-gradient(circle,rgba(168,212,245,0.16),rgba(121,186,236,0.04) 47%,transparent 70%);filter:blur(14px);}
+.hero-aura{position:absolute;inset:-7%;width:114%;height:114%;overflow:visible;animation:heroCinema 8s ease-in-out infinite alternate;transform-origin:center;}
+.hero-ghost-shell{position:absolute;inset:19%;filter:drop-shadow(0 18px 34px rgba(0,0,0,0.72)) drop-shadow(0 0 24px rgba(121,186,236,0.14));z-index:2;}
+.hero-title{font-size:clamp(42px,7vw,68px);font-weight:900;color:#fff;letter-spacing:-0.055em;line-height:0.98;text-wrap:balance;}
+.hero-signature{font-size:12px;color:${C.muted};letter-spacing:0.24em;margin-top:10px;font-weight:800;text-transform:uppercase;}
+.hero-intro{margin:18px auto 24px;font-size:clamp(17px,2vw,20px);color:${C.accent};font-weight:700;line-height:1.5;}
+.hero-intro span{display:inline-block;color:${C.muted};font-weight:500;font-size:15px;margin-top:3px;}
+.hero-trust{margin-top:14px;font-size:12px;color:${C.muted};line-height:1.5;}
+.hero-scroll-cue{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:8px 14px;border:0;background:transparent;color:${C.muted};font-size:12px;font-weight:700;letter-spacing:0.03em;cursor:pointer;transition:color 200ms ease,background 200ms ease;border-color 200ms ease;border-radius 200ms ease;}
+.hero-scroll-cue:hover{color:#fff;background:rgba(121,186,236,0.08);border-radius:999px;}
+.hero-scroll-cue svg{transition:transform 200ms ease;}
+.hero-scroll-cue:hover svg{transform:translateY(3px);}
+.tarot-section{scroll-margin-top:16px;margin:0 -20px;padding:clamp(56px,8vw,88px) 20px clamp(48px,7vw,76px);background:radial-gradient(ellipse at 50% 0%,rgba(121,186,236,0.1),transparent 42%),linear-gradient(180deg,#070b12,#080b12 70%,#05070b);border-top:1px solid rgba(121,186,236,0.16);border-bottom:1px solid ${C.border};position:relative;overflow:hidden;}
+.tarot-section::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(121,186,236,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(121,186,236,0.025) 1px,transparent 1px);background-size:40px 40px;mask-image:linear-gradient(180deg,black,transparent 78%);pointer-events:none;}
+.tarot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:920px;margin:0 auto;}
+.tarot-card{aspect-ratio:244/294;cursor:pointer;perspective:1400px;user-select:none;touch-action:manipulation;outline:none;}
+.tarot-card-shell{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;transition:transform 220ms cubic-bezier(0.16,1,0.3,1),filter 220ms ease;}
+.tarot-card-flipper{position:relative;width:100%;height:100%;transform-style:preserve-3d;will-change:transform;transition:transform 300ms cubic-bezier(0.2,0.72,0.2,1);}
+.tarot-card-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:10px;overflow:hidden;transform-style:preserve-3d;box-shadow:1px 1px 0 #263548,2px 2px 0 #1d2a39,3px 3px 0 #15202c,7px 13px 26px rgba(0,0,0,0.58);transition:box-shadow 220ms ease,border-color 220ms ease;}
+.tarot-card-front{transform:translateZ(2px);background:#070a0f;}
+.tarot-card-back{transform:rotateY(180deg) translateZ(2px);}
+.tarot-card-frame{position:absolute;inset:3px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.48),inset 0 0 22px rgba(0,0,0,0.24);pointer-events:none;z-index:2;}
+.tarot-card-sheen{position:absolute;inset:0;background:linear-gradient(118deg,transparent 23%,rgba(255,255,255,0.16) 43%,transparent 57%);opacity:0;transform:translateX(-45%);pointer-events:none;z-index:1;transition:opacity 220ms ease,transform 300ms ease;}
+.tarot-card:hover .tarot-card-sheen{opacity:0.45;transform:translateX(42%);}
+.tarot-card:hover .tarot-card-face{box-shadow:1px 1px 0 #31455c,2px 2px 0 #24364a,4px 4px 0 #182637,10px 20px 38px rgba(0,0,0,0.68),0 0 26px rgba(121,186,236,0.13);}
+.tarot-card:focus-visible{outline:2px solid ${C.blue};outline-offset:5px;border-radius:12px;}
+.landing-reading-column{width:100%;max-width:440px;margin:0 auto;}
+@media (min-width:600px){.tarot-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.tarot-section{margin-left:0;margin-right:0;border-radius:24px;border:1px solid rgba(121,186,236,0.14)}}
+@media (min-width:900px){.tarot-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:20px}.hero-visual{margin-top:6px}}
+@media (max-height:820px) and (min-width:421px){.cinematic-hero{padding-top:24px;padding-bottom:56px}.hero-visual{width:min(34vh,280px)}.hero-intro{margin-top:12px;margin-bottom:16px}.hero-trust{margin-top:10px}}
+@media (max-width:420px){.cinematic-hero{padding-top:max(28px,env(safe-area-inset-top));padding-bottom:68px}.hero-visual{width:min(70vw,34svh,268px);margin-top:4px}.hero-title{font-size:42px}.hero-intro{margin-top:14px;margin-bottom:20px}.hero-signature{font-size:10px;letter-spacing:0.19em}.tarot-section{padding-left:16px;padding-right:16px;margin-left:-16px;margin-right:-16px}.tarot-grid{gap:12px}}
+@media (prefers-reduced-motion:reduce){.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg{transition-duration:0.01ms!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
@@ -560,12 +600,13 @@ function TarotCard({tool}){
   const locked=tool.tier!=="Free";
   const toggle=()=>setFlipped(f=>!f);
   return(
-    <div onClick={toggle} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>{setHover(false);setPressed(false);}} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onTouchStart={()=>setPressed(true)} onTouchEnd={()=>setPressed(false)} role="button" tabIndex={0} aria-pressed={flipped} aria-label={tool.name+", "+tool.tier+" tier. Press to reveal details."} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}}} style={{aspectRatio:"244/294",cursor:"pointer",perspective:"900px",userSelect:"none",transform:pressed?"scale(0.96)":hover?"translateY(-4px)":"translateY(0) scale(1)",transition:"transform 200ms cubic-bezier(0.16,1,0.3,1)"}}>
-      <div style={{position:"relative",width:"100%",height:"100%",transition:"transform 0.55s cubic-bezier(0.4,0.2,0.2,1)",transformStyle:"preserve-3d",transform:flipped?"rotateY(180deg)":"none"}}>
+    <div className="tarot-card" onClick={toggle} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>{setHover(false);setPressed(false);}} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onTouchStart={()=>setPressed(true)} onTouchEnd={()=>setPressed(false)} onTouchCancel={()=>setPressed(false)} role="button" tabIndex={0} aria-pressed={flipped} aria-label={tool.name+", "+tool.tier+" tier. Press to "+(flipped?"hide":"reveal")+" details."} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}}}>
+      <div className="tarot-card-shell" style={{transform:pressed?"translateY(-2px) rotateX(1deg) scale(0.975)":hover?"translateY(-8px) rotateX(3deg) rotateY(-3deg)":"translateY(0) rotateX(0) rotateY(0) scale(1)",filter:hover?"drop-shadow(0 18px 18px rgba(0,0,0,0.3))":"none"}}>
+      <div className="tarot-card-flipper" style={{transform:flipped?"rotateY(180deg)":"rotateY(0deg)"}}>
         {/* FRONT — tarot illustration */}
-        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",borderRadius:8,overflow:"hidden",boxShadow:hover?"0 8px 22px rgba(0,0,0,0.6), 0 0 0 1px "+tierColor+"55":"0 2px 12px rgba(0,0,0,0.55)",transition:"box-shadow 200ms ease"}}>
+        <div className="tarot-card-face tarot-card-front" style={{border:"1px solid "+tierColor+(hover?"88":"42")}}>
           {CARD_IMG[tool.id]?(
-            <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",imageRendering:"auto",transform:"translateZ(0)"}}/>
           ):(
             /* Ornamental fallback front for any future card added without a
                commissioned illustration (all 10 current cards have one).
@@ -579,15 +620,17 @@ function TarotCard({tool}){
               <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
             </div>
           )}
+          <div className="tarot-card-sheen"/>
+          <div className="tarot-card-frame"/>
           {locked&&(
-            <div style={{position:"absolute",top:5,right:5,display:"flex",alignItems:"center",gap:3,background:"rgba(0,0,0,0.6)",border:"1px solid "+tierColor+"88",borderRadius:20,padding:"2px 6px 2px 4px"}}>
+            <div style={{position:"absolute",top:7,right:7,zIndex:3,display:"flex",alignItems:"center",gap:4,minHeight:22,background:"rgba(0,0,0,0.76)",border:"1px solid "+tierColor+"aa",borderRadius:20,padding:"3px 7px 3px 5px",boxShadow:"0 4px 14px rgba(0,0,0,0.4)"}}>
               <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={tierColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
-              <span style={{fontSize:7,fontWeight:800,letterSpacing:"0.04em",color:tierColor,textTransform:"uppercase"}}>{tool.tier}</span>
+              <span style={{fontSize:8,fontWeight:900,letterSpacing:"0.05em",color:tierColor,textTransform:"uppercase"}}>{tool.tier}</span>
             </div>
           )}
         </div>
         {/* BACK — description */}
-        <div style={{position:"absolute",inset:0,backfaceVisibility:"hidden",WebkitBackfaceVisibility:"hidden",transform:"rotateY(180deg)",borderRadius:8,border:"1.5px solid "+TZ.gold,background:"linear-gradient(165deg,#15101f,#0c0a14)",padding:"14px 12px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",boxShadow:"0 2px 12px rgba(0,0,0,0.55)",overflow:"hidden"}}>
+        <div className="tarot-card-face tarot-card-back" style={{border:"1.5px solid "+TZ.gold,background:"linear-gradient(165deg,#15101f,#0c0a14)",padding:"14px 12px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center"}}>
           <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
           <div style={{fontSize:11,color:TZ.goldL,letterSpacing:"0.2em",marginBottom:6}}>❀</div>
           <div style={{fontSize:13.5,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",marginBottom:3,lineHeight:1.15}}>{tool.name}</div>
@@ -596,6 +639,7 @@ function TarotCard({tool}){
           <div style={{marginTop:8}}><span style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.06em",color:tierColor,border:"1px solid "+tierColor+"66",padding:"1px 7px",borderRadius:10,textTransform:"uppercase"}}>{tool.tier}</span></div>
           <div style={{fontSize:9,color:TZ.goldL,opacity:0.5,marginTop:9,letterSpacing:"0.15em"}}>↺ tap to flip</div>
         </div>
+      </div>
       </div>
     </div>
   );
@@ -615,12 +659,64 @@ const LANDING_UPDATES=[
   {date:"May 2026",tag:"New",tagColor:C.violet,title:"Humanize My Writing",text:"Refine AI or formal text into natural, human-sounding writing with a two-pass review."},
 ];
 
+function CinematicHeroVisual(){
+  return(
+    <div className="hero-visual" aria-hidden="true">
+      <svg className="hero-aura" viewBox="0 0 520 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="heroCoreGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(260 260) rotate(90) scale(205)">
+            <stop stopColor="#a8d4f5" stopOpacity="0.22"/>
+            <stop offset="0.55" stopColor="#79BAEC" stopOpacity="0.07"/>
+            <stop offset="1" stopColor="#79BAEC" stopOpacity="0"/>
+          </radialGradient>
+          <linearGradient id="heroOrbitStroke" x1="96" y1="106" x2="436" y2="423" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#79BAEC" stopOpacity="0"/>
+            <stop offset="0.32" stopColor="#a8d4f5" stopOpacity="0.8"/>
+            <stop offset="0.68" stopColor="#79BAEC" stopOpacity="0.36"/>
+            <stop offset="1" stopColor="#79BAEC" stopOpacity="0"/>
+          </linearGradient>
+          <filter id="heroSoftBlur" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="10"/>
+          </filter>
+        </defs>
+        <circle cx="260" cy="260" r="205" fill="url(#heroCoreGlow)"/>
+        <ellipse cx="260" cy="260" rx="218" ry="128" transform="rotate(-17 260 260)" stroke="url(#heroOrbitStroke)" strokeWidth="1.4"/>
+        <ellipse cx="260" cy="260" rx="183" ry="224" transform="rotate(38 260 260)" stroke="#79BAEC" strokeOpacity="0.18"/>
+        <circle cx="260" cy="260" r="171" stroke="#a8d4f5" strokeOpacity="0.13" strokeDasharray="2 11"/>
+        <path d="M72 286C128 158 280 90 437 167" stroke="url(#heroOrbitStroke)" strokeWidth="2" strokeLinecap="round"/>
+        <path d="M101 361C198 444 375 412 446 282" stroke="url(#heroOrbitStroke)" strokeWidth="1.2" strokeLinecap="round"/>
+        <g fill="#a8d4f5">
+          <circle cx="94" cy="271" r="3" opacity="0.84"/>
+          <circle cx="156" cy="118" r="2" opacity="0.58"/>
+          <circle cx="424" cy="175" r="3.5" opacity="0.72"/>
+          <circle cx="437" cy="323" r="2" opacity="0.52"/>
+          <circle cx="328" cy="448" r="2.5" opacity="0.68"/>
+          <circle cx="86" cy="344" r="1.5" opacity="0.58"/>
+        </g>
+        <g fill="#79BAEC" filter="url(#heroSoftBlur)">
+          <circle cx="94" cy="271" r="7" opacity="0.64"/>
+          <circle cx="424" cy="175" r="8" opacity="0.5"/>
+          <circle cx="328" cy="448" r="6" opacity="0.4"/>
+        </g>
+      </svg>
+      <div className="hero-ghost-shell"><GhostLogo size="100%"/></div>
+    </div>
+  );
+}
+
 function LandingScreen({onGetStarted,onSignIn}){
   const [faqOpen,setFaqOpen]=useState(null);
   const [cfName,setCfName]=useState("");
   const [cfEmail,setCfEmail]=useState("");
   const [cfType,setCfType]=useState("Question");
   const [cfMsg,setCfMsg]=useState("");
+
+  const scrollToTools=()=>{
+    const toolsSection=document.getElementById("writing-tools");
+    if(!toolsSection)return;
+    const reduceMotion=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    toolsSection.scrollIntoView({behavior:reduceMotion?"auto":"smooth",block:"start"});
+  };
 
 
   const PLANS=[
@@ -667,38 +763,50 @@ function LandingScreen({onGetStarted,onSignIn}){
   return(
     <>
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
-      <div style={{maxWidth:440,margin:"0 auto",padding:"32px 20px 48px",position:"relative"}}>
-
-        {/* Background glows */}
-        <div style={{position:"absolute",top:-60,left:"50%",transform:"translateX(-50%)",width:420,height:420,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none",zIndex:0}}/>
-        <div style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",width:260,height:260,borderRadius:"50%",border:"1px solid #0d1f30",pointerEvents:"none",zIndex:0}}/>
-
+      <div style={{maxWidth:1040,margin:"0 auto",padding:"0 20px 48px",position:"relative"}}>
         <div style={{position:"relative",zIndex:1}}>
 
           {/* HERO */}
-          <div style={{display:"flex",justifyContent:"center",marginBottom:14,animation:"fadeUp 0.5s ease both"}}>
-            <div style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 14px",borderRadius:20,background:"#0d1a26",border:"1px solid #1a3148",fontSize:12,color:C.blue,fontWeight:700}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:C.green,display:"inline-block",animation:"glow 2s ease infinite"}}/>
+          <section className="cinematic-hero" aria-labelledby="landing-title">
+            <div className="hero-copy" style={{animation:"fadeUp 0.5s ease both"}}>
+              <div className="hero-kicker">
+                <span className="hero-kicker-dot"/>
               9 AI writing tools &middot; Free to start
-            </div>
-          </div>
-          <div style={{display:"flex",justifyContent:"center",marginBottom:4,animation:"fadeUp 0.5s 0.1s ease both"}}>
-            <GhostLogo size={132}/>
-          </div>
-          <div style={{textAlign:"center",marginBottom:10,animation:"fadeUp 0.5s 0.1s ease both"}}>
-            <h1 style={{fontSize:36,fontWeight:900,color:"#fff",letterSpacing:"-0.03em",lineHeight:1.05}}>GhostwriterMe</h1>
-            <div style={{fontSize:13,color:"#3d5a75",letterSpacing:"0.2em",marginTop:5,fontWeight:700,textTransform:"uppercase"}}>Your Words. Perfected.</div>
-          </div>
-          <div style={{textAlign:"center",marginBottom:24,animation:"fadeUp 0.5s 0.18s ease both"}}>
-            <div style={{fontSize:17,color:C.accent,fontWeight:700,lineHeight:1.5}}>
+              </div>
+              <CinematicHeroVisual/>
+              <h1 id="landing-title" className="hero-title">GhostwriterMe</h1>
+              <div className="hero-signature">Your Words. Perfected.</div>
+              <div className="hero-intro">
               Write like you mean it.<br/>
-              <span style={{color:C.muted,fontWeight:400,fontSize:15}}>For non-native speakers, students,<br/>and anyone who wants to sound better.</span>
+                <span>For non-native speakers, students,<br/>and anyone who wants to sound better.</span>
+              </div>
+              {ctaButtons({})}
+              <div className="hero-trust">No credit card &middot; Works on any device &middot; Cancel anytime</div>
             </div>
-          </div>
-          {ctaButtons({})}
-          <div style={{marginTop:16,textAlign:"center"}}>
-            <div style={{fontSize:12,color:"#1e3448"}}>No credit card &middot; Works on any device &middot; Cancel anytime</div>
-          </div>
+            <button className="hero-scroll-cue" onClick={scrollToTools} aria-label="Explore the writing tools">
+              Explore the tools
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </section>
+
+          {/* MODES — tarot section */}
+          <section id="writing-tools" className="tarot-section" aria-labelledby="writing-tools-title">
+            <div style={{position:"relative"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:7}}>
+                <span style={{width:34,height:1,background:"linear-gradient(90deg,transparent,#c9a227)"}}/>
+                <span style={{fontSize:11,letterSpacing:"0.28em",color:"#c9a227",fontWeight:700}}>✧ FEATURES ✧</span>
+                <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
+              </div>
+              <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
+              <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
+              <div className="tarot-grid" role="group" aria-label="Writing tools">
+                {TAROT_TOOLS.map(t=>(<TarotCard key={t.id} tool={t}/>))}
+              </div>
+              <div style={{textAlign:"center",marginTop:24,fontSize:12,color:"#a99b7d",letterSpacing:"0.03em"}}>✦ Tap any card to reveal what it does ✦</div>
+            </div>
+          </section>
+
+          <div className="landing-reading-column">
 
           {divider}
 
@@ -709,28 +817,6 @@ function LandingScreen({onGetStarted,onSignIn}){
               GhostwriterMe is an AI writing suite that turns your ideas into clear, polished writing. Whether you're replying to a message, drafting an email, writing an essay, or building a resume, our tools help you write faster and sound your best. We focus on real writing assistance — boosting your productivity and creativity without taking your voice away. Trusted by students, professionals, and non-native English speakers who want to communicate with confidence.
             </div>
           </Card>
-
-          {divider}
-
-          {/* MODES — tarot section */}
-          <div style={{margin:"0 -20px",padding:"34px 20px 30px",background:"radial-gradient(ellipse at 50% 0%,rgba(169,139,240,0.08),transparent 60%),linear-gradient(180deg,#070b16,#090d1a)",borderTop:"1px solid #1a2236",borderBottom:"1px solid #1a2236",position:"relative",overflow:"hidden"}}>
-            <div style={{position:"absolute",inset:0,pointerEvents:"none",opacity:0.5}}>
-              <svg width="100%" height="100%"><defs><radialGradient id="tgl" cx="50%" cy="0%" r="70%"><stop offset="0%" stopColor="#c084fc" stopOpacity="0.06"/><stop offset="100%" stopColor="transparent"/></radialGradient></defs><rect width="100%" height="100%" fill="url(#tgl)"/></svg>
-            </div>
-            <div style={{position:"relative"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:7}}>
-                <span style={{width:34,height:1,background:"linear-gradient(90deg,transparent,#c9a227)"}}/>
-                <span style={{fontSize:11,letterSpacing:"0.28em",color:"#c9a227",fontWeight:700}}>✧ FEATURES ✧</span>
-                <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
-              </div>
-              <h2 style={{textAlign:"center",fontSize:25,fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.15}}>Explore Our Writing Tools</h2>
-              <div style={{textAlign:"center",fontSize:13.5,color:"#9a8f78",marginTop:8,marginBottom:22,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
-              <div role="group" aria-label="Writing tools" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                {TAROT_TOOLS.map(t=>(<TarotCard key={t.id} tool={t}/>))}
-              </div>
-              <div style={{textAlign:"center",marginTop:16,fontSize:12,color:"#7d7257"}}>✦ Tap any card to reveal what it does ✦</div>
-            </div>
-          </div>
 
           {divider}
 
@@ -836,6 +922,7 @@ function LandingScreen({onGetStarted,onSignIn}){
             <div style={{fontSize:18,marginBottom:6}}>👻</div>
             GhostwriterMe &middot; Your Words. Perfected.<br/>
             © 2026 GhostwriterMe. All rights reserved.
+          </div>
           </div>
         </div>
       </div>
