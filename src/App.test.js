@@ -1,4 +1,6 @@
 import { useState, useRef } from "react";
+import { render } from "@testing-library/react";
+import GwmIcon from "./GwmIcon";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // THEME
@@ -1434,3 +1436,11 @@ export default function GhostwriterMeApp() {
 	</>
   );
 }
+
+test("GhostwriterMe icons render as accessible custom SVG artwork",()=>{
+  const {container}=render(<GwmIcon name="ghost" title="GhostwriterMe ghost icon"/>);
+  const svg=container.querySelector("svg");
+  expect(svg).toHaveAttribute("role","img");
+  expect(svg).toHaveAttribute("aria-label","GhostwriterMe ghost icon");
+  expect(svg?.querySelectorAll("path").length).toBeGreaterThan(0);
+});

@@ -1,30 +1,87 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import GwmIcon from "./GwmIcon";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
-const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
+const stripePublishableKey=process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY;
+const stripePromise=stripePublishableKey?loadStripe(stripePublishableKey):Promise.resolve(null);
 
 const C = {
-  bg: "#000000", surface: "#080d14", card: "#0c1220", border: "#162030",
+  bg: "var(--gwm-bg)", surface: "var(--gwm-surface)", card: "var(--gwm-card)", border: "var(--gwm-border)",
   blue: "#79BAEC", blueGlow: "rgba(121,186,236,0.2)", accent: "#a8d4f5",
   accentSoft: "rgba(121,186,236,0.1)",
   violet: "#c084fc", violetSoft: "rgba(192,132,252,0.1)", violetGlow: "rgba(192,132,252,0.2)",
-  text: "#ffffff", muted: "#8eacc4",
+  text: "var(--gwm-text)", muted: "var(--gwm-muted)", chrome: "var(--gwm-chrome)",
   green: "#3ddba4", red: "#f06b6b", yellow: "#f5c842",
+  blueText:"var(--gwm-blue-text)", accentText:"var(--gwm-accent-text)", violetText:"var(--gwm-violet-text)",
+  greenText:"var(--gwm-green-text)", redText:"var(--gwm-red-text)", yellowText:"var(--gwm-yellow-text)",
 };
 
 const GLOBAL_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=Instrument+Serif:ital@0;1&display=swap');
+:root{
+  color-scheme:dark;
+  --gwm-bg:#000000;
+  --gwm-surface:#080d14;
+  --gwm-card:#0c1220;
+  --gwm-border:#162030;
+  --gwm-text:#ffffff;
+  --gwm-muted:#8eacc4;
+  --gwm-chrome:rgba(0,0,0,0.95);
+  --gwm-placeholder:#627d92;
+  --gwm-card-shadow:none;
+  --gwm-blue-text:#79BAEC;
+  --gwm-accent-text:#a8d4f5;
+  --gwm-violet-text:#c084fc;
+  --gwm-green-text:#3ddba4;
+  --gwm-red-text:#f06b6b;
+  --gwm-yellow-text:#f5c842;
+  --gwm-danger-bg:#1a0000;
+  --gwm-danger-border:#3a0808;
+}
+.gwm-theme-root[data-gwm-theme="light"]{
+  color-scheme:light;
+  --gwm-bg:#f3f7fa;
+  --gwm-surface:#ffffff;
+  --gwm-card:#ffffff;
+  --gwm-border:#c9d7e2;
+  --gwm-text:#172535;
+  --gwm-muted:#536f84;
+  --gwm-chrome:rgba(248,251,253,0.94);
+  --gwm-placeholder:#70889a;
+  --gwm-card-shadow:0 10px 28px rgba(32,62,86,0.08);
+  --gwm-blue-text:#24638e;
+  --gwm-accent-text:#285f84;
+  --gwm-violet-text:#6f38a5;
+  --gwm-green-text:#087a55;
+  --gwm-red-text:#ad3636;
+  --gwm-yellow-text:#725900;
+  --gwm-danger-bg:#fff2f2;
+  --gwm-danger-border:#e5b1b1;
+}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 input,button,select,textarea{font-family:inherit;outline:none;}
+input::placeholder,textarea::placeholder{color:var(--gwm-placeholder);opacity:1;}
 ::-webkit-scrollbar{width:3px;}
-::-webkit-scrollbar-thumb{background:#162030;border-radius:2px;}
+::-webkit-scrollbar-thumb{background:var(--gwm-border);border-radius:2px;}
 select{-webkit-appearance:none;appearance:none;}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 html{scroll-behavior:smooth;}
-body{background:#000;}
+body{background:var(--gwm-bg);}
+.gwm-theme-root{min-height:100vh;background:var(--gwm-bg);color:var(--gwm-text);transition:background-color 240ms ease,color 180ms ease;}
+.gwm-card{box-shadow:var(--gwm-card-shadow);transition:background-color 220ms ease,border-color 220ms ease,box-shadow 220ms ease;}
+.gwm-theme-toggle{width:44px;height:44px;border-radius:12px;border:1px solid var(--gwm-border);background:var(--gwm-surface);color:var(--gwm-muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:color 180ms ease,border-color 180ms ease,background-color 220ms ease,transform 180ms ease,box-shadow 180ms ease;}
+.gwm-theme-toggle:hover{color:var(--gwm-blue-text);border-color:rgba(121,186,236,0.65);transform:translateY(-1px);box-shadow:0 7px 20px rgba(46,99,135,0.14);}
+.gwm-theme-toggle:active{transform:translateY(0) scale(0.96);}
+.gwm-icon-label{display:inline-flex;align-items:center;justify-content:center;gap:7px;}
+.app-chrome{background:var(--gwm-chrome)!important;transition:background-color 220ms ease,border-color 220ms ease;}
+.mode-stage{perspective:1200px;transform-style:preserve-3d;}
+.mode-card-enter{transform-origin:center center;backface-visibility:hidden;-webkit-backface-visibility:hidden;will-change:transform,opacity;animation:modeCardFlipForward 360ms cubic-bezier(0.16,1,0.3,1) both;}
+.mode-card-enter.flip-backward{animation-name:modeCardFlipBackward;}
+@keyframes modeCardFlipForward{0%{opacity:0;transform:rotateY(-84deg) scale(0.985)}58%{opacity:1;transform:rotateY(7deg) scale(1.004)}100%{opacity:1;transform:rotateY(0) scale(1)}}
+@keyframes modeCardFlipBackward{0%{opacity:0;transform:rotateY(84deg) scale(0.985)}58%{opacity:1;transform:rotateY(-7deg) scale(1.004)}100%{opacity:1;transform:rotateY(0) scale(1)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideIn{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:translateX(0)}}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -195,28 +252,29 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 @media (max-width:420px){.hero-ghost-bubble{top:7%;right:-2%;max-width:148px;padding:8px 10px;font-size:10px}.hero-ghost-hint{font-size:8px}.hero-ghost-playground:focus-visible{outline-offset:-12px}}
 @keyframes showcaseFloatMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.hero-ghost-playground.is-reacting .hero-ghost-shell,.hero-reaction-spark,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after,.ghosty-aura,.ghosty-spark,.scroll-ghosty.is-booped .ghosty-art{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary,.hero-ghost-shell,.ghost-eyes-follow,.hero-cursor-glow,.hero-ghost-bubble,.scroll-ghosty,.ghosty-button,.ghosty-art,.scroll-reveal,.tarot-tool-item,.scroll-divider,.scroll-scene-title::after{transition-duration:0.01ms!important}.hero-ghost-shell,.ghost-eyes-follow{transform:none!important}.hero-cursor-glow,.hero-reaction-spark{display:none!important}.scroll-reveal,.tarot-tool-item{opacity:1!important;filter:none!important;transform:none!important}.scroll-divider{opacity:1!important;transform:scaleX(1)!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
+@media (prefers-reduced-motion:reduce){.mode-card-enter{animation:none!important}.gwm-theme-root,.gwm-theme-toggle{transition-duration:0.01ms!important}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
 
 const MODES = [
-  { id:"reply",    icon:"💬", label:"AI Replies", access:"free"        },
-  { id:"email",    icon:"📧", label:"Email",       access:"free"        },
-  { id:"grammar",  icon:"✅", label:"Grammar",     access:"free"        },
-  { id:"essay",    icon:"✍️",  label:"Essay",       access:"pro+student" },
-  { id:"academic", icon:"🎓", label:"Academic",    access:"student"     },
-  { id:"cv",       icon:"💼", label:"CV/Resume",   access:"pro+student" },
-  { id:"author",   icon:"📖", label:"Author",      access:"pro+student" },
-  { id:"story",    icon:"🎬", label:"Story Guide", access:"pro+student" },
-  { id:"humanize", icon:"🧠", label:"Humanize",    access:"student"     },
-  { id:"history",  icon:"🕐", label:"History",     access:"free"        },
+  { id:"reply",    icon:"reply",    label:"AI Replies", access:"free"        },
+  { id:"email",    icon:"mail",     label:"Email",       access:"free"        },
+  { id:"grammar",  icon:"grammar",  label:"Grammar",     access:"free"        },
+  { id:"essay",    icon:"essay",    label:"Essay",       access:"pro+student" },
+  { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
+  { id:"cv",       icon:"cv",       label:"CV/Resume",   access:"pro+student" },
+  { id:"author",   icon:"author",   label:"Author",      access:"pro+student" },
+  { id:"story",    icon:"story",    label:"Story Guide", access:"pro+student" },
+  { id:"humanize", icon:"humanize", label:"Humanize",    access:"student"     },
+  { id:"history",  icon:"history",  label:"History",     access:"free"        },
 ];
 
 const TONES = [
-  {id:"chill",        emoji:"😌",label:"Chill",        desc:"laid-back, unbothered"},
-  {id:"confident",    emoji:"💪",label:"Confident",    desc:"direct, assured"},
-  {id:"flirty",       emoji:"😏",label:"Flirty",       desc:"playful, suggestive"},
-  {id:"professional", emoji:"💼",label:"Professional", desc:"clean, polished"},
+  {id:"chill",        icon:"chill",       label:"Chill",        desc:"laid-back, unbothered"},
+  {id:"confident",    icon:"confident",   label:"Confident",    desc:"direct, assured"},
+  {id:"flirty",       icon:"flirty",      label:"Flirty",       desc:"playful, suggestive"},
+  {id:"professional", icon:"professional",label:"Professional", desc:"clean, polished"},
 ];
 
 const LEVELS = ["A1","A2","B1","B2","C1","C2"];
@@ -235,33 +293,33 @@ const ESSAY_TYPE_INFO = {
   "Cover Letter":"Pitches you for a specific job by matching your skills to the role.",
 };
 const GRAMMAR_STYLES = [
-  {id:"formal",  icon:"🎩",label:"Formal",  desc:"Elevated, authoritative"},
-  {id:"academic",icon:"📚",label:"Academic",desc:"Scholarly, precise"},
-  {id:"casual",  icon:"🗣️",label:"Casual",  desc:"Natural, conversational"},
+  {id:"formal",  icon:"formal",  label:"Formal",  desc:"Elevated, authoritative"},
+  {id:"academic",icon:"academic",label:"Academic",desc:"Scholarly, precise"},
+  {id:"casual",  icon:"casual",  label:"Casual",  desc:"Natural, conversational"},
 ];
 const EMAIL_TYPES = [
-  {id:"professional", icon:"💼",label:"Professional",desc:"Work emails"},
-  {id:"follow-up",    icon:"🔄",label:"Follow-up",   desc:"Check-ins"},
-  {id:"apology",      icon:"🙏",label:"Apology",     desc:"Make it right"},
-  {id:"request",      icon:"📋",label:"Request",     desc:"Ask for something"},
-  {id:"cold-outreach",icon:"🚀",label:"Cold Outreach",desc:"First contact"},
-  {id:"thank-you",    icon:"🌟",label:"Thank You",   desc:"Gratitude"},
+  {id:"professional", icon:"professional",label:"Professional",desc:"Work emails"},
+  {id:"follow-up",    icon:"followUp",    label:"Follow-up",   desc:"Check-ins"},
+  {id:"apology",      icon:"apology",     label:"Apology",     desc:"Make it right"},
+  {id:"request",      icon:"request",     label:"Request",     desc:"Ask for something"},
+  {id:"cold-outreach",icon:"outreach",    label:"Cold Outreach",desc:"First contact"},
+  {id:"thank-you",    icon:"thanks",      label:"Thank You",   desc:"Gratitude"},
 ];
 const FICTION_GENRES = [
-  {id:"fantasy",   icon:"🧙",label:"Fantasy",    desc:"Magic, worlds"},
-  {id:"sci-fi",    icon:"🚀",label:"Sci-Fi",     desc:"Tech, space"},
-  {id:"romance",   icon:"💕",label:"Romance",    desc:"Love, tension"},
-  {id:"thriller",  icon:"🔪",label:"Thriller",   desc:"Suspense, twists"},
-  {id:"mystery",   icon:"🔍",label:"Mystery",    desc:"Clues, reveals"},
-  {id:"historical",icon:"⚔️", label:"Historical", desc:"Past eras"},
-  {id:"literary",  icon:"🌿",label:"Literary",   desc:"Character-driven"},
-  {id:"ya",        icon:"✨",label:"Young Adult",desc:"Teen voices"},
+  {id:"fantasy",   icon:"fantasy",   label:"Fantasy",    desc:"Magic, worlds"},
+  {id:"sci-fi",    icon:"sciFi",     label:"Sci-Fi",     desc:"Tech, space"},
+  {id:"romance",   icon:"romance",   label:"Romance",    desc:"Love, tension"},
+  {id:"thriller",  icon:"thriller",  label:"Thriller",   desc:"Suspense, twists"},
+  {id:"mystery",   icon:"mystery",   label:"Mystery",    desc:"Clues, reveals"},
+  {id:"historical",icon:"historical",label:"Historical", desc:"Past eras"},
+  {id:"literary",  icon:"literary",  label:"Literary",   desc:"Character-driven"},
+  {id:"ya",        icon:"youngAdult",label:"Young Adult",desc:"Teen voices"},
 ];
 const NONFICTION_GENRES = [
-  {id:"memoir",  icon:"📔",label:"Memoir",        desc:"Personal stories"},
-  {id:"selfhelp",icon:"💡",label:"Self-Help",     desc:"Growth, mindset"},
-  {id:"essay-nf",icon:"🖊️", label:"Personal Essay",desc:"Opinion, voice"},
-  {id:"travel",  icon:"🗺️", label:"Travel Writing",desc:"Places, journeys"},
+  {id:"memoir",  icon:"memoir",       label:"Memoir",        desc:"Personal stories"},
+  {id:"selfhelp",icon:"selfHelp",     label:"Self-Help",     desc:"Growth, mindset"},
+  {id:"essay-nf",icon:"personalEssay",label:"Personal Essay",desc:"Opinion, voice"},
+  {id:"travel",  icon:"travel",       label:"Travel Writing",desc:"Places, journeys"},
 ];
 
 const SOCIAL_PROVIDERS = [
@@ -270,6 +328,7 @@ const SOCIAL_PROVIDERS = [
 ];
 
 const SESSION_KEY="gwm_session_v1";
+const THEME_KEY="gwm_theme_v1";
 const TRIAL_DURATION_MS=3*24*60*60*1000; // 3 days, used for the cardless trial clock
 
 // === TWA (Play Store app) detection ===
@@ -415,12 +474,12 @@ function ContactModal({onClose}){
         {!sent?(
           <>
             <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:18}}>
-              <div style={{width:42,height:42,borderRadius:10,background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>✉️</div>
-              <div><div style={{fontSize:15,fontWeight:900,color:"#fff"}}>Contact Us</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>We typically reply within 24 hours</div></div>
+              <div style={{width:42,height:42,borderRadius:10,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#071019",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="mail" size={21}/></div>
+              <div><div style={{fontSize:15,fontWeight:900,color:C.text}}>Contact Us</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>We typically reply within 24 hours</div></div>
             </div>
             <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:8,padding:"9px 12px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-              <div><div style={{fontSize:11,color:C.muted,marginBottom:2,letterSpacing:"0.05em"}}>OUR EMAIL</div><div style={{fontSize:13,fontWeight:700,color:C.blue}}>{CONTACT_EMAIL}</div></div>
-              <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+              <div><div style={{fontSize:11,color:C.muted,marginBottom:2,letterSpacing:"0.05em"}}>OUR EMAIL</div><div style={{fontSize:13,fontWeight:700,color:C.blueText}}>{CONTACT_EMAIL}</div></div>
+              <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blueText,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
             </div>
             <div style={{marginBottom:11}}><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Subject</label><input value={subject} onChange={e=>setSubject(e.target.value)} placeholder="e.g. Billing question..." style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/></div>
             <div style={{marginBottom:16}}><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Message</label><textarea value={message} onChange={e=>setMessage(e.target.value)} rows={4} placeholder="Tell us what's on your mind..." style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:13,lineHeight:1.6,resize:"none",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/></div>
@@ -434,12 +493,12 @@ function ContactModal({onClose}){
           </>
         ):(
           <div style={{textAlign:"center",padding:"16px 0"}}>
-            <div style={{fontSize:48,marginBottom:12}}>📬</div>
-            <div style={{fontSize:16,fontWeight:900,color:"#fff",marginBottom:6}}>Email App Opened!</div>
+            <div style={{width:60,height:60,borderRadius:18,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name="inbox" size={30}/></div>
+            <div style={{fontSize:16,fontWeight:900,color:C.text,marginBottom:6}}>Email App Opened!</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:20}}>Send the email from your mail app.<br/>We'll get back to you within 24 hours.</div>
             <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:8,padding:"10px 14px",marginBottom:18}}>
               <div style={{fontSize:12,color:C.muted,marginBottom:2}}>Or email us directly at</div>
-              <div style={{fontSize:13,fontWeight:700,color:C.blue}}>{CONTACT_EMAIL}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.blueText}}>{CONTACT_EMAIL}</div>
             </div>
             <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
           </div>
@@ -453,20 +512,33 @@ const Spin=({size=16,color="#fff"})=>(<span style={{display:"inline-block",width
 
 function SocialIcon({type}){
   if(type==="google")return <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>;
-  return <span style={{fontSize:16}}>✉️</span>;
+  return <GwmIcon name="mail" size={18}/>;
 }
 
-const Card=({children,style:s,glow,glowColor})=>{const gc=glowColor||C.blue;return <div style={{background:C.card,border:`1px solid ${glow?gc+"55":C.border}`,borderRadius:12,padding:"16px",...(glow?{boxShadow:`0 0 20px ${gc}22`}:{}),...s}}>{children}</div>;};
-const ErrBox=({msg})=><div style={{marginTop:10,padding:"10px 14px",background:"#1a0000",border:"1px solid #3a0808",borderRadius:8,fontSize:13,color:C.red,display:"flex",alignItems:"flex-start",gap:8,lineHeight:1.5,animation:"fadeUp 0.2s ease"}}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={C.red} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,marginTop:2}} aria-hidden="true"><path d="M12 9v4"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 17h.01"/></svg><span>{msg}</span></div>;
+const IconLabel=({name,children,size=15})=><span className="gwm-icon-label"><GwmIcon name={name} size={size}/>{children}</span>;
+const FieldIcon=({name,size=16})=>React.isValidElement(name)?name:<GwmIcon name={name} size={size}/>;
+
+function ThemeToggle({theme,onToggle,labelled=false}){
+  const isLight=theme==="light";
+  return(
+    <button type="button" className="gwm-theme-toggle" onClick={onToggle} aria-label={isLight?"Switch to dark mode":"Switch to light mode"} aria-pressed={isLight} title={isLight?"Use dark mode":"Use light mode"}>
+      <GwmIcon name={isLight?"moon":"sun"} size={19}/>
+      {labelled&&<span>{isLight?"Dark":"Light"}</span>}
+    </button>
+  );
+}
+
+const Card=({children,style:s,glow,glowColor})=>{const gc=glowColor||C.blue;return <div className="gwm-card" style={{background:C.card,border:`1px solid ${glow?gc+"55":C.border}`,borderRadius:12,padding:"16px",...(glow?{boxShadow:`0 0 20px ${gc}22`}:{}),...s}}>{children}</div>;};
+const ErrBox=({msg})=><div style={{marginTop:10,padding:"10px 14px",background:"var(--gwm-danger-bg)",border:"1px solid var(--gwm-danger-border)",borderRadius:8,fontSize:13,color:C.redText,display:"flex",alignItems:"flex-start",gap:8,lineHeight:1.5,animation:"fadeUp 0.2s ease"}}><GwmIcon name="alert" size={15} color={C.redText} style={{marginTop:2}}/><span>{msg}</span></div>;
 
 function CopyBtn({text}){
   const [done,setDone]=useState(false);
-  return <button onClick={()=>{navigator.clipboard.writeText(text);setDone(true);setTimeout(()=>setDone(false),2000);}} style={{padding:"6px 13px",borderRadius:6,background:done?"#0a2a18":"transparent",border:`1px solid ${done?C.green:C.border}`,color:done?C.green:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{done?"✓ Copied":"Copy"}</button>;
+  return <button onClick={()=>{navigator.clipboard.writeText(text);setDone(true);setTimeout(()=>setDone(false),2000);}} style={{padding:"6px 13px",borderRadius:6,background:done?"rgba(61,219,164,0.1)":"transparent",border:`1px solid ${done?C.green:C.border}`,color:done?C.green:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}><IconLabel name={done?"check":"copy"}>{done?"Copied":"Copy"}</IconLabel></button>;
 }
 
 function ListenBtn({text}){
   const [on,setOn]=useState(false);
-  return <button onClick={()=>{if(on){stopSpeak();setOn(false);}else{speak(text);setOn(true);}}} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${on?C.blue:C.border}`,color:on?C.blue:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}>{on?"⏹ Stop":"🔊 Listen"}</button>;
+  return <button onClick={()=>{if(on){stopSpeak();setOn(false);}else{speak(text);setOn(true);}}} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${on?C.blue:C.border}`,color:on?C.blueText:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}><IconLabel name={on?"stop":"volume"}>{on?"Stop":"Listen"}</IconLabel></button>;
 }
 
 const OutputActions=({text})=>(<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={text}/><ListenBtn text={text}/></div>);
@@ -477,7 +549,7 @@ const OutputActions=({text})=>(<div style={{display:"flex",gap:7,marginTop:11,fl
 // same-inputs regenerate. Disabled while a generation is in flight so an
 // active request can't be wiped mid-flight (edge case: slow responses).
 const GenMoreBtn=({onClick,loading,label="Generate More"})=>(
-  <button onClick={onClick} disabled={loading} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:loading?"default":"pointer",fontFamily:"inherit",opacity:loading?0.6:1}}>{loading?"Generating...":"\ud83d\udd04 "+label}</button>
+  <button onClick={onClick} disabled={loading} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:loading?"default":"pointer",fontFamily:"inherit",opacity:loading?0.6:1}}>{loading?"Generating...":<IconLabel name="refresh">{label}</IconLabel>}</button>
 );
 
 function ImageInput({onImage,imageData,onClear,onExtract}){
@@ -502,26 +574,55 @@ function ImageInput({onImage,imageData,onClear,onExtract}){
       }catch(err){setReading("error");}
     }
   };r.readAsDataURL(f);};
-  if(imageData)return(<div style={{marginBottom:12,position:"relative",display:"inline-block"}}><img src={imageData} alt="Attached" style={{maxWidth:"100%",maxHeight:160,borderRadius:8,border:`1px solid ${C.border}`,display:"block"}}/>{reading==="reading"&&<div style={{fontSize:12,color:C.blue,marginTop:5}}>📖 Reading photo…</div>}{reading==="done"&&<div style={{fontSize:12,color:C.green,marginTop:5}}>✓ Photo read — ready to generate</div>}{reading==="error"&&<div style={{fontSize:12,color:C.yellow,marginTop:5}}>⚠️ Couldn't read the photo (it's still attached)</div>}<button onClick={()=>{setReading("idle");onClear();}} style={{position:"absolute",top:6,right:6,width:24,height:24,borderRadius:"50%",background:"rgba(0,0,0,0.7)",border:"none",color:"#fff",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button><div style={{fontSize:12,color:C.muted,marginTop:4}}>📎 Image attached — AI will read it</div></div>);
-  return(<div style={{display:"flex",gap:7,marginBottom:12}}><input ref={fileRef} type="file" accept="image/*" onChange={handle} style={{display:"none"}}/><input ref={camRef} type="file" accept="image/*" capture="environment" onChange={handle} style={{display:"none"}}/><button onClick={()=>fileRef.current?.click()} style={{padding:"7px 12px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>🖼️ Add Image</button><button onClick={()=>camRef.current?.click()} style={{padding:"7px 12px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>📷 Camera</button></div>);
+  if(imageData)return(
+    <div style={{marginBottom:12,position:"relative",display:"inline-block"}}>
+      <img src={imageData} alt="Attached" style={{maxWidth:"100%",maxHeight:160,borderRadius:8,border:`1px solid ${C.border}`,display:"block"}}/>
+      {reading==="reading"&&<div style={{fontSize:12,color:C.blueText,marginTop:5}}><IconLabel name="scan">Reading photo…</IconLabel></div>}
+      {reading==="done"&&<div style={{fontSize:12,color:C.greenText,marginTop:5}}><IconLabel name="check">Photo read — ready to generate</IconLabel></div>}
+      {reading==="error"&&<div style={{fontSize:12,color:C.yellowText,marginTop:5}}><IconLabel name="alert">Couldn't read the photo (it's still attached)</IconLabel></div>}
+      <button aria-label="Remove attached image" onClick={()=>{setReading("idle");onClear();}} style={{position:"absolute",top:6,right:6,width:28,height:28,borderRadius:"50%",background:"rgba(0,0,0,0.72)",border:"1px solid rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={13}/></button>
+      <div style={{fontSize:12,color:C.muted,marginTop:5}}><IconLabel name="paperclip">Image attached — GhostwriterMe will read it</IconLabel></div>
+    </div>
+  );
+  return(
+    <div style={{display:"flex",gap:7,marginBottom:12}}>
+      <input ref={fileRef} type="file" accept="image/*" onChange={handle} style={{display:"none"}}/>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" onChange={handle} style={{display:"none"}}/>
+      <button onClick={()=>fileRef.current?.click()} style={{padding:"7px 12px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}><IconLabel name="image">Add Image</IconLabel></button>
+      <button onClick={()=>camRef.current?.click()} style={{padding:"7px 12px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}><IconLabel name="camera">Camera</IconLabel></button>
+    </div>
+  );
 }
 
 function SaveAsImageBtn({text,title}){
   const [saving,setSaving]=useState(false);
-  const save=()=>{setSaving(true);try{const canvas=document.createElement("canvas");const scale=2,width=800,padding=48,lineH=28,maxW=width-padding*2;const ctx0=canvas.getContext("2d");ctx0.font="16px Cabinet Grotesk,system-ui,sans-serif";const words=text.split(" "),lines=[];let cur="";for(const w of words){const test=cur?cur+" "+w:w;if(ctx0.measureText(test).width>maxW&&cur){lines.push(cur);cur=w;}else{cur=test;}}if(cur)lines.push(cur);const headerH=80,footerH=48,height=headerH+lines.length*lineH+padding+footerH;canvas.width=width*scale;canvas.height=height*scale;const ctx=canvas.getContext("2d");ctx.scale(scale,scale);ctx.fillStyle="#0c1220";ctx.fillRect(0,0,width,height);const grad=ctx.createLinearGradient(0,0,width,0);grad.addColorStop(0,"#79BAEC");grad.addColorStop(1,"#a8d4f5");ctx.fillStyle=grad;ctx.fillRect(0,0,width,4);ctx.fillStyle="#ffffff";ctx.font="bold 18px Cabinet Grotesk,system-ui,sans-serif";ctx.fillText("👻 GhostwriterMe",padding,36);if(title){ctx.fillStyle="#79BAEC";ctx.font="12px Cabinet Grotesk,system-ui,sans-serif";ctx.fillText(title.toUpperCase(),padding,58);}ctx.strokeStyle="#162030";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(padding,headerH-8);ctx.lineTo(width-padding,headerH-8);ctx.stroke();ctx.fillStyle="#ddeeff";ctx.font="16px Cabinet Grotesk,system-ui,sans-serif";lines.forEach((line,i)=>{ctx.fillText(line,padding,headerH+i*lineH+20);});ctx.fillStyle="#3d5a75";ctx.font="12px system-ui,sans-serif";ctx.fillText("ghostwriterme.com",padding,height-18);ctx.textAlign="right";ctx.fillText(new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),width-padding,height-18);const link=document.createElement("a");link.download="ghostwriterme-result.png";link.href=canvas.toDataURL("image/png");link.click();}catch(e){alert("Could not save image. Try Copy instead.");}setSaving(false);};
-  return <button onClick={save} disabled={saving} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{saving?"Saving...":"🖼️ Save as Image"}</button>;
+  const save=()=>{setSaving(true);try{const canvas=document.createElement("canvas");const scale=2,width=800,padding=48,lineH=28,maxW=width-padding*2;const ctx0=canvas.getContext("2d");ctx0.font="16px Cabinet Grotesk,system-ui,sans-serif";const words=text.split(" "),lines=[];let cur="";for(const w of words){const test=cur?cur+" "+w:w;if(ctx0.measureText(test).width>maxW&&cur){lines.push(cur);cur=w;}else{cur=test;}}if(cur)lines.push(cur);const headerH=80,footerH=48,height=headerH+lines.length*lineH+padding+footerH;canvas.width=width*scale;canvas.height=height*scale;const ctx=canvas.getContext("2d");ctx.scale(scale,scale);ctx.fillStyle="#0c1220";ctx.fillRect(0,0,width,height);const grad=ctx.createLinearGradient(0,0,width,0);grad.addColorStop(0,"#79BAEC");grad.addColorStop(1,"#a8d4f5");ctx.fillStyle=grad;ctx.fillRect(0,0,width,4);ctx.fillStyle="#ffffff";ctx.font="bold 18px Cabinet Grotesk,system-ui,sans-serif";ctx.beginPath();ctx.moveTo(padding+4,34);ctx.quadraticCurveTo(padding+4,21,padding+13,21);ctx.quadraticCurveTo(padding+22,21,padding+22,34);ctx.lineTo(padding+22,39);ctx.lineTo(padding+18,36);ctx.lineTo(padding+13,39);ctx.lineTo(padding+8,36);ctx.lineTo(padding+4,39);ctx.closePath();ctx.strokeStyle="#79BAEC";ctx.lineWidth=1.8;ctx.stroke();ctx.fillText("GhostwriterMe",padding+32,36);if(title){ctx.fillStyle="#79BAEC";ctx.font="12px Cabinet Grotesk,system-ui,sans-serif";ctx.fillText(title.toUpperCase(),padding,58);}ctx.strokeStyle="#162030";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(padding,headerH-8);ctx.lineTo(width-padding,headerH-8);ctx.stroke();ctx.fillStyle="#ddeeff";ctx.font="16px Cabinet Grotesk,system-ui,sans-serif";lines.forEach((line,i)=>{ctx.fillText(line,padding,headerH+i*lineH+20);});ctx.fillStyle="#3d5a75";ctx.font="12px system-ui,sans-serif";ctx.fillText("ghostwriterme.com",padding,height-18);ctx.textAlign="right";ctx.fillText(new Date().toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}),width-padding,height-18);const link=document.createElement("a");link.download="ghostwriterme-result.png";link.href=canvas.toDataURL("image/png");link.click();}catch(e){alert("Could not save image. Try Copy instead.");}setSaving(false);};
+  return <button onClick={save} disabled={saving} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blue;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{saving?"Saving...":<IconLabel name="save">Save as Image</IconLabel>}</button>;
 }
 
-const Toggle=({on,set})=>(<div onClick={set} style={{width:36,height:20,borderRadius:10,background:on?C.blue:"#162030",position:"relative",transition:"background 0.2s",flexShrink:0,cursor:"pointer"}}><div style={{width:14,height:14,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:on?19:3,transition:"left 0.2s"}}/></div>);
+const Toggle=({on,set,label="Toggle option"})=>(<button type="button" role="switch" aria-checked={on} aria-label={label} onClick={e=>{e.stopPropagation();set();}} style={{width:40,height:24,borderRadius:12,background:on?C.blue:C.border,position:"relative",transition:"background 0.2s",flexShrink:0,cursor:"pointer",border:"none",padding:0}}><span style={{width:16,height:16,borderRadius:"50%",background:"#fff",position:"absolute",top:4,left:on?20:4,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/></button>);
 
 function MicBtn({onResult,sm}){
   const {active,toggle}=useMic(onResult);const sz=sm?30:34;
-  return <button onClick={toggle} style={{width:sz,height:sz,borderRadius:"50%",border:`1.5px solid ${active?C.blue:C.border}`,background:active?C.accentSoft:"transparent",color:active?C.blue:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0,transition:"all 0.2s",animation:active?"micPulse 1.5s infinite":"none"}}>{active?"⏹":"🎤"}</button>;
+  return <button aria-label={active?"Stop voice input":"Start voice input"} onClick={toggle} style={{width:sz,height:sz,borderRadius:"50%",border:`1.5px solid ${active?C.blue:C.border}`,background:active?C.accentSoft:"transparent",color:active?C.blueText:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.2s",animation:active?"micPulse 1.5s infinite":"none"}}><GwmIcon name={active?"stop":"mic"} size={14}/></button>;
 }
 
 function FInput({label,type="text",placeholder,value,onChange,error,icoL,icoR,onIcoR,voice}){
   const [f,setF]=useState(false);
-  return(<div style={{marginBottom:12}}>{label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}<div style={{position:"relative",display:"flex",alignItems:"center",gap:6}}><div style={{position:"relative",flex:1}}>{icoL&&<span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:14,pointerEvents:"none"}}>{icoL}</span>}<input type={type} placeholder={placeholder} value={value} onChange={onChange} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${error?C.red:f?C.blue:C.border}`,borderRadius:8,padding:`10px ${icoR?40:12}px 10px ${icoL?38:12}px`,color:C.text,fontSize:14,transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?(error?"0 0 0 3px rgba(240,107,107,0.2)":`0 0 0 3px ${C.blueGlow}`):"none"}}/>{icoR&&<span onClick={onIcoR} style={{position:"absolute",right:11,top:"50%",transform:"translateY(-50%)",cursor:"pointer",fontSize:14}}>{icoR}</span>}</div>{voice&&<MicBtn onResult={t=>onChange({target:{value:value+(value?" ":"")+t}})} sm/>}</div>{error&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{error}</div>}</div>);
+  return(
+    <div style={{marginBottom:12}}>
+      {label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}
+      <div style={{position:"relative",display:"flex",alignItems:"center",gap:6}}>
+        <div style={{position:"relative",flex:1}}>
+          {icoL&&<span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",color:C.muted,pointerEvents:"none"}}><FieldIcon name={icoL}/></span>}
+          <input type={type} placeholder={placeholder} value={value} onChange={onChange} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${error?C.red:f?C.blue:C.border}`,borderRadius:8,padding:`10px ${icoR?42:12}px 10px ${icoL?38:12}px`,color:C.text,fontSize:14,transition:"border-color 0.2s, box-shadow 0.2s, background-color 0.2s",boxShadow:f?(error?"0 0 0 3px rgba(240,107,107,0.2)":`0 0 0 3px ${C.blueGlow}`):"none"}}/>
+          {icoR&&<button type="button" aria-label={icoR==="eye"?"Hide password":"Show password"} onClick={onIcoR} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:32,height:32,border:0,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><FieldIcon name={icoR}/></button>}
+        </div>
+        {voice&&<MicBtn onResult={t=>onChange({target:{value:value+(value?" ":"")+t}})} sm/>}
+      </div>
+      {error&&<div style={{fontSize:12,color:C.redText,marginTop:3}}>{error}</div>}
+    </div>
+  );
 }
 
 function FArea({label,placeholder,value,onChange,rows=4,hint,voice}){
@@ -531,69 +632,65 @@ function FArea({label,placeholder,value,onChange,rows=4,hint,voice}){
 
 function FSelect({label,value,onChange,options}){
   const [f,setF]=useState(false);
-  return(<div style={{marginBottom:0}}>{label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}<div style={{position:"relative"}}><select value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}>{options.map(o=><option key={o.value??o} value={o.value??o}>{o.label??o}</option>)}</select><span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted,fontSize:12}}>▾</span></div></div>);
+  return(<div style={{marginBottom:0}}>{label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}<div style={{position:"relative"}}><select value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}>{options.map(o=><option key={o.value??o} value={o.value??o}>{o.label??o}</option>)}</select><span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span></div></div>);
 }
 
 const PriBtn=({children,onClick,loading,disabled,fullWidth=true,variant="blue"})=>{
   const [hover,setHover]=useState(false);
   const active=!(loading||disabled);
-  const bg=variant==="violet"?`linear-gradient(135deg,${C.violet},#c4b5fd)`:loading||disabled?"#0c1220":`linear-gradient(135deg,${C.blue},${C.accent})`;
+  const bg=loading||disabled?C.card:variant==="violet"?`linear-gradient(135deg,${C.violet},#c4b5fd)`:`linear-gradient(135deg,${C.blue},${C.accent})`;
   return <button onClick={onClick} disabled={loading||disabled} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)} style={{width:fullWidth?"100%":"auto",padding:"12px 20px",borderRadius:8,border:"none",background:bg,color:loading||disabled?C.muted:"#000",fontSize:14,fontWeight:800,cursor:loading||disabled?"not-allowed":"pointer",transition:"all 0.2s",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transform:active&&hover?"translateY(-1px)":"none",boxShadow:loading||disabled?"none":variant==="violet"?(active&&hover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"):(active&&hover?`0 6px 26px ${C.blueGlow}`:`0 4px 20px ${C.blueGlow}`),fontFamily:"inherit",letterSpacing:"0.01em"}}>{loading?<><Spin/> Processing...</>:children}</button>;
 };
 
 const SecBtn=({children,onClick})=>(<button onClick={onClick} style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{children}</button>);
 
 function PlanBadge({plan}){
-  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.green},pro:{label:"PRO",bg:C.accentSoft,color:C.blue},student:{label:"STUDENT",bg:C.violetSoft,color:C.violet}};
+  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.violetSoft,color:C.violetText}};
   const d=map[plan];if(!d)return null;
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
 
 /**
- * Renders a user avatar that can be either:
- *  - An emoji/short string (email/demo sign-ups, e.g. "✨")
- *  - A Google profile photo URL (Google sign-ups)
+ * Renders either a Google profile photo or GhostwriterMe's own ghost mark.
  *
  * Edge cases handled:
- *  - `avatar` undefined/null during initial render → falls back to "👻"
+ *  - `avatar` undefined/null during initial render → falls back to the ghost mark
  *  - Google photo URLs can 403 without a referrer policy (Google blocks
  *    hotlinking based on referrer in some cases) → referrerPolicy="no-referrer"
  *  - Broken/expired image URL → onError hides the <img>, leaving the
  *    gradient circle visible instead of a broken-image icon
  */
-function Avatar({avatar,size=34,fontSize}){
+function Avatar({avatar,size=34}){
   const isUrl=typeof avatar==="string"&&avatar.startsWith("http");
-  const fs=fontSize||Math.round(size*0.5);
   return(
-    <div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:fs,flexShrink:0,overflow:"hidden"}}>
-      {isUrl?(
+    <div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#071019",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden",position:"relative"}}>
+      <GwmIcon name="ghost" size={Math.round(size*0.58)}/>
+      {isUrl&&(
         <img
           src={avatar}
           alt=""
           referrerPolicy="no-referrer"
-          style={{width:"100%",height:"100%",objectFit:"cover"}}
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
           onError={e=>{e.currentTarget.style.display="none";}}
         />
-      ):(
-        avatar||"👻"
       )}
     </div>
   );
 }
 
 function TermsModal({onClose}){
-  return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Terms & Conditions</div><button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{TERMS_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<TERMS_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,0.98)"}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"block",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}>Got it — Close ✓</button></div></div>);
+  return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div className="app-chrome" style={{background:C.chrome,borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:C.text}}>Terms & Conditions</div><button aria-label="Close terms" onClick={onClose} style={{width:34,height:34,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{TERMS_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blueText,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<TERMS_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div className="app-chrome" style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:C.chrome}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}><GwmIcon name="check" size={15}/>Got it — Close</button></div></div>);
 }
 
 function PrivacyModal({onClose}){
-  return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Privacy Policy</div><button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{PRIVACY_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blue,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<PRIVACY_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:"rgba(0,0,0,0.98)"}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"block",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}>Got it — Close ✓</button></div></div>);
+  return(<div style={{position:"fixed",inset:0,zIndex:500,background:C.bg,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div className="app-chrome" style={{background:C.chrome,borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontSize:15,fontWeight:800,color:C.text}}>Privacy Policy</div><button aria-label="Close privacy policy" onClick={onClose} style={{width:34,height:34,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div><div style={{flex:1,overflowY:"auto",padding:"20px 16px 48px",maxWidth:620,width:"100%",margin:"0 auto"}}>{PRIVACY_CONTENT.map((s,i)=>(<div key={i} style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:700,color:C.blueText,marginBottom:5}}>{s.h}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{s.b}</div>{i<PRIVACY_CONTENT.length-1&&<div style={{height:1,background:C.border,marginTop:16}}/>}</div>))}</div><div className="app-chrome" style={{padding:"13px 16px",borderTop:`1px solid ${C.border}`,background:C.chrome}}><button onClick={onClose} style={{width:"100%",maxWidth:460,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",border:"none",fontFamily:"inherit"}}><GwmIcon name="check" size={15}/>Got it — Close</button></div></div>);
 }
 
 function SafetyScreen({onAccept}){
   const [c1,setC1]=useState(false);const [c2,setC2]=useState(false);const [c3,setC3]=useState(false);
   const all=c1&&c2&&c3;
-  const CheckRow=({checked,set,children})=>(<div onClick={set} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px",background:checked?C.accentSoft:C.surface,border:`1px solid ${checked?C.blue:C.border}`,borderRadius:9,cursor:"pointer",transition:"all 0.15s",marginBottom:8}}><div style={{width:17,height:17,borderRadius:4,border:`2px solid ${checked?C.blue:C.border}`,background:checked?C.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>{checked&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}</div><div style={{fontSize:13,color:checked?C.text:C.muted,lineHeight:1.6,transition:"color 0.15s"}}>{children}</div></div>);
-  return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}><div style={{textAlign:"center",marginBottom:24}}><div style={{fontSize:48,marginBottom:10,animation:"glow 3s ease infinite"}}>🛡️</div><div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.01em",marginBottom:6}}>Before You Begin</div><div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Read and accept all three conditions to continue.</div></div><div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"11px 13px",marginBottom:18,display:"flex",gap:8}}><span style={{fontSize:16,flexShrink:0}}>⚠️</span><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>AI content is generated under <strong>your direction</strong>. You are solely responsible for how it is used.</div></div><CheckRow checked={c1} set={()=>setC1(!c1)}><strong style={{color:c1?"#fff":C.muted}}>I take full responsibility</strong> for all content I generate. GhostwriterMe is not liable.</CheckRow><CheckRow checked={c2} set={()=>setC2(!c2)}><strong style={{color:c2?"#fff":C.muted}}>I will not use this tool</strong> to create harmful, illegal, or deceptive content.</CheckRow><CheckRow checked={c3} set={()=>setC3(!c3)}><strong style={{color:c3?"#fff":C.muted}}>I understand AI output may contain errors</strong> and I will verify content before use.</CheckRow><div style={{display:"flex",gap:4,marginBottom:16,marginTop:4}}>{[c1,c2,c3].map((c,i)=><div key={i} style={{height:2,flex:1,borderRadius:1,background:c?C.blue:C.border,transition:"background 0.3s"}}/>)}</div><button onClick={onAccept} disabled={!all} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:all?`linear-gradient(135deg,${C.blue},${C.accent})`:"#0c1220",color:all?"#000":C.muted,fontSize:14,fontWeight:800,cursor:all?"pointer":"not-allowed",transition:"all 0.3s",fontFamily:"inherit",boxShadow:all?`0 4px 20px ${C.blueGlow}`:"none"}}>{all?"I Agree — Enter GhostwriterMe →":"Accept "+[c1,c2,c3].filter(x=>!x).length+" more to continue"}</button></div></div>);
+  const CheckRow=({checked,set,children})=>(<button type="button" onClick={set} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"12px",background:checked?C.accentSoft:C.surface,border:`1px solid ${checked?C.blue:C.border}`,borderRadius:9,cursor:"pointer",transition:"all 0.15s",marginBottom:8,textAlign:"left",fontFamily:"inherit"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${checked?C.blue:C.border}`,background:checked?C.blue:"transparent",color:"#071019",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>{checked&&<GwmIcon name="check" size={11} strokeWidth={2.4}/>}</span><span style={{fontSize:13,color:checked?C.text:C.muted,lineHeight:1.6,transition:"color 0.15s"}}>{children}</span></button>);
+  return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}><div style={{textAlign:"center",marginBottom:24}}><div style={{width:68,height:68,borderRadius:22,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",animation:"glow 3s ease infinite"}}><GwmIcon name="shield" size={34}/></div><div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.01em",marginBottom:6}}>Before You Begin</div><div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Read and accept all three conditions to continue.</div></div><div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"11px 13px",marginBottom:18,display:"flex",gap:8}}><GwmIcon name="alert" size={17} color={C.yellow} style={{marginTop:1}}/><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>Generated content is created under <strong>your direction</strong>. You are solely responsible for how it is used.</div></div><CheckRow checked={c1} set={()=>setC1(!c1)}><strong style={{color:c1?C.text:C.muted}}>I take full responsibility</strong> for all content I generate. GhostwriterMe is not liable.</CheckRow><CheckRow checked={c2} set={()=>setC2(!c2)}><strong style={{color:c2?C.text:C.muted}}>I will not use this tool</strong> to create harmful, illegal, or deceptive content.</CheckRow><CheckRow checked={c3} set={()=>setC3(!c3)}><strong style={{color:c3?C.text:C.muted}}>I understand generated output may contain errors</strong> and I will verify content before use.</CheckRow><div style={{display:"flex",gap:4,marginBottom:16,marginTop:4}}>{[c1,c2,c3].map((c,i)=><div key={i} style={{height:2,flex:1,borderRadius:1,background:c?C.blue:C.border,transition:"background 0.3s"}}/>)}</div><button onClick={onAccept} disabled={!all} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:all?`linear-gradient(135deg,${C.blue},${C.accent})`:C.card,color:all?"#000":C.muted,fontSize:14,fontWeight:800,cursor:all?"pointer":"not-allowed",transition:"all 0.3s",fontFamily:"inherit",boxShadow:all?`0 4px 20px ${C.blueGlow}`:"none"}}>{all?"I Agree — Enter GhostwriterMe →":"Accept "+[c1,c2,c3].filter(x=>!x).length+" more to continue"}</button></div></div>);
 }
 
 // === GHOST LOGO (from app icon) ===
@@ -779,10 +876,10 @@ function TarotCard({tool}){
                into CARD_IMG and this branch stops rendering automatically. */
             <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
               <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
-              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
+              <div style={{display:"flex",gap:7,color:TZ.goldL}}>{[0,1,2].map(i=><GwmIcon key={i} name="spark" size={10}/>)}</div>
               <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={TZ.goldL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
               <div style={{fontSize:13,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",textAlign:"center",padding:"0 8px",lineHeight:1.2}}>{tool.name}</div>
-              <div style={{fontSize:10,color:TZ.goldL,letterSpacing:"0.25em"}}>✦ ✦ ✦</div>
+              <div style={{display:"flex",gap:7,color:TZ.goldL}}>{[0,1,2].map(i=><GwmIcon key={i} name="spark" size={10}/>)}</div>
             </div>
           )}
           <div className="tarot-card-sheen"/>
@@ -797,7 +894,7 @@ function TarotCard({tool}){
         {/* BACK — description */}
         <div className="tarot-card-face tarot-card-back" style={{border:"1.5px solid "+TZ.gold,background:"linear-gradient(165deg,#15101f,#0c0a14)",padding:"14px 12px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center"}}>
           <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
-          <div style={{fontSize:11,color:TZ.goldL,letterSpacing:"0.2em",marginBottom:6}}>❀</div>
+          <GwmIcon name="spark" size={13} color={TZ.goldL} style={{marginBottom:6}}/>
           <div style={{fontSize:13.5,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",marginBottom:3,lineHeight:1.15}}>{tool.name}</div>
           <div style={{width:30,height:1,background:TZ.gold,opacity:0.6,margin:"5px 0 8px"}}/>
           <div style={{fontSize:10.5,color:"#c9b896",lineHeight:1.5}}>{tool.desc}</div>
@@ -810,7 +907,7 @@ function TarotCard({tool}){
   );
 }
 
-/* ⚠️ MAINTENANCE — LANDING PAGE "LATEST UPDATES":
+/* MAINTENANCE — LANDING PAGE "LATEST UPDATES":
    Append a new entry at the TOP of this list every time a new mode is
    introduced or a major update ships. It lives here, next to TAROT_TOOLS,
    because those two lists change together: new card on the deck = new
@@ -1208,7 +1305,7 @@ function LandingScreen({onGetStarted,onSignIn}){
             <div style={{position:"relative"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,marginBottom:7}}>
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,transparent,#c9a227)"}}/>
-                <span style={{fontSize:11,letterSpacing:"0.28em",color:"#c9a227",fontWeight:700}}>✧ FEATURES ✧</span>
+                <span style={{fontSize:11,letterSpacing:"0.28em",color:"#c9a227",fontWeight:700,display:"flex",alignItems:"center",gap:8}}><GwmIcon name="spark" size={11}/>FEATURES<GwmIcon name="spark" size={11}/></span>
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
               </div>
               <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
@@ -1224,7 +1321,7 @@ function LandingScreen({onGetStarted,onSignIn}){
                   </div>
                 ))}
               </div>
-              <div style={{textAlign:"center",marginTop:24,fontSize:12,color:"#a99b7d",letterSpacing:"0.03em"}}>✦ Tap a card to flip it, or open the full experience ✦</div>
+              <div style={{textAlign:"center",marginTop:24,fontSize:12,color:"#a99b7d",letterSpacing:"0.03em",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}><GwmIcon name="spark" size={11}/>Tap a card to flip it, or open the full experience<GwmIcon name="spark" size={11}/></div>
             </div>
           </section>
 
@@ -1255,7 +1352,7 @@ function LandingScreen({onGetStarted,onSignIn}){
                 </div>
                 {p.note&&<div style={{fontSize:12,color:C.green,marginTop:2}}>{p.note}</div>}
                 <ul style={{listStyle:"none",margin:"12px 0 14px",display:"flex",flexDirection:"column",gap:6}}>
-                  {p.feats.map(f=>(<li key={f} style={{fontSize:13,color:C.text,display:"flex",gap:7,alignItems:"flex-start"}}><span style={{color:p.color,flexShrink:0}}>✓</span>{f}</li>))}
+                  {p.feats.map(f=>(<li key={f} style={{fontSize:13,color:C.text,display:"flex",gap:7,alignItems:"flex-start"}}><GwmIcon name="check" size={14} color={p.color}/>{f}</li>))}
                 </ul>
                 <button onClick={onGetStarted} style={{width:"100%",padding:"11px",borderRadius:9,border:p.popular?"none":`1px solid ${C.border}`,background:p.popular?`linear-gradient(135deg,${C.blue},${C.accent})`:"transparent",color:p.popular?"#000":C.text,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{p.cta} →</button>
               </div>
@@ -1330,7 +1427,7 @@ function LandingScreen({onGetStarted,onSignIn}){
               <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Message</label>
               <textarea value={cfMsg} onChange={e=>setCfMsg(e.target.value)} rows={4} placeholder="Share your question, idea, or feedback..." style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 13px",color:C.text,fontSize:14,lineHeight:1.6,resize:"vertical",fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
             </div>
-            <button onClick={sendContact} disabled={!cfMsg.trim()} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:cfMsg.trim()?`linear-gradient(135deg,${C.blue},${C.accent})`:"#0c1220",color:cfMsg.trim()?"#000":C.muted,fontSize:14,fontWeight:800,cursor:cfMsg.trim()?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s"}}>Send Message →</button>
+            <button onClick={sendContact} disabled={!cfMsg.trim()} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:cfMsg.trim()?`linear-gradient(135deg,${C.blue},${C.accent})`:C.card,color:cfMsg.trim()?"#000":C.muted,fontSize:14,fontWeight:800,cursor:cfMsg.trim()?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s"}}><IconLabel name="mail">Send Message</IconLabel></button>
             <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:8}}>Opens your email app with the message pre-filled.</div>
           </Card></div>
 
@@ -1341,7 +1438,7 @@ function LandingScreen({onGetStarted,onSignIn}){
           <div className="scroll-reveal">{ctaButtons({})}</div>
 
           <div className="scroll-reveal" style={{marginTop:32,textAlign:"center",fontSize:12,color:"#1e3448",lineHeight:1.8}}>
-            <div style={{fontSize:18,marginBottom:6}}>👻</div>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:6}}><GwmIcon name="ghost" size={20}/></div>
             GhostwriterMe &middot; Your Words. Perfected.<br/>
             © 2026 GhostwriterMe. All rights reserved.
           </div>
@@ -1355,7 +1452,6 @@ function LandingScreen({onGetStarted,onSignIn}){
 
 const ChevronRightIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>);
 const MailIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>);
-const MoonIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>);
 const BellIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>);
 const GraduationCapIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/></svg>);
 const ZapIcon=({size=15,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"/></svg>);
@@ -1389,7 +1485,7 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 );
 
 // === SETTINGS SCREEN ===
-function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan}){
+function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [language,setLanguage]=useState(()=>localStorage.getItem("gwm_lang")||"en");
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
@@ -1398,7 +1494,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
 
-  const planMap={free:{label:"Free Plan",color:C.green,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blue,bg:C.accentSoft},student:{label:"Student Plan",color:C.violet,bg:C.violetSoft}};
+  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.violetText,bg:C.violetSoft}};
   const planInfo=planMap[user.plan]||planMap.free;
   const isPaid=user.plan!=="free";
   const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
@@ -1417,9 +1513,9 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text}}>
-      <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(0,0,0,0.95)",backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
-        <button onClick={onBack} style={{width:32,height:32,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>←</button>
-        <div style={{fontSize:16,fontWeight:900,color:"#fff"}}>Settings</div>
+      <div className="app-chrome" style={{position:"sticky",top:0,zIndex:50,background:C.chrome,backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+        <button aria-label="Back to writing tools" onClick={onBack} style={{width:36,height:36,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="arrowLeft" size={17}/></button>
+        <div style={{fontSize:16,fontWeight:900,color:C.text}}>Settings</div>
       </div>
 
       <div style={{maxWidth:500,margin:"0 auto",padding:"20px 16px 60px"}}>
@@ -1427,7 +1523,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         <div style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:22}}>
           <Avatar avatar={user.avatar} size={50}/>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:800,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
+            <div style={{fontSize:15,fontWeight:800,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
             <div style={{marginTop:6}}><span style={{background:planInfo.bg,color:planInfo.color,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:4,letterSpacing:"0.08em"}}>{planInfo.label}</span></div>
           </div>
@@ -1444,15 +1540,15 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
 
         <Section title="Appearance">
-          <Row icon={<MoonIcon/>} label="Dark Mode" last>
+          <Row icon={<GwmIcon name={theme==="light"?"sun":"moon"} size={15}/>} label="Color Theme" last>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:12,color:C.muted}}>Always on</span>
-              <Toggle on={true} set={()=>{}}/>
+              <span style={{fontSize:12,color:C.muted}}>{theme==="light"?"Light":"Dark"}</span>
+              <Toggle on={theme==="light"} set={onToggleTheme} label={theme==="light"?"Use dark mode":"Use light mode"}/>
             </div>
           </Row>
         </Section>
 
-        <Section title={<>Language <span style={{marginLeft:6,fontSize:9,fontWeight:800,letterSpacing:"0.06em",color:C.yellow,background:"rgba(245,200,66,0.12)",padding:"2px 6px",borderRadius:4,textTransform:"uppercase"}}>Coming Soon</span></>}>
+        <Section title={<>Language <span style={{marginLeft:6,fontSize:9,fontWeight:800,letterSpacing:"0.06em",color:C.yellowText,background:"rgba(245,200,66,0.12)",padding:"2px 6px",borderRadius:4,textTransform:"uppercase"}}>Coming Soon</span></>}>
           <div style={{padding:"13px 14px"}}>
             <div style={{position:"relative",opacity:0.5,cursor:"not-allowed"}} title="Multilingual support is coming soon">
               {/* onChange stays wired even though disabled prevents it firing —
@@ -1460,12 +1556,12 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
                   it would trigger the same no-unused-vars build failure we hit
                   with setTab earlier in this project. */}
               <select disabled value={language} onChange={e=>setLanguage(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"not-allowed",pointerEvents:"none"}}>
-                <option value="en">🇬🇧 English</option>
-                <option value="th">🇹🇭 ภาษาไทย</option>
+                <option value="en">English</option>
+                <option value="th">ภาษาไทย</option>
               </select>
-              <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted,fontSize:12}}>▾</span>
+              <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span>
             </div>
-            <div style={{fontSize:12,color:C.muted,marginTop:8,lineHeight:1.5}}>🌐 Multilingual support is on the way — English is the only language for now.</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:8,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="globe" size={15} style={{marginTop:1}}/>Multilingual support is on the way — English is the only language for now.</div>
           </div>
         </Section>
 
@@ -1481,21 +1577,21 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         <Section title="My Plan">
           <Row icon={user.plan==="student"?<GraduationCapIcon/>:user.plan==="pro"?<ZapIcon/>:<TagIcon/>} label={planInfo.label}>
             {!isPaid&&<span style={{fontSize:12,color:C.muted}}>Current</span>}
-            {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellow}}>Cancelled</span>}
-            {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.green}}>Active ✓</span>}
+            {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellowText}}>Cancelled</span>}
+            {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.greenText}}><IconLabel name="check">Active</IconLabel></span>}
           </Row>
           {/* Item 4: active cardless-trial countdown. renewsAt is null during a
               local trial so the "Renews on" row below never collides with this. */}
           {user.trialEndsAt&&new Date(user.trialEndsAt)>new Date()&&(
             <Row icon={<GiftIcon/>} label="Free Trial">
-              <span style={{fontSize:12,color:C.green}}>Ends {fmtDate(user.trialEndsAt)} · {daysLeft(user.trialEndsAt)} day{daysLeft(user.trialEndsAt)===1?"":"s"} left</span>
+              <span style={{fontSize:12,color:C.greenText}}>Ends {fmtDate(user.trialEndsAt)} · {daysLeft(user.trialEndsAt)} day{daysLeft(user.trialEndsAt)===1?"":"s"} left</span>
             </Row>
           )}
           {/* Item 4: cancelled-plan notice, exact wording requested. Replaces the
               old "Access until" row (which is now hidden while cancelled). */}
           {isPaid&&user.cancelAtPeriodEnd&&user.renewsAt&&(
             <div style={{padding:"11px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(245,200,66,0.06)"}}>
-              <div style={{fontSize:12.5,color:C.yellow,lineHeight:1.65}}>Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until <span style={{fontWeight:800,color:"#fff"}}>{fmtDate(user.renewsAt)}</span>. There {daysLeft(user.renewsAt)===1?"is":"are"} <span style={{fontWeight:800,color:"#fff"}}>{daysLeft(user.renewsAt)}</span> day{daysLeft(user.renewsAt)===1?"":"s"} left.</div>
+              <div style={{fontSize:12.5,color:C.yellowText,lineHeight:1.65}}>Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until <span style={{fontWeight:800,color:C.text}}>{fmtDate(user.renewsAt)}</span>. There {daysLeft(user.renewsAt)===1?"is":"are"} <span style={{fontWeight:800,color:C.text}}>{daysLeft(user.renewsAt)}</span> day{daysLeft(user.renewsAt)===1?"":"s"} left.</div>
             </div>
           )}
           {isPaid&&!user.cancelAtPeriodEnd&&user.renewsAt&&(
@@ -1522,13 +1618,13 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
               <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setCancelConfirm(false)} style={{flex:1,padding:"9px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Keep Plan</button>
-                <button onClick={()=>{onCancelPlan(true);setCancelConfirm(false);}} style={{flex:1,padding:"9px",borderRadius:7,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Cancel</button>
+                <button onClick={()=>{onCancelPlan(true);setCancelConfirm(false);}} style={{flex:1,padding:"9px",borderRadius:7,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.redText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Cancel</button>
               </div>
             </div>
           )}
         </Section>
         {isPaid&&user.cancelAtPeriodEnd&&(
-          <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellow,lineHeight:1.6}}>
+          <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellowText,lineHeight:1.6}}>
             Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
           </div>
         )}
@@ -1555,10 +1651,10 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
 
         <button onClick={handleSave} style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:saved?`linear-gradient(135deg,${C.green},#2ab888)`:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:10,transition:"all 0.3s",boxShadow:saved?"0 4px 20px rgba(61,219,164,0.3)":`0 4px 20px ${C.blueGlow}`}}>
-          {saved?"✓ Saved!":"Save Changes"}
+          {saved?<IconLabel name="check">Saved</IconLabel>:"Save Changes"}
         </button>
 
-        <button onClick={onSignOut} style={{width:"100%",padding:"12px",borderRadius:10,background:"transparent",border:"1px solid rgba(240,107,107,0.3)",color:C.red,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.07)";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+        <button onClick={onSignOut} style={{width:"100%",padding:"12px",borderRadius:10,background:"transparent",border:"1px solid rgba(240,107,107,0.3)",color:C.redText,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.07)";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
           Sign Out
         </button>
         {showReport&&<ReportContentModal onClose={()=>setShowReport(false)}/>}
@@ -1602,7 +1698,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
           onAuth({
             name:profile.name||profile.given_name||"User",
             email:profile.email,
-            avatar:profile.picture||"🧠",
+            avatar:profile.picture||null,
             plan:"free",
             googleId:profile.sub,
           });
@@ -1616,33 +1712,33 @@ function AuthScreen({onAuth,defaultTab="signup"}){
     return;
   }
 };
-  const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:"✨",plan:"free"});},1300);};
+  const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:null,plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:22,animation:"fadeUp 0.4s ease"}}>
         <div style={{display:"flex",justifyContent:"center",marginBottom:2}}><GhostLogo size={78}/></div>
-        <div style={{fontSize:26,fontWeight:900,letterSpacing:"-0.02em",color:"#fff",lineHeight:1}}>GhostwriterMe</div>
+        <div style={{fontSize:26,fontWeight:900,letterSpacing:"-0.02em",color:C.text,lineHeight:1}}>GhostwriterMe</div>
         <div style={{fontSize:11,color:C.muted,letterSpacing:"0.18em",marginTop:6}}>AI WRITING SUITE</div>
       </div>
       <div style={{width:"100%",maxWidth:370,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px",animation:"fadeUp 0.4s 0.08s ease both",boxShadow:"0 20px 50px rgba(0,0,0,0.7)"}}>
         <div style={{textAlign:"center",marginBottom:20}}>
-          <div style={{fontSize:16,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>{tab==="signin"?"Sign In":"Create Account"}</div>
+          <div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{tab==="signin"?"Sign In":"Create Account"}</div>
         </div>
         {!showEmail?(
-          <><div style={{fontSize:15,fontWeight:800,color:"#fff",marginBottom:3}}>{tab==="signin"?"Welcome back 👋":"Join GhostwriterMe"}</div><div style={{fontSize:13,color:C.muted,marginBottom:18,lineHeight:1.5}}>{tab==="signin"?"Access your AI writing suite.":"Free forever. No card needed."}</div>
+          <><div style={{fontSize:15,fontWeight:800,color:C.text,marginBottom:3}}>{tab==="signin"?"Welcome back":"Join GhostwriterMe"}</div><div style={{fontSize:13,color:C.muted,marginBottom:18,lineHeight:1.5}}>{tab==="signin"?"Access your writing suite.":"Free forever. No card needed."}</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>{SOCIAL_PROVIDERS.map(s=>(<button key={s.id} onClick={()=>handleSocial(s.id)} disabled={!!loading} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"15px",borderRadius:8,border:s.border||"none",background:s.bg,color:s.color,fontSize:14,fontWeight:700,cursor:loading?"not-allowed":"pointer",transition:"opacity 0.2s,transform 0.15s",opacity:loading&&loading!==s.id?0.4:1,fontFamily:"inherit"}} onMouseEnter={e=>{if(!loading)e.currentTarget.style.transform="scale(1.015)";}} onMouseLeave={e=>{e.currentTarget.style.transform="scale(1)";}}>
             {loading===s.id?<Spin color={s.color==="#fff"?"#fff":"#333"}/>:<SocialIcon type={s.iconType}/>}{loading===s.id?"Connecting...":s.label}
           </button>))}</div></>
         ):(
           <div style={{animation:"slideIn 0.25s ease"}}>
-            <button onClick={()=>setShowEmail(false)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit"}}>← Back</button>
-            <div style={{fontSize:15,fontWeight:800,color:"#fff",marginBottom:16}}>{tab==="signin"?"Sign in with email":"Sign up with email"}</div>
-            {tab==="signup"&&(<><FInput label="Full Name" placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} error={errs.name} icoL="👤"/><div style={{marginBottom:12}}><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Your Age</label><input type="number" min="1" max="120" placeholder="e.g. 20" value={age} onChange={e=>setAge(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${errs.age?C.red:C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:14}}/>{errs.age&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.age}</div>}<div style={{fontSize:12,color:C.muted,marginTop:3}}>Minimum age: 13</div></div></>)}
-            <FInput label="Email" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} error={errs.email} icoL="✉️"/>
-            <FInput label="Password" type={showPw?"text":"password"} placeholder="••••••••" value={pw} onChange={e=>setPw(e.target.value)} error={errs.pw} icoL="🔒" icoR={showPw?"🙈":"👁️"} onIcoR={()=>setShowPw(!showPw)}/>
+            <button onClick={()=>setShowEmail(false)} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit"}}><GwmIcon name="arrowLeft" size={14}/>Back</button>
+            <div style={{fontSize:15,fontWeight:800,color:C.text,marginBottom:16}}>{tab==="signin"?"Sign in with email":"Sign up with email"}</div>
+            {tab==="signup"&&(<><FInput label="Full Name" placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} error={errs.name} icoL="user"/><div style={{marginBottom:12}}><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Your Age</label><input type="number" min="1" max="120" placeholder="e.g. 20" value={age} onChange={e=>setAge(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${errs.age?C.red:C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:14}}/>{errs.age&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.age}</div>}<div style={{fontSize:12,color:C.muted,marginTop:3}}>Minimum age: 13</div></div></>)}
+            <FInput label="Email" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} error={errs.email} icoL="mail"/>
+            <FInput label="Password" type={showPw?"text":"password"} placeholder="••••••••" value={pw} onChange={e=>setPw(e.target.value)} error={errs.pw} icoL="lock" icoR={showPw?"eye":"eyeOff"} onIcoR={()=>setShowPw(!showPw)}/>
             {tab==="signin"&&<div style={{textAlign:"right",marginTop:-5,marginBottom:12}}><span style={{fontSize:13,color:C.blue,cursor:"pointer"}}>Forgot password?</span></div>}
-            {tab==="signup"&&(<div style={{marginBottom:12}}><div onClick={()=>{setAgreed(!agreed);if(errs.terms)setErrs({...errs,terms:""});}} style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px",background:agreed?C.accentSoft:C.surface,border:`1px solid ${errs.terms?C.red:agreed?C.blue:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s"}}><div style={{width:16,height:16,borderRadius:3,border:`2px solid ${agreed?C.blue:errs.terms?C.red:C.border}`,background:agreed?C.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{agreed&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>✓</span>}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>I agree to the{" "}<span onClick={e=>{e.stopPropagation();setShowTC(true);}} style={{color:C.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Terms & Conditions</span>{" "}and{" "}<span style={{color:C.blue,fontWeight:700,cursor:"pointer"}}>Privacy Policy</span></div></div>{errs.terms&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.terms}</div>}</div>)}
+            {tab==="signup"&&(<div style={{marginBottom:12}}><div onClick={()=>{setAgreed(!agreed);if(errs.terms)setErrs({...errs,terms:""});}} style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px",background:agreed?C.accentSoft:C.surface,border:`1px solid ${errs.terms?C.red:agreed?C.blue:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s"}}><div style={{width:16,height:16,borderRadius:3,border:`2px solid ${agreed?C.blue:errs.terms?C.red:C.border}`,background:agreed?C.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{agreed&&<GwmIcon name="check" size={11} color="#071018" strokeWidth={2.5}/>}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>I agree to the{" "}<span onClick={e=>{e.stopPropagation();setShowTC(true);}} style={{color:C.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Terms & Conditions</span>{" "}and{" "}<span style={{color:C.blue,fontWeight:700,cursor:"pointer"}}>Privacy Policy</span></div></div>{errs.terms&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.terms}</div>}</div>)}
             <PriBtn loading={loading==="email"} onClick={handleSubmit}>{tab==="signin"?"Sign In →":"Create Account →"}</PriBtn>
           </div>
         )}
@@ -1664,12 +1760,12 @@ function PricingScreen({user,onSelect,onContact,onBack}){
   // whose click now leads to an immediately-charged subscription.
   const trialUsed=!!(user&&(user.trialUsed||user.trialPlan));
 
-  const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","🎤 Voice input on all fields","🔊 Text-to-speech on all outputs"];
-  const PRO_F=["Unlimited AI replies","✍️ Essay Writer (CEFR A1–C2)","💼 CV / Resume Builder","📖 Author Mode (12 genres)","🎬 Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
-  const STU_F=["Everything in Pro","🎓 Academic Essay + auto-citations (Student exclusive)","🧠 Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
+  const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
+  const PRO_F=["Unlimited AI replies","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
+  const STU_F=["Everything in Pro","Academic Essay + auto-citations (Student exclusive)","Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
-  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"🎓 Student",color:C.violet}];
+  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Student",color:C.violet}];
 
   const getPrice=()=>{
     if(tab==="free")return{main:"$0",per:"forever",sub:null,intro:null};
@@ -1689,38 +1785,38 @@ function PricingScreen({user,onSelect,onContact,onBack}){
   return(
     <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:440}}>
-        {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",padding:0}}>← Back to app</button>}
+        {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit",padding:0}}><GwmIcon name="arrowLeft" size={14}/>Back to app</button>}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,animation:"fadeUp 0.4s ease"}}>
           <Avatar avatar={user.avatar} size={38}/>
-          <div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>Hey {user.name.split(" ")[0]} 👋</div><div style={{fontSize:13,color:C.muted}}>{user.email}</div></div>
+          <div><div style={{fontSize:15,fontWeight:800,color:C.text}}>Hey {user.name.split(" ")[0]}</div><div style={{fontSize:13,color:C.muted}}>{user.email}</div></div>
         </div>
-        <div style={{fontSize:22,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:4,animation:"fadeUp 0.4s 0.05s ease both"}}>Choose your plan</div>
+        <div style={{fontSize:22,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:4,animation:"fadeUp 0.4s 0.05s ease both"}}>Choose your plan</div>
         <div style={{fontSize:13,color:C.muted,marginBottom:18,animation:"fadeUp 0.4s 0.08s ease both"}}>All plans include voice input and text-to-speech.</div>
         <div style={{display:"flex",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3,marginBottom:14,animation:"fadeUp 0.4s 0.1s ease both"}}>
           {tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px 4px",borderRadius:7,border:"none",background:tab===t.id?t.color:"transparent",color:tab===t.id?"#000":C.muted,fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t.label}</button>))}
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><span style={{fontSize:16,flexShrink:0}}>🎓</span><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
+        {tab==="student"&&(<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.violet}/><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(192,132,252,0.07),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(192,132,252,0.4)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.violetGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
-          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:"none"}}>{tab==="student"?<>🎓 STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
+          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:"none"}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
-          <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}><span style={{fontSize:34,fontWeight:900,color:"#fff",lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span><span style={{fontSize:13,color:C.muted}}>{price.per}</span></div>
+          <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}><span style={{fontSize:34,fontWeight:900,color:C.text,lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span><span style={{fontSize:13,color:C.muted}}>{price.per}</span></div>
           {price.sub&&<div style={{fontSize:13,color:C.green,marginBottom:price.intro?2:14}}>{price.sub}</div>}
           {price.intro&&<div style={{fontSize:12,color:C.muted,marginBottom:14}}>{price.intro}</div>}
           {!price.sub&&<div style={{marginBottom:14}}/>}
           <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
-            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;return(<li key={feat} style={{fontSize:13,lineHeight:1.5,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:6}}><span style={{color:isStuEx?C.violet:isProEx?C.blue:isProBas?C.blue:C.green,flexShrink:0,marginTop:2}}>✓</span>{feat}</li>);})}
+            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;const checkColor=isStuEx?C.violet:isProEx||isProBas?C.blue:C.green;return(<li key={feat} style={{fontSize:13,lineHeight:1.5,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="check" size={13} color={checkColor} style={{marginTop:3}}/>{feat}</li>);})}
           </ul>
           {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(192,132,252,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{width:28,height:28,borderRadius:"50%",background:tab==="student"?"rgba(192,132,252,0.15)":C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:tabColor}}><GiftIcon size={14} color={tabColor}/></span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
           {tab==="free"&&<SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
           {tab==="pro"&&<PriBtn onClick={handleCTA}>{trialUsed?"Continue with Pro →":"Start Free Trial →"}</PriBtn>}
-          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet">{trialUsed?"Continue with Student 🎓":"Start Student Free Trial 🎓"}</PriBtn>}
+          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet"><IconLabel name="academic">{trialUsed?"Continue with Student":"Start Student Free Trial"}</IconLabel></PriBtn>}
         </div>
         <div style={{display:"flex",justifyContent:"center",gap:5,flexWrap:"wrap",animation:"fadeUp 0.4s 0.18s ease both"}}>
           {tabs.filter(t=>t.id!==tab).map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=t.color;e.currentTarget.style.color=t.color;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>View {t.id==="student"?"Student":t.id==="pro"?"Pro":"Free"} plan</button>))}
         </div>
-        <div style={{marginTop:24,textAlign:"center"}}><button onClick={onContact} style={{background:"transparent",border:"none",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>Questions? Contact us ✉️</button></div>
+        <div style={{marginTop:24,textAlign:"center"}}><button onClick={onContact} style={{background:"transparent",border:"none",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}><IconLabel name="mail">Questions? Contact us</IconLabel></button></div>
       </div>
     </div>
   );
@@ -1771,7 +1867,7 @@ function PricingScreen({user,onSelect,onContact,onBack}){
  */
 
 // ── Inner form: must render inside <Elements> so useStripe/useElements work ──
-function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
+function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,theme}){
   const stripe=useStripe();
   const elements=useElements();
   const isStudent=targetPlan==="student";
@@ -1785,10 +1881,10 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":"$15 / month"):(billing==="yearly"?"$60 / year":"$7 / month");
   const introNote=isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
 
-  // Styles the CardElement's internal iframe to match the app's dark theme
+  // Stripe renders inside its own iframe, so pass the active theme explicitly.
   const CARD_STYLE={
     style:{
-      base:{color:"#ffffff",fontFamily:"'Cabinet Grotesk',sans-serif",fontSize:"14px",iconColor:C.muted,"::placeholder":{color:C.muted}},
+      base:{color:theme==="light"?"#172535":"#ffffff",fontFamily:"'Cabinet Grotesk',sans-serif",fontSize:"14px",iconColor:theme==="light"?"#536f84":"#8eacc4","::placeholder":{color:theme==="light"?"#71879a":"#8eacc4"}},
       invalid:{color:C.red,iconColor:C.red},
     },
   };
@@ -1893,9 +1989,9 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   if(step==="success")return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
-        <div style={{fontSize:64,marginBottom:12,animation:"pulse 2s ease infinite"}}>🎉</div>
-        <div style={{fontSize:30,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
-        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isStudent?"Student plan activated!":"3-day free trial started."}<br/>All features unlocked. 🚀</div>
+        <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.violetSoft:C.accentSoft,color:isStudent?C.violet:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
+        <div style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
+        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isStudent?"Student plan activated!":"3-day free trial started."}<br/>All features are unlocked.</div>
         <PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn>
       </div>
     </div>
@@ -1904,21 +2000,21 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
   return(
     <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:420}}>
-        {onBack&&<button onClick={onBack} disabled={loading} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:loading?"default":"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:4,fontFamily:"inherit",padding:0,opacity:loading?0.5:1}}>← Back to plans</button>}
+        {onBack&&<button onClick={onBack} disabled={loading} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:loading?"default":"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit",padding:0,opacity:loading?0.5:1}}><GwmIcon name="arrowLeft" size={14}/>Back to plans</button>}
         <div style={{marginBottom:18}}>
-          <div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>Payment</div>
+          <div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>Payment</div>
           <div style={{fontSize:13,color:C.muted}}>Secure checkout · SSL encrypted · Cancel anytime</div>
         </div>
         <Card style={{marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>GhostwriterMe {isStudent?"Student":"Pro"}</div>
+              <div style={{fontSize:15,fontWeight:800,color:C.text}}>GhostwriterMe {isStudent?"Student":"Pro"}</div>
               <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · after 3-day trial</div>
               {introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:18,fontWeight:900,color:planColor}}>{priceDisplay.split(" ")[0]}</div>
-              <div style={{fontSize:12,color:C.green,marginTop:1}}>{skipTrial?`Today: ${priceDisplay.split(" ")[0]} ✓`:"Today: $0.00 ✓"}</div>
+              <div style={{fontSize:12,color:C.green,marginTop:1}}><IconLabel name="check">{skipTrial?`Today: ${priceDisplay.split(" ")[0]}`:"Today: $0.00"}</IconLabel></div>
             </div>
           </div>
         </Card>
@@ -1927,7 +2023,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
           <div style={{background:C.surface,border:`1px solid ${cardErr?C.red:cardFocus?C.blue:C.border}`,borderRadius:8,padding:"12px 14px",marginBottom:6,transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:cardErr?"none":cardFocus?`0 0 0 3px ${C.blueGlow}`:"none"}}>
             <CardElement options={CARD_STYLE} onChange={e=>setCardErr(e.error?e.error.message:"")} onFocus={()=>setCardFocus(true)} onBlur={()=>setCardFocus(false)}/>
           </div>
-          {cardErr&&<div style={{fontSize:12,color:C.red,marginTop:4}}>⚠️ {cardErr}</div>}
+          {cardErr&&<div style={{fontSize:12,color:C.red,marginTop:5,display:"flex",alignItems:"flex-start",gap:5}}><GwmIcon name="alert" size={14} style={{marginTop:1}}/>{cardErr}</div>}
           <div style={{fontSize:12,color:C.muted,marginTop:10,display:"flex",alignItems:"center",gap:6}}><LockIcon size={11} color={C.muted}/>Processed by Stripe. We never store card data.</div>
         </Card>
         <PriBtn loading={loading} onClick={handlePay} variant={isStudent?"violet":"blue"} disabled={!stripe}>
@@ -1940,10 +2036,10 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack}){
 }
 
 // ── Outer wrapper: provides the Stripe Elements context ──
-function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete,onBack}){
+function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete,onBack,theme}){
   return(
     <Elements stripe={stripePromise}>
-      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} skipTrial={skipTrial} onComplete={onComplete} onBack={onBack}/>
+      <StripeCardForm user={user} billing={billing} targetPlan={targetPlan} skipTrial={skipTrial} onComplete={onComplete} onBack={onBack} theme={theme}/>
     </Elements>
   );
 }
@@ -1980,7 +2076,7 @@ function FollowUpChat({context,intro,accent}){
 
   return(
     <Card style={{marginTop:10}}>
-      <div style={{fontSize:11,color:ac,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>💬 Ask a Follow-Up</div>
+      <div style={{fontSize:11,color:ac,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,display:"flex",alignItems:"center",gap:6}}><GwmIcon name="reply" size={14}/>Ask a Follow-Up</div>
       {msgs.length===0&&<div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:10}}>{intro}</div>}
       {msgs.map((m,i)=>(
         <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",marginBottom:8}}>
@@ -2035,7 +2131,7 @@ const fmtGrammarHistory=r=>[
 
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
 const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
-const HIST_MI={reply:"💬",email:"📧",essay:"✍️",academic:"🎓",cv:"💼",author:"📖",grammar:"✅",humanize:"🧠",story:"🎬"};
+const HIST_MI={reply:"reply",email:"mail",essay:"essay",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
 const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,m.access==="free"?C.green:m.access==="student"?C.violet:C.blue]));
@@ -2050,9 +2146,9 @@ function HistoryDetailModal({item,onClose}){
       <div style={{width:"100%",maxWidth:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 30px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-          <span style={{fontSize:22}}>{HIST_MI[item.mode]||"📝"}</span>
+          <span style={{width:36,height:36,borderRadius:10,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={HIST_MI[item.mode]||"document"} size={20}/></span>
           <div style={{minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:900,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||"Untitled"}</div>
+            <div style={{fontSize:15,fontWeight:900,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||"Untitled"}</div>
             <div style={{fontSize:12,color:C.muted}}>{HIST_ML[item.mode]||item.mode}</div>
           </div>
         </div>
@@ -2116,9 +2212,9 @@ function HistoryMode({user}){
   // the exact server message (e.g. "History database not configured...").
   const SyncStatus=()=>(
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-      {sync.state==="syncing"&&<span style={{fontSize:11.5,color:C.muted}}>☁️ Syncing across your devices…</span>}
-      {sync.state==="synced"&&<span style={{fontSize:11.5,color:C.green}}>☁️ Synced across devices ✓</span>}
-      {sync.state==="error"&&<span style={{fontSize:11.5,color:C.yellow}}>⚠️ Not synced — {sync.error}</span>}
+      {sync.state==="syncing"&&<span style={{fontSize:11.5,color:C.muted}}><IconLabel name="cloud">Syncing across your devices…</IconLabel></span>}
+      {sync.state==="synced"&&<span style={{fontSize:11.5,color:C.green}}><IconLabel name="cloud">Synced across devices</IconLabel></span>}
+      {sync.state==="error"&&<span style={{fontSize:11.5,color:C.yellow}}><IconLabel name="alert">Not synced — {sync.error}</IconLabel></span>}
       <button onClick={runSync} disabled={sync.state==="syncing"} style={{padding:"3px 10px",borderRadius:12,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Sync Now</button>
     </div>
   );
@@ -2140,8 +2236,8 @@ function HistoryMode({user}){
       ))}
     </div>
   );
-  if(!items.length)return(<div><SyncStatus/><div style={{textAlign:"center",padding:"48px 20px"}}><div style={{width:60,height:60,borderRadius:"50%",background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><ClockIcon size={26} color={C.muted}/></div><div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>Generated content will appear here.</div></div></div>);
-  return(<div><SyncStatus/><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":(MI[m]||"")+" "+(ML[m]||m)}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>{const tagColor=MODE_TAG_COLOR[item.mode]||C.blue;return(<div key={item.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:8,transition:"border-color 0.2s, transform 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=tagColor;e.currentTarget.style.transform="translateY(-1px)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="translateY(0)";}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:exp===item.id?9:0}}><div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,color:"#fff",fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:6}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:tagColor,background:tagColor+"1a",padding:"2px 8px",borderRadius:20,flexShrink:0}}>{MI[item.mode]||"📝"} {ML[item.mode]||item.mode}</span><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,color:C.muted}}><ClockIcon size={10} color={C.muted}/>{new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</span></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{exp===item.id?"Hide":"View"}</button></div></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease",marginTop:9}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</div>);})}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
+  if(!items.length)return(<div><SyncStatus/><div style={{textAlign:"center",padding:"48px 20px"}}><div style={{width:60,height:60,borderRadius:"50%",background:C.surface,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px"}}><GwmIcon name="history" size={26} color={C.muted}/></div><div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:5}}>No history yet</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>Generated content will appear here.</div></div></div>);
+  return(<div><SyncStatus/><div style={{display:"flex",gap:5,marginBottom:14,overflowX:"auto",paddingBottom:3}}>{["all",...Object.keys(ML)].map(m=>(<button key={m} onClick={()=>setFilter(m)} style={{flexShrink:0,padding:"5px 10px",borderRadius:20,border:`1px solid ${filter===m?C.blue:C.border}`,background:filter===m?C.accentSoft:"transparent",color:filter===m?C.blue:C.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{m==="all"?"All":<IconLabel name={MI[m]||"document"} size={13}>{ML[m]||m}</IconLabel>}</button>))}</div><div style={{fontSize:12,color:C.muted,marginBottom:9}}>{filtered.length} item{filtered.length!==1?"s":""}</div>{filtered.map(item=>{const tagColor=MODE_TAG_COLOR[item.mode]||C.blue;return(<div key={item.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:8,transition:"border-color 0.2s, transform 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=tagColor;e.currentTarget.style.transform="translateY(-1px)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="translateY(0)";}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:exp===item.id?9:0}}><div style={{flex:1,minWidth:0}}><div style={{fontSize:13.5,color:C.text,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:6}}>{item.title||item.output?.slice(0,55)||"Untitled"}</div><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:700,color:tagColor,background:tagColor+"1a",padding:"2px 8px",borderRadius:20,flexShrink:0}}><GwmIcon name={MI[item.mode]||"document"} size={12}/>{ML[item.mode]||item.mode}</span><span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11.5,color:C.muted}}><ClockIcon size={10} color={C.muted}/>{new Date(item.ts).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</span></div></div><div style={{display:"flex",gap:6,flexShrink:0}}><button onClick={()=>setDetail(item)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.blue}55`,background:"transparent",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Details</button><button onClick={()=>setExp(exp===item.id?null:item.id)} style={{flexShrink:0,padding:"4px 8px",borderRadius:5,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>{exp===item.id?"Hide":"View"}</button></div></div>{exp===item.id&&(<div style={{animation:"fadeUp 0.2s ease",marginTop:9}}>{item.input&&<div style={{fontSize:12,color:C.muted,background:C.surface,borderRadius:6,padding:"7px 10px",marginBottom:7,lineHeight:1.5}}><strong>Input:</strong> {item.input}</div>}<div style={{fontSize:13,lineHeight:1.8,color:C.text,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto",background:C.surface,borderRadius:6,padding:"9px 11px"}}>{item.output}</div><OutputActions text={item.output}/></div>)}</div>);})}{detail&&<HistoryDetailModal item={detail} onClose={()=>setDetail(null)}/>}</div>);
 }
 
 function ReplyMode({user,isPro,onUpgradeClick}){
@@ -2172,18 +2268,18 @@ function ReplyMode({user,isPro,onUpgradeClick}){
   };
   return(
     <div>
-      {!isPro&&<div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:C.muted}}>{FREE_LIMIT-used} free replies left today</span><button onClick={onUpgradeClick} style={{fontSize:13,color:C.blue,fontWeight:700,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Upgrade →</button></div>}
+      {!isPro&&<div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 12px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:C.muted}}>{FREE_LIMIT-used} free replies left today</span><button onClick={onUpgradeClick} style={{fontSize:13,color:C.blueText,fontWeight:700,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",padding:0}}>Upgrade →</button></div>}
       <FArea label="Paste the Message" placeholder="Paste the message you received..." value={msg} onChange={e=>setMsg(e.target.value)} rows={4} voice/>
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8,marginTop:2}}>Pick Your Energy</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        {TONES.map(t=>(<button key={t.id} onClick={()=>setTone(t.id)} style={{background:tone===t.id?C.accentSoft:C.surface,border:`1px solid ${tone===t.id?C.blue:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{t.emoji}</div><div style={{fontSize:13,fontWeight:700,marginTop:3}}>{t.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{t.desc}</div></button>))}
+        {TONES.map(t=>(<button key={t.id} onClick={()=>setTone(t.id)} style={{background:tone===t.id?C.accentSoft:C.surface,border:`1px solid ${tone===t.id?C.blue:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={t.icon} size={18} color={tone===t.id?C.blue:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:5}}>{t.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{t.desc}</div></button>))}
       </div>
       <div onClick={()=>setNoDesp(!noDesp)} style={{background:noDesp?C.accentSoft:C.surface,border:`1px solid ${noDesp?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",transition:"all 0.15s",marginBottom:13}}>
-        <div><div style={{fontSize:13,fontWeight:700}}>💀 Don't Sound Desperate</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>Strips clingy energy. Unbothered only.</div></div>
+        <div style={{display:"flex",alignItems:"center",gap:9}}><span style={{width:30,height:30,borderRadius:9,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="shieldCheck" size={17}/></span><div><div style={{fontSize:13,fontWeight:700}}>Don't Sound Desperate</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>Strips clingy energy. Unbothered only.</div></div></div>
         <Toggle on={noDesp} set={()=>setNoDesp(!noDesp)}/>
       </div>
       <ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setMsg(v=>v?v+"\n\n"+t:t)}/>
-      <PriBtn onClick={gen} loading={loading} disabled={!msg.trim()}>✍️ Generate Replies</PriBtn>
+      <PriBtn onClick={gen} loading={loading} disabled={!msg.trim()}><IconLabel name="reply">Generate Replies</IconLabel></PriBtn>
       {error&&<ErrBox msg={error}/>}
       {replies.length>0&&(<div ref={ref} style={{marginTop:20,animation:"fadeUp 0.4s ease"}}>{replies.map((r,i)=>(<Card key={i} style={{marginTop:9}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{r.vibe}</span><span style={{fontSize:12,color:C.muted}}>Option {r.option}</span></div><div style={{fontSize:14,lineHeight:1.7,color:C.text,maxWidth:"64ch"}}>{r.text}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={r.text}/><ListenBtn text={r.text}/><SaveAsImageBtn text={r.text} title="AI Reply"/></div></Card>))}<div style={{marginTop:10}}><GenMoreBtn onClick={()=>{setMsg("");setTone("confident");setNoDesp(false);setReplies([]);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></div>)}
     </div>
@@ -2196,21 +2292,21 @@ function EmailMode({user}){
   const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const gen=async()=>{if(!ctx.trim())return;setLoading(true);setError("");setRes(null);const eObj=EMAIL_TYPES.find(e=>e.id===etype);const tObj=TONES.find(t=>t.id===tone);const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:(r.subject?"SUBJECT\n"+r.subject+"\n\nBODY\n":"")+r.body});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.15)",borderRadius:7,padding:"8px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:7}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited — free for all users</span></div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Email Type</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{EMAIL_TYPES.map(e=><button key={e.id} onClick={()=>setEtype(e.id)} style={{background:etype===e.id?C.accentSoft:C.surface,border:`1px solid ${etype===e.id?C.blue:C.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{e.icon}</div><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{e.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{e.desc}</div></button>)}</div><FArea label="Situation / Context" placeholder="What's this email about?" value={ctx} onChange={e=>setCtx(e.target.value)} rows={3} voice/><FInput label="Recipient (optional)" placeholder="e.g. My manager, a recruiter..." icoL="👤" value={rec} onChange={e=>setRec(e.target.value)} voice/><FArea label="Key Points (optional)" placeholder="e.g. Ask about timeline..." value={kp} onChange={e=>setKp(e.target.value)} rows={2} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Tone" value={tone} onChange={setTone} options={TONES.map(t=>({value:t.id,label:t.emoji+" "+t.label}))}/><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setCtx(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={gen} loading={loading} disabled={!ctx.trim()}>📧 Generate Email</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Subject</div><div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{res.subject}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.subject}/><ListenBtn text={res.subject}/><SaveAsImageBtn text={res.subject} title="Email Subject"/></div></Card><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Body</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.body}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.body}/><ListenBtn text={res.body}/><SaveAsImageBtn text={res.body} title="Email"/><GenMoreBtn onClick={()=>{setEtype("professional");setCtx("");setRec("");setKp("");setTone("professional");setLen("medium");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>{res.tip&&<div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"10px 12px",display:"flex",gap:8}}><span style={{fontSize:16}}>💡</span><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>{res.tip}</div></div>}</div>}</div>);
+  return(<div><div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.15)",borderRadius:7,padding:"8px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:7}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited — free for all users</span></div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Email Type</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{EMAIL_TYPES.map(e=><button key={e.id} onClick={()=>setEtype(e.id)} style={{background:etype===e.id?C.accentSoft:C.surface,border:`1px solid ${etype===e.id?C.blue:C.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={e.icon} size={18} color={etype===e.id?C.blue:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{e.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{e.desc}</div></button>)}</div><FArea label="Situation / Context" placeholder="What's this email about?" value={ctx} onChange={e=>setCtx(e.target.value)} rows={3} voice/><FInput label="Recipient (optional)" placeholder="e.g. My manager, a recruiter..." icoL="user" value={rec} onChange={e=>setRec(e.target.value)} voice/><FArea label="Key Points (optional)" placeholder="e.g. Ask about timeline..." value={kp} onChange={e=>setKp(e.target.value)} rows={2} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Tone" value={tone} onChange={setTone} options={TONES.map(t=>({value:t.id,label:t.label}))}/><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setCtx(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={gen} loading={loading} disabled={!ctx.trim()}><IconLabel name="mail">Generate Email</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Subject</div><div style={{fontSize:15,fontWeight:800,color:C.text}}>{res.subject}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.subject}/><ListenBtn text={res.subject}/><SaveAsImageBtn text={res.subject} title="Email Subject"/></div></Card><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Body</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.body}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.body}/><ListenBtn text={res.body}/><SaveAsImageBtn text={res.body} title="Email"/><GenMoreBtn onClick={()=>{setEtype("professional");setCtx("");setRec("");setKp("");setTone("professional");setLen("medium");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>{res.tip&&<div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"10px 12px",display:"flex",gap:8}}><GwmIcon name="idea" size={17} color={C.yellow}/><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>{res.tip}</div></div>}</div>}</div>);
 }
 
 function GrammarMode({user}){
   const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);const [genId,setGenId]=useState(0);
   const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammarHistory(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
-  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:18,marginBottom:4}}>{s.icon}</div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setText(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}>✅ Check & Rewrite</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/><GenMoreBtn onClick={()=>{setText("");setStyle("formal");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
+  return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{display:"flex",justifyContent:"center",marginBottom:6}}><GwmIcon name={s.icon} size={20} color={style===s.id?C.blue:C.muted}/></div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setText(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}><IconLabel name="grammar">Check & Rewrite</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/><GenMoreBtn onClick={()=>{setText("");setStyle("formal");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
 }
 
 function EssayMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [level,setLevel]=useState("B2");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
   const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\\nKey points: "+(details||"none")+"\\nCEFR: "+level+"\\nWords: ~"+wc,2000,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Essay</PriBtn>
+  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?C.text:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="essay">Generate Essay</IconLabel></PriBtn>
     <div style={{marginTop:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:6}}>Essay Types Explained</div>
       {ESSAY_TYPES.map(t=>(<div key={t} style={{fontSize:12,lineHeight:1.55,marginBottom:3}}><span style={{fontWeight:700,color:t===type?C.blue:C.text}}>{t}:</span> <span style={{color:C.muted}}>{ESSAY_TYPE_INFO[t]}</span></div>))}
@@ -2236,15 +2332,15 @@ Users are responsible for ensuring that their use of this feature complies with 
   return(
     <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}
       onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
-      <div style={{width:"100%",maxWidth:500,background:"#0c1220",border:"1px solid #162030",borderRadius:"14px 14px 0 0",padding:"20px 18px 32px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{width:32,height:3,borderRadius:2,background:"#162030",margin:"0 auto 18px"}}/>
+      <div style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 18px 32px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 18px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <div style={{width:40,height:40,borderRadius:10,background:"rgba(245,200,66,0.12)",border:"1px solid rgba(245,200,66,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>⚠️</div>
-          <div style={{fontSize:16,fontWeight:900,color:"#fff"}}>{title}</div>
+          <div style={{width:40,height:40,borderRadius:10,background:"rgba(245,200,66,0.12)",border:"1px solid rgba(245,200,66,0.3)",color:C.yellow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="alert" size={20}/></div>
+          <div style={{fontSize:16,fontWeight:900,color:C.text}}>{title}</div>
         </div>
         {accepted&&(
           <div style={{display:"flex",alignItems:"center",gap:7,background:"rgba(61,219,164,0.08)",border:"1px solid rgba(61,219,164,0.25)",borderRadius:8,padding:"8px 12px",marginBottom:14}}>
-            <span style={{color:"#3ddba4",fontSize:14,fontWeight:900}}>✓</span>
+            <GwmIcon name="check" size={14} color={C.green}/>
             <span style={{fontSize:13,color:"#3ddba4",fontWeight:600}}>You have already accepted this notice.</span>
           </div>
         )}
@@ -2259,7 +2355,7 @@ Users are responsible for ensuring that their use of this feature complies with 
           <>
             <div onClick={()=>setChecked(!checked)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px",background:checked?"rgba(121,186,236,0.08)":"#080d14",border:`1px solid ${checked?"#79BAEC":"#162030"}`,borderRadius:9,cursor:"pointer",marginBottom:16,transition:"all 0.15s"}}>
               <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${checked?"#79BAEC":"#162030"}`,background:checked?"#79BAEC":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>
-                {checked&&<span style={{color:"#000",fontSize:12,fontWeight:900}}>✓</span>}
+                {checked&&<GwmIcon name="check" size={12} color="#071018" strokeWidth={2.5}/>}
               </div>
               <div style={{fontSize:13,color:checked?"#fff":"#8eacc4",lineHeight:1.5}}>{checkLabel}</div>
             </div>
@@ -2323,12 +2419,12 @@ Return ONLY valid JSON, no markdown fences:
   return(
     <div>
       <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
-        <span style={{fontSize:16,flexShrink:0}}>🔍</span>
+        <GwmIcon name="reviewer" size={17} color={C.blue}/>
         <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Paste your essay to get detailed, coach-style feedback on writing quality, argument strength, tone, and citations. This reviews <strong style={{color:C.text}}>your own work</strong> — it does not rewrite it for you.</div>
       </div>
       <FArea label="Paste Your Essay" placeholder="Paste your full essay or a section you want feedback on..." value={text} onChange={e=>setText(e.target.value)} rows={8} voice/>
       <ImageInput onImage={(dt,t)=>{setImgData(dt);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setText(v=>v?v+"\n\n"+t:t)}/>
-      <PriBtn onClick={analyze} loading={loading} disabled={!text.trim()&&!imgData}>🔍 Analyze My Essay</PriBtn>
+      <PriBtn onClick={analyze} loading={loading} disabled={!text.trim()&&!imgData}><IconLabel name="reviewer">Analyze My Essay</IconLabel></PriBtn>
       {error&&<ErrBox msg={error}/>}
       {res&&(
         <div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
@@ -2342,7 +2438,7 @@ Return ONLY valid JSON, no markdown fences:
               <div style={{fontSize:14,color:C.text,lineHeight:1.5}}>{res.summary}</div>
             </div>
           </Card>
-          <div style={{background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:"#c8a020",lineHeight:1.5}}>⚠️ This is an AI estimate to guide your revision — not an official grade. Your instructor's assessment may differ.</div>
+          <div style={{background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:C.yellow,lineHeight:1.5,display:"flex",gap:7}}><GwmIcon name="alert" size={15} style={{marginTop:1}}/>This is an estimate to guide your revision — not an official grade. Your instructor's assessment may differ.</div>
 
           <Card style={{marginBottom:10}}>
             <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:11}}>Category Breakdown</div>
@@ -2362,8 +2458,8 @@ Return ONLY valid JSON, no markdown fences:
 
           {(res.strengths||[]).length>0&&(
             <Card style={{marginBottom:10}}>
-              <div style={{fontSize:11,color:C.green,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>✓ Strengths</div>
-              {res.strengths.map((s,i)=>(<div key={i} style={{display:"flex",gap:8,fontSize:13,color:C.text,lineHeight:1.6,marginBottom:5}}><span style={{color:C.green,flexShrink:0}}>✓</span>{s}</div>))}
+              <div style={{fontSize:11,color:C.green,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9,display:"flex",alignItems:"center",gap:6}}><GwmIcon name="check" size={13}/>Strengths</div>
+              {res.strengths.map((s,i)=>(<div key={i} style={{display:"flex",gap:8,fontSize:13,color:C.text,lineHeight:1.6,marginBottom:5}}><GwmIcon name="check" size={14} color={C.green}/>{s}</div>))}
             </Card>
           )}
           {(res.improvements||[]).length>0&&(
@@ -2392,13 +2488,13 @@ Return ONLY valid JSON, no markdown fences:
 
 // ============ RESEARCH ASSISTANT (secondary) ============
 const RESEARCH_TASKS=[
-  {id:"thesis",   icon:"🎯",label:"Thesis Ideas",      desc:"Generate thesis statement options"},
-  {id:"outline",  icon:"📑",label:"Essay Outline",      desc:"Structure your paper"},
-  {id:"arguments",icon:"💡",label:"Brainstorm Arguments",desc:"Develop your points"},
-  {id:"questions",icon:"❓",label:"Research Questions", desc:"Frame your inquiry"},
-  {id:"sources",  icon:"📚",label:"Source Types",       desc:"What evidence to look for"},
-  {id:"structure",icon:"🏗️",label:"Paper Structure",    desc:"Section-by-section plan"},
-  {id:"litreview",icon:"🔬",label:"Lit Review Framework",desc:"Organize your sources"},
+  {id:"thesis",   icon:"target",   label:"Thesis Ideas",       desc:"Generate thesis statement options"},
+  {id:"outline",  icon:"outline",  label:"Essay Outline",      desc:"Structure your paper"},
+  {id:"arguments",icon:"idea",     label:"Brainstorm Arguments",desc:"Develop your points"},
+  {id:"questions",icon:"question", label:"Research Questions", desc:"Frame your inquiry"},
+  {id:"sources",  icon:"sources",  label:"Source Types",       desc:"What evidence to look for"},
+  {id:"structure",icon:"structure",label:"Paper Structure",    desc:"Section-by-section plan"},
+  {id:"litreview",icon:"research", label:"Lit Review Framework",desc:"Organize your sources"},
 ];
 function ResearchAssistant({user}){
   const [task,setTask]=useState("thesis");
@@ -2430,22 +2526,22 @@ function ResearchAssistant({user}){
   return(
     <div>
       <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
-        <span style={{fontSize:16,flexShrink:0}}>🧭</span>
+        <GwmIcon name="compass" size={17} color={C.blue}/>
         <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Plan and develop your own academic work. Get help with thesis ideas, outlines, arguments, and research direction.</div>
       </div>
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What do you need help with?</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
         {RESEARCH_TASKS.map(t=>(
           <button key={t.id} onClick={()=>setTask(t.id)} style={{background:task===t.id?C.accentSoft:C.surface,border:`1px solid ${task===t.id?C.blue:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}>
-            <div style={{fontSize:16}}>{t.icon}</div>
+            <GwmIcon name={t.icon} size={18} color={task===t.id?C.blue:C.muted}/>
             <div style={{fontSize:13,fontWeight:700,marginTop:2}}>{t.label}</div>
             <div style={{fontSize:11,color:C.muted,marginTop:1,lineHeight:1.3}}>{t.desc}</div>
           </button>
         ))}
       </div>
-      <FInput label="Topic" placeholder="e.g. The impact of social media on teen mental health" value={topic} onChange={e=>setTopic(e.target.value)} icoL="🎩" voice/>
+      <FInput label="Topic" placeholder="e.g. The impact of social media on teen mental health" value={topic} onChange={e=>setTopic(e.target.value)} icoL="formal" voice/>
       <FArea label="Context (optional)" placeholder="Any specific angle, course requirements, or constraints..." value={ctx} onChange={e=>setCtx(e.target.value)} rows={2} voice/>
-      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>🧭 Get Guidance</PriBtn>
+      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="compass">Get Guidance</IconLabel></PriBtn>
       {error&&<ErrBox msg={error}/>}
       {out&&(
         <Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
@@ -2474,7 +2570,7 @@ function DraftBuilder({user}){
   return(
     <div>
       <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
-        <span style={{fontSize:16,flexShrink:0}}>✍️</span>
+        <GwmIcon name="draft" size={17} color={C.yellow}/>
         <div style={{fontSize:13,color:"#c8a020",lineHeight:1.55}}>Generates an <strong>example draft</strong> as a learning starting point. You are expected to revise, expand, and develop it with your own ideas before any use.</div>
       </div>
       <FArea label="Thesis / Topic" placeholder="e.g. The role of AI in modern healthcare" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
@@ -2494,13 +2590,13 @@ function DraftBuilder({user}){
       </div>
       <div style={{marginBottom:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Reference</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>
-        {cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">🔗 URL</option><option value="pdf">📄 PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s"}} onFocus={e=>{e.target.style.borderColor=C.blue;e.target.style.boxShadow=`0 0 0 3px ${C.blueGlow}`;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow="none";}}/>{cites.length>1&&<button onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>}</div>))}
+        {cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">URL</option><option value="pdf">PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s"}} onFocus={e=>{e.target.style.borderColor=C.blue;e.target.style.boxShadow=`0 0 0 3px ${C.blueGlow}`;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow="none";}}/>{cites.length>1&&<button aria-label="Remove source" onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",flexShrink:0,padding:4}}><GwmIcon name="close" size={14}/></button>}</div>))}
       </div>
       <ImageInput onImage={(dt,t)=>{setImgData(dt);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/>
-      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}>✍️ Generate Example Draft</PriBtn>
+      <PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="draft">Generate Example Draft</IconLabel></PriBtn>
       {error&&<ErrBox msg={error}/>}
       {essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
-        <div style={{display:"flex",gap:8,background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><span style={{fontSize:14,flexShrink:0}}>ℹ️</span><div style={{fontSize:12,color:"#c8a020",lineHeight:1.55}}>This is an example starting point for research and learning. Review, revise, and ensure compliance with your institution's academic integrity policies before any use.</div></div>
+        <div style={{display:"flex",gap:8,background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={15} color={C.yellow}/><div style={{fontSize:12,color:C.yellow,lineHeight:1.55}}>This is an example starting point for research and learning. Review, revise, and ensure compliance with your institution's academic integrity policies before any use.</div></div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Example Draft · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div>
         <div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif",maxWidth:"64ch"}}>{essay}</div>
         <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Draft · "+style}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setCites([{type:"url",value:""}]);setWc("1000");setStyle("APA");setLevel("C1");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div>
@@ -2511,9 +2607,9 @@ function DraftBuilder({user}){
 
 // ============ ACADEMIC MODE (dashboard + gate) ============
 const ACADEMIC_TABS=[
-  {id:"reviewer",icon:"🔍",label:"Academic Reviewer",sub:"Upload or paste your essay and receive detailed feedback."},
-  {id:"research", icon:"🧭",label:"Research Assistant",sub:"Get help planning, structuring, and developing your work."},
-  {id:"draft",    icon:"✍️",label:"Academic Draft Builder",sub:"Generate outlines, frameworks, and draft examples."},
+  {id:"reviewer",icon:"reviewer",label:"Academic Reviewer",sub:"Upload or paste your essay and receive detailed feedback."},
+  {id:"research", icon:"compass", label:"Research Assistant",sub:"Get help planning, structuring, and developing your work."},
+  {id:"draft",    icon:"draft",   label:"Academic Draft Builder",sub:"Generate outlines, frameworks, and draft examples."},
 ];
 function AcademicMode({user}){
   const [accepted,setAccepted]=useState(()=>isNoticeAccepted("academic"));
@@ -2543,22 +2639,22 @@ function AcademicMode({user}){
           const on=tab===t.id;const primary=idx===0;
           return(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{display:"flex",alignItems:"center",gap:12,padding:primary?"15px 14px":"12px 14px",background:on?C.accentSoft:C.card,border:`1px solid ${on?C.blue:C.border}`,borderRadius:11,cursor:"pointer",textAlign:"left",fontFamily:"inherit",transition:"all 0.15s",boxShadow:on?`0 0 18px ${C.blueGlow}`:"none"}}>
-              <div style={{width:primary?44:38,height:primary?44:38,borderRadius:10,background:on?"linear-gradient(135deg,#79BAEC,#a8d4f5)":C.surface,display:"flex",alignItems:"center",justifyContent:"center",fontSize:primary?22:18,flexShrink:0}}>{t.icon}</div>
+              <div style={{width:primary?44:38,height:primary?44:38,borderRadius:10,background:on?"linear-gradient(135deg,#79BAEC,#a8d4f5)":C.surface,color:on?"#071019":C.muted,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={t.icon} size={primary?22:18}/></div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
-                  <span style={{fontSize:primary?16:14,fontWeight:900,color:on?"#fff":C.text}}>{t.label}</span>
+                  <span style={{fontSize:primary?16:14,fontWeight:900,color:C.text}}>{t.label}</span>
                   {primary&&<span style={{fontSize:10,fontWeight:800,letterSpacing:"0.08em",color:C.blue,background:C.accentSoft,padding:"1px 6px",borderRadius:4}}>PRIMARY</span>}
                 </div>
                 <div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.4}}>{t.sub}</div>
               </div>
-              <span style={{color:on?C.blue:C.muted,fontSize:18,flexShrink:0}}>{on?"✓":"›"}</span>
+              <span style={{color:on?C.blue:C.muted,flexShrink:0}}><GwmIcon name={on?"check":"chevronRight"} size={17}/></span>
             </button>
           );
         })}
       </div>
 
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:18,fontWeight:900,color:"#fff",letterSpacing:"-0.01em",display:"flex",alignItems:"center",gap:8}}>{active.icon} {active.label}</div>
+        <div style={{fontSize:18,fontWeight:900,color:C.text,letterSpacing:"-0.01em",display:"flex",alignItems:"center",gap:8}}><GwmIcon name={active.icon} size={20} color={C.blue}/>{active.label}</div>
       </div>
 
       {tab==="reviewer"&&<AcademicReviewer user={user}/>}
@@ -2751,7 +2847,7 @@ function StoryAnalyzer({user}){
       const r=JSON.parse(cleaned.slice(cleaned.indexOf("{"),cleaned.lastIndexOf("}")+1));
       if(r.error){setError(r.error);return;}
       setRes(r);
-      if(user)HS.save(user.email,"story",{title:(isBook?"📚 ":"🎬 ")+title,input:type+(notes?" · "+notes.slice(0,30):""),output:fmtStoryHistory(r)});
+      if(user)HS.save(user.email,"story",{title,input:type+(notes?" · "+notes.slice(0,30):""),output:fmtStoryHistory(r)});
     }catch(e){setError(e.message||"Something went wrong.");}
     finally{setLoading(false);}
   };
@@ -2762,38 +2858,38 @@ function StoryAnalyzer({user}){
   const Acc=({k,icon,label,count,children})=>(
     <Card style={{marginBottom:8,padding:0,overflow:"hidden"}}>
       <button onClick={()=>toggle(k)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"12px 14px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
-        <span style={{fontSize:14,fontWeight:800,color:open[k]?"#fff":C.text}}>{icon?icon+" ":""}{label}{count!=null&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}> · {count}</span>}</span>
+        <span style={{fontSize:14,fontWeight:800,color:C.text,display:"flex",alignItems:"center",gap:7}}>{icon&&<GwmIcon name={icon} size={16} color={open[k]?C.blue:C.muted}/>}<span>{label}{count!=null&&<span style={{fontSize:12,color:C.muted,fontWeight:400}}> · {count}</span>}</span></span>
         <span style={{fontSize:16,color:open[k]?C.blue:C.muted,transform:open[k]?"rotate(45deg)":"none",transition:"transform 0.2s",flexShrink:0}}>+</span>
       </button>
       {open[k]&&<div style={{padding:"0 14px 13px",animation:"fadeUp 0.2s ease"}}>{children}</div>}
     </Card>
   );
 
-  const STAGE_ICONS={"Exposition":"🌅","Rising Action":"📈","Climax":"⚡","Falling Action":"📉","Resolution":"🌇"};
+  const STAGE_ICONS={"Exposition":"dawn","Rising Action":"trendUp","Climax":"bolt","Falling Action":"trendDown","Resolution":"dusk"};
 
   return(
     <div>
       <div style={{background:C.accentSoft,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 13px",marginBottom:14,display:"flex",gap:9}}>
-        <span style={{fontSize:16,flexShrink:0}}>🎬</span>
+        <GwmIcon name="story" size={18} color={C.blue}/>
         <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>Enter any book or movie title to get an interactive story guide — plot structure, characters, themes, and conflicts{type==="book"?", plus chapter-by-chapter summaries":""}.</div>
       </div>
 
       <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>
-        {[{id:"movie",label:"🎬 Movie"},{id:"book",label:"📚 Book"}].map(t=>(
-          <button key={t.id} onClick={()=>setType(t.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:type===t.id?C.blue:"transparent",color:type===t.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t.label}</button>
+        {[{id:"movie",icon:"movie",label:"Movie"},{id:"book",icon:"book",label:"Book"}].map(t=>(
+          <button key={t.id} onClick={()=>setType(t.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:type===t.id?C.blue:"transparent",color:type===t.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}><IconLabel name={t.icon}>{t.label}</IconLabel></button>
         ))}
       </div>
 
-      <FInput label={type==="book"?"Book Title":"Movie Title"} placeholder={type==="book"?"e.g. To Kill a Mockingbird":"e.g. Inception"} value={title} onChange={e=>setTitle(e.target.value)} icoL={type==="book"?"📚":"🎬"} voice/>
+      <FInput label={type==="book"?"Book Title":"Movie Title"} placeholder={type==="book"?"e.g. To Kill a Mockingbird":"e.g. Inception"} value={title} onChange={e=>setTitle(e.target.value)} icoL={type==="book"?"book":"movie"} voice/>
       <FArea label="Focus (optional)" placeholder="e.g. Focus on the protagonist's moral development..." value={notes} onChange={e=>setNotes(e.target.value)} rows={2} voice/>
-      <PriBtn onClick={gen} loading={loading} disabled={!title.trim()}>🎬 Build Study Guide</PriBtn>
+      <PriBtn onClick={gen} loading={loading} disabled={!title.trim()}><IconLabel name="story">Build Study Guide</IconLabel></PriBtn>
       {loading&&<div key={progressIdx} style={{marginTop:9,display:"flex",alignItems:"center",justifyContent:"center",gap:7,fontSize:12.5,color:C.muted,animation:"fadeUp 0.3s ease"}}><Spin size={12} color={C.blue}/>{PROGRESS_MSGS[progressIdx]}</div>}
       {error&&<ErrBox msg={error}/>}
 
       {res&&(
         <div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
           <Card style={{marginBottom:10}}>
-            <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{res.type==="book"?"📚":"🎬"} Overview · {res.title||title}</div>
+            <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6,display:"flex",alignItems:"center",gap:6}}><GwmIcon name={res.type==="book"?"book":"movie"} size={14}/>Overview · {res.title||title}</div>
             <div style={{fontSize:14,lineHeight:1.8,color:C.text,maxWidth:"64ch"}}>{res.overview}</div>
             <OutputActions text={res.overview||""}/><div style={{marginTop:8}}><GenMoreBtn onClick={()=>{setType("movie");setTitle("");setNotes("");setRes(null);setError("");setOpen({});}} loading={loading}/></div>
           </Card>
@@ -2804,7 +2900,7 @@ function StoryAnalyzer({user}){
             return(
               <div key={i} style={{display:"flex",gap:10}}>
                 <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
-                  <div style={{width:26,height:26,borderRadius:"50%",background:open[k]?C.blue:C.surface,border:`2px solid ${open[k]?C.blue:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,transition:"background 0.2s, border-color 0.2s",flexShrink:0}}>{STAGE_ICONS[st.stage]||"📖"}</div>
+                  <div style={{width:26,height:26,borderRadius:"50%",background:open[k]?C.blue:C.surface,border:`2px solid ${open[k]?C.blue:C.border}`,display:"flex",alignItems:"center",justifyContent:"center",transition:"background 0.2s, border-color 0.2s",flexShrink:0}}><GwmIcon name={STAGE_ICONS[st.stage]||"book"} size={14} color={open[k]?"#071018":C.muted}/></div>
                   {!isLast&&<div style={{width:2,flex:1,minHeight:16,background:C.border,margin:"3px 0"}}/>}
                 </div>
                 <div style={{flex:1,minWidth:0,paddingBottom:isLast?0:2}}>
@@ -2821,7 +2917,7 @@ function StoryAnalyzer({user}){
 
           <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",margin:"14px 0 8px"}}>Analysis</div>
           {(res.characters||[]).length>0&&(
-            <Acc k="chars" icon="👥" label="Character Development" count={res.characters.length}>
+            <Acc k="chars" icon="users" label="Character Development" count={res.characters.length}>
               {res.characters.map((c,i)=>(
                 <div key={i} style={{paddingBottom:i<res.characters.length-1?9:0,marginBottom:i<res.characters.length-1?9:0,borderBottom:i<res.characters.length-1?`1px solid ${C.border}`:"none"}}>
                   <div style={{fontSize:13,fontWeight:800,color:C.blue,marginBottom:2}}>{c.name}</div>
@@ -2831,7 +2927,7 @@ function StoryAnalyzer({user}){
             </Acc>
           )}
           {(res.themes||[]).length>0&&(
-            <Acc k="themes" icon="💡" label="Themes" count={res.themes.length}>
+            <Acc k="themes" icon="idea" label="Themes" count={res.themes.length}>
               {res.themes.map((t,i)=>(
                 <div key={i} style={{marginBottom:i<res.themes.length-1?8:0}}>
                   <div style={{fontSize:13,fontWeight:800,color:C.yellow,marginBottom:2}}>{t.theme}</div>
@@ -2841,7 +2937,7 @@ function StoryAnalyzer({user}){
             </Acc>
           )}
           {(res.conflicts||[]).length>0&&(
-            <Acc k="conf" icon="⚔️" label="Conflicts" count={res.conflicts.length}>
+            <Acc k="conf" icon="conflict" label="Conflicts" count={res.conflicts.length}>
               {res.conflicts.map((cf,i)=>(
                 <div key={i} style={{marginBottom:i<res.conflicts.length-1?8:0}}>
                   <div style={{fontSize:13,fontWeight:800,color:C.red,marginBottom:2}}>{cf.type}</div>
@@ -2854,7 +2950,7 @@ function StoryAnalyzer({user}){
             <>
               <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",margin:"14px 0 8px"}}>Chapter Summaries</div>
               {res.chapters.map((ch,i)=>(
-                <Acc key={i} k={"ch"+i} icon="📖" label={ch.chapter}>
+                <Acc key={i} k={"ch"+i} icon="book" label={ch.chapter}>
                   <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{ch.summary}</div>
                 </Acc>
               ))}
@@ -2872,7 +2968,40 @@ function AuthorMode({user}){
   const ag=cat==="fiction"?FICTION_GENRES.find(g=>g.id===genre):NONFICTION_GENRES.find(g=>g.id===nfg);
   const wt={short:"~300 words",medium:"~600 words",long:"~1200 words"}[len];
   const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\\n"+prompt+"\\n"+(chars?"Characters: "+chars+"\\n":"")+(setting?"Setting: "+setting+"\\n":"")+(isFic?"POV: "+pm[pov]+"\\n":"")+"Length: "+wt+"\\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>{[{id:"fiction",label:"📖 Fiction"},{id:"nonfiction",label:"📰 Non-Fiction"}].map(c=><button key={c.id} onClick={()=>setCat(c.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:cat===c.id?C.blue:"transparent",color:cat===c.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{c.label}</button>)}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Genre</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>{(cat==="fiction"?FICTION_GENRES:NONFICTION_GENRES).map(g=>{const a=cat==="fiction"?genre===g.id:nfg===g.id;return<button key={g.id} onClick={()=>cat==="fiction"?setGenre(g.id):setNfg(g.id)} style={{background:a?C.accentSoft:C.surface,border:`1px solid ${a?C.blue:C.border}`,borderRadius:8,padding:"8px 9px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s",display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:16,flexShrink:0}}>{g.icon}</span><div><div style={{fontSize:13,fontWeight:700}}>{g.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{g.desc}</div></div></button>;})}</div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What to Generate</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>{OT.map(o=><button key={o.id} onClick={()=>setOt(o.id)} style={{background:ot===o.id?C.accentSoft:C.surface,border:`1px solid ${ot===o.id?C.blue:C.border}`,borderRadius:7,padding:"8px 6px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:13,fontWeight:700}}>{o.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{o.desc}</div></button>)}</div><FArea label="Story / Piece Brief" placeholder={cat==="fiction"?"e.g. A young mage discovers a forbidden spell...":"e.g. The day I realized I had been living someone else's life..."} value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} voice/><FArea label="Characters (optional)" placeholder={cat==="fiction"?"e.g. Kira — 23, skeptical...":"e.g. My father, my old boss..."} value={chars} onChange={e=>setChars(e.target.value)} rows={2} voice/><FArea label="Setting (optional)" placeholder={cat==="fiction"?"e.g. Floating island city":"e.g. Rural Thailand, 2018"} value={setting} onChange={e=>setSetting(e.target.value)} rows={2}/><div style={{display:"grid",gridTemplateColumns:cat==="fiction"?"1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short (~300w)"},{value:"medium",label:"Medium (~600w)"},{value:"long",label:"Long (~1200w)"}]}/>{cat==="fiction"&&<FSelect label="POV" value={pov} onChange={setPov} options={[{value:"first",label:"First Person"},{value:"third",label:"Third Limited"},{value:"omniscient",label:"Omniscient"}]}/>}<FSelect label="Output" value={ot} onChange={setOt} options={OT.map(o=>({value:o.id,label:o.label}))}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setPrompt(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={gen} loading={loading} disabled={!prompt.trim()}>📖 Generate {ot.charAt(0).toUpperCase()+ot.slice(1)}</PriBtn>{error&&<ErrBox msg={error}/>}{res&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{ag?.label} · {ot}</span><span style={{fontSize:12,color:C.muted}}>~{res.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic",maxWidth:"64ch"}}>{res}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res}/><ListenBtn text={res}/><SaveAsImageBtn text={res} title={ag?.label+" · "+ot}/><GenMoreBtn onClick={()=>{setCat("fiction");setGenre("fantasy");setNfg("memoir");setPrompt("");setChars("");setSetting("");setOt("scene");setLen("medium");setPov("third");setRes("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>}</div>);
+  const categories=[
+    {id:"fiction",icon:"book",label:"Fiction"},
+    {id:"nonfiction",icon:"newspaper",label:"Non-Fiction"},
+  ];
+  return(
+    <div>
+      <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:14}}>
+        {categories.map(c=><button key={c.id} onClick={()=>setCat(c.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:cat===c.id?C.blue:"transparent",color:cat===c.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}><IconLabel name={c.icon}>{c.label}</IconLabel></button>)}
+      </div>
+      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Genre</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:12}}>
+        {(cat==="fiction"?FICTION_GENRES:NONFICTION_GENRES).map(g=>{
+          const active=cat==="fiction"?genre===g.id:nfg===g.id;
+          return <button key={g.id} onClick={()=>cat==="fiction"?setGenre(g.id):setNfg(g.id)} style={{background:active?C.accentSoft:C.surface,border:`1px solid ${active?C.blue:C.border}`,borderRadius:8,padding:"8px 9px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s",display:"flex",alignItems:"center",gap:8}}><GwmIcon name={g.icon} size={18} color={active?C.blue:C.muted}/><div><div style={{fontSize:13,fontWeight:700}}>{g.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{g.desc}</div></div></button>;
+        })}
+      </div>
+      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>What to Generate</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
+        {OT.map(o=><button key={o.id} onClick={()=>setOt(o.id)} style={{background:ot===o.id?C.accentSoft:C.surface,border:`1px solid ${ot===o.id?C.blue:C.border}`,borderRadius:7,padding:"8px 6px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:13,fontWeight:700}}>{o.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{o.desc}</div></button>)}
+      </div>
+      <FArea label="Story / Piece Brief" placeholder={cat==="fiction"?"e.g. A young mage discovers a forbidden spell...":"e.g. The day I realized I had been living someone else's life..."} value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} voice/>
+      <FArea label="Characters (optional)" placeholder={cat==="fiction"?"e.g. Kira — 23, skeptical...":"e.g. My father, my old boss..."} value={chars} onChange={e=>setChars(e.target.value)} rows={2} voice/>
+      <FArea label="Setting (optional)" placeholder={cat==="fiction"?"e.g. Floating island city":"e.g. Rural Thailand, 2018"} value={setting} onChange={e=>setSetting(e.target.value)} rows={2}/>
+      <div style={{display:"grid",gridTemplateColumns:cat==="fiction"?"1fr 1fr 1fr":"1fr 1fr",gap:12,marginBottom:12}}>
+        <FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short (~300w)"},{value:"medium",label:"Medium (~600w)"},{value:"long",label:"Long (~1200w)"}]}/>
+        {cat==="fiction"&&<FSelect label="POV" value={pov} onChange={setPov} options={[{value:"first",label:"First Person"},{value:"third",label:"Third Limited"},{value:"omniscient",label:"Omniscient"}]}/>}
+        <FSelect label="Output" value={ot} onChange={setOt} options={OT.map(o=>({value:o.id,label:o.label}))}/>
+      </div>
+      <ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setPrompt(v=>v?v+"\n\n"+t:t)}/>
+      <PriBtn onClick={gen} loading={loading} disabled={!prompt.trim()}><IconLabel name="author">Generate {ot.charAt(0).toUpperCase()+ot.slice(1)}</IconLabel></PriBtn>
+      {error&&<ErrBox msg={error}/>}
+      {res&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{ag?.label} · {ot}</span><span style={{fontSize:12,color:C.muted}}>~{res.split(/\s+/).length}w</span></div><div style={{fontSize:14,lineHeight:2,color:C.text,whiteSpace:"pre-wrap",fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic",maxWidth:"64ch"}}>{res}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res}/><ListenBtn text={res}/><SaveAsImageBtn text={res} title={ag?.label+" · "+ot}/><GenMoreBtn onClick={()=>{setCat("fiction");setGenre("fantasy");setNfg("memoir");setPrompt("");setChars("");setSetting("");setOt("scene");setLen("medium");setPov("third");setRes("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>}
+    </div>
+  );
 }
 
 function HumanizeMode({user}){
@@ -2880,7 +3009,7 @@ function HumanizeMode({user}){
   const [showHNotice,setShowHNotice]=useState(()=>!isNoticeAccepted("humanize"));
   const [text,setText]=useState("");const [level,setLevel]=useState("B2");const [intensity,setIntensity]=useState("moderate");const [purpose,setPurpose]=useState("essay");const [res,setRes]=useState(null);const [phase,setPhase]=useState("");const [error,setError]=useState("");const [view,setView]=useState("output");const [hzHover,setHzHover]=useState(false);
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Near-native"};
-  const PURPOSES=[{id:"essay",icon:"✍️",label:"Essay",desc:"Academic"},{id:"email",icon:"📧",label:"Email",desc:"Professional"},{id:"report",icon:"📊",label:"Report",desc:"Formal"},{id:"personal",icon:"💬",label:"Personal",desc:"Casual/Blog"}];
+  const PURPOSES=[{id:"essay",icon:"essay",label:"Essay",desc:"Academic"},{id:"email",icon:"mail",label:"Email",desc:"Professional"},{id:"report",icon:"report",label:"Report",desc:"Formal"},{id:"personal",icon:"reply",label:"Personal",desc:"Casual/Blog"}];
   const INTENSITIES=[{id:"light",label:"Light",desc:"Fix obvious AI patterns, keep structure"},{id:"moderate",label:"Moderate",desc:"Rewrite rhythm and sentence variety"},{id:"deep",label:"Deep",desc:"Full transformation at your level"}];
   const RULES="STRICT RULES: 1. NO em dashes. 2. No colon to introduce lists mid-sentence. 3. No not-only-but-also. 4. Never start with: Furthermore, Moreover, Additionally, In conclusion, To summarize, Notably, Evidently, Consequently, Nevertheless. 5. Never use: delve, navigate, landscape, realm, crucial, vital, foster, leverage, robust, multifaceted, comprehensive, streamline, cutting-edge, pivotal, testament, transformative, paradigm, holistic, synergy. 6. Always use contractions. 7. Vary sentence length. 8. Imperfect paragraph lengths. 9. Simple connectors only. 10. Minor imperfections OK. 11. Match CEFR "+level+". 12. Match purpose: "+purpose+".";
   const process=async()=>{
@@ -2916,23 +3045,23 @@ function HumanizeMode({user}){
         <button onClick={()=>setShowHNotice(true)} style={{background:"none",border:"none",color:C.violet,fontSize:12,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>View Responsible Use Notice</button>
       </div>
       <div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.28)",borderRadius:8,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}>
-        <span style={{fontSize:16,flexShrink:0}}>🧠</span>
+        <GwmIcon name="humanize" size={18} color={C.violet}/>
         <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Student Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Two-pass AI removal. Strips em dashes, robotic transitions, buzzwords, and uniform sentence patterns.</div></div>
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div>
-      <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{fontSize:16}}>{p.icon}</div><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
+      <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={p.icon} size={18} color={purpose===p.id?C.violet:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:4}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
       <div style={{marginBottom:14}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Transformation Intensity</div>{INTENSITIES.map(iv=>(<div key={iv.id} onClick={()=>setIntensity(iv.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:intensity===iv.id?C.violetSoft:C.surface,border:`1px solid ${intensity===iv.id?C.violet:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",marginBottom:6}}><div><div style={{fontSize:13,fontWeight:700,color:intensity===iv.id?C.violet:C.text}}>{iv.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{iv.desc}</div></div><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${intensity===iv.id?C.violet:C.border}`,background:intensity===iv.id?C.violet:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{intensity===iv.id&&<div style={{width:7,height:7,borderRadius:"50%",background:"#000"}}/>}</div></div>))}</div>
-      <button onClick={process} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?"#0c1220":`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
-        {isLoading?(<><Spin color={C.violet}/><span style={{color:C.violet}}>{loadingLabel}</span></>):"🧠 Humanize My Writing"}
+      <button onClick={process} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?C.card:`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
+        {isLoading?(<><Spin color={C.violet}/><span style={{color:C.violet}}>{loadingLabel}</span></>):<IconLabel name="humanize">Humanize My Writing</IconLabel>}
       </button>
       {isLoading&&(<div style={{marginTop:10,display:"flex",gap:6,alignItems:"center"}}><div style={{flex:1,height:3,borderRadius:2,background:phase==="pass1"||phase==="pass2"?"rgba(192,132,252,0.6)":C.border,transition:"background 0.4s"}}/><div style={{flex:1,height:3,borderRadius:2,background:phase==="pass2"?"rgba(192,132,252,0.6)":C.border,transition:"background 0.4s"}}/><div style={{fontSize:12,color:C.violet,flexShrink:0}}>{phase==="pass1"?"1 of 2":"2 of 2"}</div></div>)}
       {error&&<ErrBox msg={error}/>}
       {res&&(<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}>
-        {res.note&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",gap:8}}><span style={{fontSize:16}}>💡</span><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>{res.note}</div></div>}
-        {res.changes?.length>0&&(<Card style={{marginBottom:10,borderColor:"rgba(192,132,252,0.3)"}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>What Changed</div>{res.changes.map((c,i)=>(<div key={i} style={{display:"flex",gap:8,paddingBottom:i<res.changes.length-1?8:0,marginBottom:i<res.changes.length-1?8:0,borderBottom:i<res.changes.length-1?`1px solid ${C.border}`:"none"}}><span style={{color:C.violet,flexShrink:0,fontSize:13,marginTop:1}}>✓</span><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{c.what}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{c.why}</div></div></div>))}</Card>)}
-        <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:10}}>{[{id:"output",label:"✅ Final Output"},{id:"compare",label:"🔍 Before vs After"}].map(v=>(<button key={v.id} onClick={()=>setView(v.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:view===v.id?C.violet:"transparent",color:view===v.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{v.label}</button>))}</div>
-        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(192,132,252,0.06)",border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><span style={{fontSize:14,flexShrink:0}}>ℹ️</span><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/><GenMoreBtn onClick={()=>{setText("");setLevel("B2");setIntensity("moderate");setPurpose("essay");setRes(null);setError("");setView("output");}} loading={isLoading}/></div></Card>)}
+        {res.note&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",gap:8}}><GwmIcon name="idea" size={17} color={C.violet}/><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>{res.note}</div></div>}
+        {res.changes?.length>0&&(<Card style={{marginBottom:10,borderColor:"rgba(192,132,252,0.3)"}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>What Changed</div>{res.changes.map((c,i)=>(<div key={i} style={{display:"flex",gap:8,paddingBottom:i<res.changes.length-1?8:0,marginBottom:i<res.changes.length-1?8:0,borderBottom:i<res.changes.length-1?`1px solid ${C.border}`:"none"}}><GwmIcon name="check" size={14} color={C.violet} style={{marginTop:1}}/><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{c.what}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{c.why}</div></div></div>))}</Card>)}
+        <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:10}}>{[{id:"output",icon:"checkDocument",label:"Final Output"},{id:"compare",icon:"compare",label:"Before vs After"}].map(v=>(<button key={v.id} onClick={()=>setView(v.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:view===v.id?C.violet:"transparent",color:view===v.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}><IconLabel name={v.icon}>{v.label}</IconLabel></button>))}</div>
+        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(192,132,252,0.06)",border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={16} color={C.violet}/><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/><GenMoreBtn onClick={()=>{setText("");setLevel("B2");setIntensity("moderate");setPurpose("essay");setRes(null);setError("");setView("output");}} loading={isLoading}/></div></Card>)}
         {view==="compare"&&(<div><div style={{display:"flex",gap:10,marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(240,107,107,0.25)",border:"1px solid rgba(240,107,107,0.5)"}}/>Original</div><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(192,132,252,0.25)",border:"1px solid rgba(192,132,252,0.5)"}}/>Changed words</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Before</div><div style={{background:"rgba(240,107,107,0.05)",border:"1px solid rgba(240,107,107,0.2)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{text}</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>After</div><div style={{background:"rgba(192,132,252,0.05)",border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{diffWords(text,res.humanized).map((w,i)=>(<span key={i}><span style={{background:w.changed?"rgba(192,132,252,0.22)":"transparent",borderRadius:w.changed?3:0,padding:w.changed?"1px 2px":0,color:w.changed?C.violet:C.text,fontWeight:w.changed?700:400}}>{w.word}</span>{i<res.humanized.split(/\s+/).length-1?" ":""}</span>))}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{[{label:"Original words",val:text.split(/\s+/).filter(Boolean).length},{label:"Final words",val:res.humanized.split(/\s+/).filter(Boolean).length},{label:"Words changed",val:diffWords(text,res.humanized).filter(w=>w.changed).length},{label:"Change rate",val:Math.round(diffWords(text,res.humanized).filter(w=>w.changed).length/Math.max(res.humanized.split(/\s+/).filter(Boolean).length,1)*100)+"%"}].map(s=>(<div key={s.label} style={{flex:1,minWidth:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",textAlign:"center"}}><div style={{fontSize:14,fontWeight:900,color:C.violet}}>{s.val}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{s.label}</div></div>))}</div><OutputActions text={res.humanized}/></div>)}
       </div>)}
     </div>
@@ -2942,23 +3071,23 @@ function HumanizeMode({user}){
 function TrialModal({mode,targetPlan,onStart,onClose}){
   const [bill,setBill]=useState("monthly");
   const isStudent=targetPlan==="student";const planColor=isStudent?C.violet:C.blue;
-  const M={essay:{icon:"✍️",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},academic:{icon:"🎓",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"💼",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"📖",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"🎬",title:"Story Analyzer",perks:["Books & movies","5-stage plot structure","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"🧠",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
+  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books & movies","5-stage plot structure","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
   const h=M[mode]||M.essay;
   return(
     <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${isStudent?"rgba(192,132,252,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 28px",animation:"slideUpModal 0.3s ease",maxHeight:"92vh",overflowY:"auto",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:15}}>
-          <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{h.icon}</div>
-          <div><div style={{fontSize:16,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Student plan exclusive":"Unlock with a free trial"}</div></div>
+          <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={h.icon} size={23} color="#071018"/></div>
+          <div><div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Student plan exclusive":"Unlock with a free trial"}</div></div>
         </div>
-        {isStudent&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.22)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.violet,lineHeight:1.5}}>🎓 Student exclusive — includes Academic Essay + Humanize My Writing tools.</div>}
-        <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><span style={{color:isStudent?C.violet:C.green,flexShrink:0}}>✓</span>{p}</div>)}</div>
+        {isStudent&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.22)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.violet,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Student exclusive — includes Academic Essay + Humanize My Writing tools.</div>}
+        <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><GwmIcon name="check" size={14} color={isStudent?C.violet:C.green}/>{p}</div>)}</div>
         {!isStudent&&(<div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:12}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=><button key={b.id} onClick={()=>setBill(b.id)} style={{flex:1,padding:"6px",borderRadius:5,border:"none",background:bill===b.id?C.blue:"transparent",color:bill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>)}</div>)}
         <div style={{background:isStudent?"rgba(192,132,252,0.07)":C.accentSoft,border:`1px solid ${isStudent?"rgba(192,132,252,0.25)":"rgba(121,186,236,0.22)"}`,borderRadius:10,padding:"13px",marginBottom:12}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
             <div>
-              <div style={{fontSize:20,fontWeight:900,color:"#fff",letterSpacing:"-0.02em"}}>
+              <div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.02em"}}>
                 {isStudent?"$15":(bill==="monthly"?"$7":"$60")}
                 <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{isStudent?" / month":bill==="monthly"?" / month":" / year"}</span>
               </div>
@@ -2970,7 +3099,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
               <div style={{fontSize:11,color:C.muted,marginTop:1}}>No card required</div>
             </div>
           </div>
-          <PriBtn onClick={()=>onStart(targetPlan)} variant={isStudent?"violet":"blue"}>{isStudent?"Start Student Free Trial 🎓":"Start Free Trial →"}</PriBtn>
+          <PriBtn onClick={()=>onStart(targetPlan)} variant={isStudent?"violet":"blue"}><IconLabel name={isStudent?"academic":"spark"}>{isStudent?"Start Student Free Trial":"Start Free Trial"}</IconLabel></PriBtn>
           <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>Cancel anytime · No card required</div>
         </div>
         <button onClick={onClose} style={{width:"100%",padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Maybe later</button>
@@ -2991,8 +3120,8 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
       <div style={{width:"100%",maxWidth:460,background:C.card,border:`1px solid ${isStudent?"rgba(192,132,252,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"22px 18px 28px",animation:"slideUpModal 0.3s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 18px"}}/>
         <div style={{textAlign:"center",marginBottom:18}}>
-          <div style={{fontSize:40,marginBottom:10}}>⏰</div>
-          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:6}}>Your free trial has ended</div>
+          <div style={{width:58,height:58,borderRadius:18,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}><GwmIcon name="timer" size={30}/></div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text,marginBottom:6}}>Your free trial has ended</div>
           <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Keep your unlocked features by continuing with the Pro or Student plan — or switch back to the Free plan.</div>
         </div>
         <PriBtn onClick={onContinue} variant={isStudent?"violet":"blue"}>Choose a Plan →</PriBtn>
@@ -3004,11 +3133,15 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   );
 }
 
-function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan}){
+function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan,theme,onToggleTheme}){
   const [showContact,setShowContact]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showTerms,setShowTerms]=useState(false);
   const [showPrivacy,setShowPrivacy]=useState(false);
+  const [flipDirection,setFlipDirection]=useState("forward");
+  const modeStageRef=useRef(null);
+  const modeAnimationRef=useRef(null);
+  const modeMountedRef=useRef(false);
 
   const isPro=user.plan==="pro"||user.plan==="student";
   const isStudent=user.plan==="student";
@@ -3031,6 +3164,29 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   useEffect(()=>{
     setVisited(v=>v.has(activeMode)?v:new Set([...v,activeMode]));
   },[activeMode]);
+
+  useEffect(()=>{
+    if(!modeMountedRef.current){modeMountedRef.current=true;return;}
+    if(typeof window!=="undefined"&&window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)return;
+    const stage=modeStageRef.current;
+    if(!stage?.animate)return;
+    modeAnimationRef.current?.cancel();
+    const start=flipDirection==="forward"?-82:82;
+    modeAnimationRef.current=stage.animate([
+      {opacity:0.15,transform:`perspective(1200px) rotateY(${start}deg) scale(0.985)`},
+      {opacity:1,transform:`perspective(1200px) rotateY(${start>0?-6:6}deg) scale(1.003)`,offset:0.62},
+      {opacity:1,transform:"perspective(1200px) rotateY(0deg) scale(1)"},
+    ],{duration:360,easing:"cubic-bezier(0.16,1,0.3,1)",fill:"both"});
+    return()=>modeAnimationRef.current?.cancel();
+  },[activeMode,flipDirection]);
+
+  const changeMode=next=>{
+    if(next===activeMode)return;
+    const currentIndex=MODES.findIndex(m=>m.id===activeMode);
+    const nextIndex=MODES.findIndex(m=>m.id===next);
+    setFlipDirection(nextIndex>=currentIndex?"forward":"backward");
+    setActiveMode(next);
+  };
 
   const renderModeFor=(id)=>{
     switch(id){
@@ -3064,6 +3220,8 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           onShowPrivacy={()=>setShowPrivacy(true)}
           onChangePlan={onChangePlan}
           onCancelPlan={onCancelPlan}
+          theme={theme}
+          onToggleTheme={onToggleTheme}
         />
         {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
       </>
@@ -3076,13 +3234,14 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
       {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
 
-      <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(0,0,0,0.95)",backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`}}>
+      <div className="app-chrome" style={{position:"sticky",top:0,zIndex:50,background:C.chrome,backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`}}>
         <div style={{maxWidth:600,margin:"0 auto",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <img src={GHOSTY_ICON} alt="Ghosty" width={26} height={26} style={{borderRadius:7,display:"block"}}/>
-            <span style={{fontSize:15,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>GhostwriterMe</span>
+            <span style={{fontSize:15,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>GhostwriterMe</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
+            <ThemeToggle theme={theme} onToggle={onToggleTheme}/>
             <PlanBadge plan={user.plan}/>
             <button onClick={()=>setShowSettings(true)} aria-label="Open settings" style={{border:"2px solid transparent",background:"transparent",cursor:"pointer",padding:0,flexShrink:0,borderRadius:"50%",lineHeight:0,transition:"border-color 0.2s, transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="scale(1.06)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="transparent";e.currentTarget.style.transform="scale(1)";}}>
               <Avatar avatar={user.avatar} size={34}/>
@@ -3091,12 +3250,12 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
         </div>
       </div>
 
-      <div style={{maxWidth:600,margin:"0 auto",width:"100%",padding:"16px 16px 0",flex:1}}>
+      <div ref={modeStageRef} className="mode-stage" style={{maxWidth:600,margin:"0 auto",width:"100%",padding:"16px 16px 0",flex:1,transformOrigin:"center 18%"}}>
         {currentMode&&(
           <div style={{marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:3}}>
-              <span style={{fontSize:22}}>{currentMode.icon}</span>
-              <span style={{fontSize:19,fontWeight:900,color:"#fff",letterSpacing:"-0.01em"}}>{currentMode.label}</span>
+              <span style={{width:30,height:30,borderRadius:9,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={currentMode.icon} size={18}/></span>
+              <span style={{fontSize:19,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{currentMode.label}</span>
               {currentMode.access!=="free"&&<PlanBadge plan={currentMode.access==="student"?"student":"pro"}/>}
             </div>
           </div>
@@ -3104,14 +3263,14 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 
         {locked(currentMode||{})&&(
           <div style={{textAlign:"center",padding:"50px 16px",animation:"fadeUp 0.3s ease"}}>
-            <div style={{fontSize:44,marginBottom:12}}>{currentMode.access==="student"?"🎓":"🔒"}</div>
-            <div style={{fontSize:17,fontWeight:900,color:"#fff",marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Student-exclusive":"a Pro feature"}</div>
+            <div style={{width:64,height:64,borderRadius:20,background:currentMode.access==="student"?C.violetSoft:C.accentSoft,color:currentMode.access==="student"?C.violetText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name={currentMode.access==="student"?"academic":"lock"} size={31}/></div>
+            <div style={{fontSize:17,fontWeight:900,color:C.text,marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Student-exclusive":"a Pro feature"}</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:18,maxWidth:320,margin:"0 auto 18px"}}>
               {currentMode.access==="student"?"Unlock this and other Student-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
             </div>
             <div style={{maxWidth:280,margin:"0 auto"}}>
               <PriBtn onClick={()=>onUpgrade(activeMode,currentMode.access==="student"?"student":"pro")} variant={currentMode.access==="student"?"violet":"blue"}>
-                {currentMode.access==="student"?"Unlock with Student Plan 🎓":"Start Free Trial →"}
+                {currentMode.access==="student"?<IconLabel name="academic">Unlock with Student Plan</IconLabel>:"Start Free Trial →"}
               </PriBtn>
             </div>
           </div>
@@ -3121,36 +3280,36 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
             so switching still feels animated. Locked modes are filtered out —
             state intentionally drops if access is lost mid-session. */}
         {MODES.filter(m=>m.id!=="history"&&visited.has(m.id)&&!locked(m)).map(m=>(
-          <div key={m.id} style={{display:activeMode===m.id?"block":"none",animation:"fadeUp 0.3s ease",paddingBottom:16}}>
+          <div key={m.id} style={{display:activeMode===m.id?"block":"none",paddingBottom:16}}>
             {renderModeFor(m.id)}
           </div>
         ))}
         {activeMode==="history"&&(
-          <div style={{animation:"fadeUp 0.3s ease",paddingBottom:16}}>
+          <div style={{paddingBottom:16}}>
             <HistoryMode user={user}/>
           </div>
         )}
       </div>
 
-      <div style={{position:"sticky",bottom:0,background:"rgba(0,0,0,0.95)",backdropFilter:"blur(14px)",borderTop:`1px solid ${C.border}`,zIndex:50}}>
+      <div className="app-chrome" style={{position:"sticky",bottom:0,background:C.chrome,backdropFilter:"blur(14px)",borderTop:`1px solid ${C.border}`,zIndex:50}}>
         <div style={{maxWidth:600,margin:"0 auto",display:"flex",overflowX:"auto",padding:"6px 6px"}}>
           {MODES.map(m=>{
             const active=activeMode===m.id;
             const isLocked=locked(m);
             return(
-              <button key={m.id} onClick={()=>setActiveMode(m.id)} style={{flex:"1 0 auto",minWidth:62,display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"7px 4px",border:"none",background:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
-                <span style={{fontSize:18,opacity:active?1:isLocked?0.35:0.7,filter:active?"none":"grayscale(20%)"}}>{m.icon}</span>
-                <span style={{fontSize:10,fontWeight:active?800:500,color:active?C.blue:isLocked?"#3d5a75":C.muted,letterSpacing:"0.01em"}}>{m.label}</span>
-                {isLocked&&<span style={{position:"absolute",top:2,right:6,fontSize:9}}>🔒</span>}
+              <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:62,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"7px 4px",border:"none",background:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
+                <span style={{color:active?C.blueText:C.muted,opacity:active?1:isLocked?0.35:0.72,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
+                <span style={{fontSize:10,fontWeight:active?800:500,color:active?C.blueText:isLocked?C.muted:C.muted,opacity:isLocked?0.42:1,letterSpacing:"0.01em"}}>{m.label}</span>
+                {isLocked&&<span style={{position:"absolute",top:2,right:6,color:C.muted}}><GwmIcon name="lock" size={10}/></span>}
                 {active&&<div style={{position:"absolute",bottom:0,left:"30%",right:"30%",height:2,borderRadius:1,background:C.blue}}/>}
               </button>
             );
           })}
         </div>
         <div style={{textAlign:"center",padding:"4px 0 8px",display:"flex",justifyContent:"center",gap:14}}>
-          <span onClick={()=>setShowSettings(true)} style={{fontSize:11,color:C.muted,cursor:"pointer"}}>Settings ⚙️</span>
-          <span onClick={()=>setShowContact(true)} style={{fontSize:11,color:C.muted,cursor:"pointer"}}>Contact ✉️</span>
-          <span onClick={()=>setShowTerms(true)} style={{fontSize:11,color:C.muted,cursor:"pointer"}}>Terms</span>
+          <button onClick={()=>setShowSettings(true)} style={{fontSize:11,color:C.muted,cursor:"pointer",border:0,background:"transparent",display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="settings" size={12}/>Settings</button>
+          <button onClick={()=>setShowContact(true)} style={{fontSize:11,color:C.muted,cursor:"pointer",border:0,background:"transparent",display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="mail" size={12}/>Contact</button>
+          <button onClick={()=>setShowTerms(true)} style={{fontSize:11,color:C.muted,cursor:"pointer",border:0,background:"transparent",display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="document" size={12}/>Terms</button>
         </div>
       </div>
     </div>
@@ -3171,7 +3330,7 @@ function TwaSubscriptionNotice({onBack}){
       <div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}>
         <Card style={{textAlign:"center",padding:"30px 22px"}}>
           <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><GhostLogo size={92}/></div>
-          <div style={{fontSize:18,fontWeight:900,color:"#fff",marginBottom:10,letterSpacing:"-0.01em"}}>Subscriptions unavailable in this app</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text,marginBottom:10,letterSpacing:"-0.01em"}}>Subscriptions unavailable in this app</div>
           <div style={{fontSize:14,color:C.muted,lineHeight:1.6,marginBottom:14}}>
             New subscriptions can't be purchased inside this app.
           </div>
@@ -3229,7 +3388,7 @@ function DeleteAccountPage(){
           </ul>
           <div style={{fontSize:13,color:C.muted,lineHeight:1.75,marginTop:10}}>Writing history saved in your browser's local storage stays on your own device; clear your browser data to remove it. Requests are processed within 30 days and deletion is permanent.</div>
         </Card>
-        <a href={mailto} style={{display:"block",textAlign:"center",padding:"13px",borderRadius:8,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:14,fontWeight:800,textDecoration:"none",transition:"background 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(240,107,107,0.12)";}}>Request Deletion by Email ✉️</a>
+        <a href={mailto} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"13px",borderRadius:8,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.red,fontSize:14,fontWeight:800,textDecoration:"none",transition:"background 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.background="rgba(240,107,107,0.18)";}} onMouseLeave={e=>{e.currentTarget.style.background="rgba(240,107,107,0.12)";}}><GwmIcon name="mail" size={16}/>Request Deletion by Email</a>
         <div style={{fontSize:12,color:C.muted,textAlign:"center",marginTop:10,lineHeight:1.6}}>Or write to {CONTACT_EMAIL} from your account email with the subject "Account Deletion Request".</div>
         <a href="/" style={{display:"block",textAlign:"center",fontSize:13,color:C.blue,fontWeight:700,textDecoration:"none",marginTop:16}}>← Back to GhostwriterMe</a>
       </div>
@@ -3264,9 +3423,9 @@ function ReportContentModal({onClose}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={onClose}>
       <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="report-modal-title" onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:420,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"22px 18px",outline:"none"}}>
-        <div id="report-modal-title" style={{fontSize:16,fontWeight:900,color:"#fff",marginBottom:8}}>🚩 Report AI Content</div>
+        <div id="report-modal-title" style={{fontSize:16,fontWeight:900,color:C.text,marginBottom:8,display:"flex",alignItems:"center",gap:8}}><GwmIcon name="flag" size={18} color={C.red}/>Report AI Content</div>
         <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:16}}>Saw something offensive, harmful, or wrong in a generated result? Tell us — we review every report and use them to improve GhostwriterMe's safeguards.</div>
-        <a href={mailto} style={{display:"block",textAlign:"center",padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",marginBottom:10}}>Send a Report ✉️</a>
+        <a href={mailto} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,padding:"12px",borderRadius:8,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:14,fontWeight:800,textDecoration:"none",marginBottom:10}}><GwmIcon name="mail" size={16}/>Send a Report</a>
         <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,color:C.muted,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
       </div>
     </div>
@@ -3278,10 +3437,11 @@ function MainApp(){
   const checkSubscription=async(email)=>{
     try{
       const res=await fetch(`/api/get-subscription?email=${encodeURIComponent(email)}`);
-      if(!res.ok)return null;
+      const contentType=res.headers.get("content-type")||"";
+      if(!res.ok||!contentType.includes("application/json"))return null;
       return await res.json();
     }catch(e){
-      console.error("Could not verify subscription:",e);
+      console.warn("Could not verify subscription; continuing with the saved plan.");
       return null;
     }
   };
@@ -3289,6 +3449,9 @@ function MainApp(){
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
+  const [theme,setTheme]=useState(()=>{
+    try{return localStorage.getItem(THEME_KEY)==="light"?"light":"dark";}catch{return "dark";}
+  });
 
   // Restore session on startup
   const [user,setUser]=useState(()=>{
@@ -3304,6 +3467,14 @@ function MainApp(){
     document.head.appendChild(style);
     return()=>document.head.removeChild(style);
   },[]);
+
+  useEffect(()=>{
+    try{localStorage.setItem(THEME_KEY,theme);}catch(e){}
+    document.body.style.background=screen==="landing"?"#000000":theme==="light"?"#f3f7fa":"#000000";
+  },[theme,screen]);
+
+  const toggleTheme=()=>setTheme(t=>t==="light"?"dark":"light");
+  const themed=node=><div className="gwm-theme-root" data-gwm-theme={theme}>{node}</div>;
 
   // Persist the session on every change (login, sign-out, plan upgrade, trial
   // start, profile edit, etc). Needs [user] as its dependency to actually catch
@@ -3519,19 +3690,19 @@ function MainApp(){
   };
 
   if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
-  if(screen==="auth")return <AuthScreen onAuth={handleAuth} defaultTab={authTab}/>;
-  if(screen==="safety")return <SafetyScreen onAccept={handleSafetyAccept}/>;
+  if(screen==="auth")return themed(<AuthScreen onAuth={handleAuth} defaultTab={authTab}/>);
+  if(screen==="safety")return themed(<SafetyScreen onAccept={handleSafetyAccept}/>);
   // TWA gate: EVERY path into checkout (upgrade buttons, Change Plan, the
   // trial-ended prompt, the 409 trial-conflict redirect) funnels through
   // setScreen("pricing"/"payment"), so this single check covers them all —
   // no per-button gating that could drift out of sync (DRY). The website
   // (isTwaApp()===false) renders the exact same screens as before.
-  if(screen==="pricing")return isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>;
-  if(screen==="payment")return isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")}/>;
+  if(screen==="pricing")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>);
+  if(screen==="payment")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")} theme={theme}/>);
 
-  return(
+  return themed(
     <>
-      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>setScreen("pricing")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))}/>
+      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>setScreen("pricing")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
       {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>

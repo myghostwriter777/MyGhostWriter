@@ -1,5 +1,48 @@
+:root {
+  color-scheme: dark;
+  --gwm-bg: #000000;
+  --gwm-surface: #080d14;
+  --gwm-card: #0c1220;
+  --gwm-border: #162030;
+  --gwm-text: #ffffff;
+  --gwm-muted: #8eacc4;
+  --gwm-chrome: rgba(0, 0, 0, 0.95);
+  --gwm-placeholder: #627d92;
+  --gwm-card-shadow: none;
+  --gwm-blue-text: #79baec;
+  --gwm-accent-text: #a8d4f5;
+  --gwm-violet-text: #c084fc;
+  --gwm-green-text: #3ddba4;
+  --gwm-red-text: #f06b6b;
+  --gwm-yellow-text: #f5c842;
+  --gwm-danger-bg: #1a0000;
+  --gwm-danger-border: #3a0808;
+}
+
+.gwm-theme-root[data-gwm-theme='light'] {
+  color-scheme: light;
+  --gwm-bg: #f3f7fa;
+  --gwm-surface: #ffffff;
+  --gwm-card: #ffffff;
+  --gwm-border: #c9d7e2;
+  --gwm-text: #172535;
+  --gwm-muted: #536f84;
+  --gwm-chrome: rgba(248, 251, 253, 0.94);
+  --gwm-placeholder: #70889a;
+  --gwm-card-shadow: 0 10px 28px rgba(32, 62, 86, 0.08);
+  --gwm-blue-text: #24638e;
+  --gwm-accent-text: #285f84;
+  --gwm-violet-text: #6f38a5;
+  --gwm-green-text: #087a55;
+  --gwm-red-text: #ad3636;
+  --gwm-yellow-text: #725900;
+  --gwm-danger-bg: #fff2f2;
+  --gwm-danger-border: #e5b1b1;
+}
+
 body {
   margin: 0;
+  background: #000000;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
