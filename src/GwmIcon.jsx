@@ -43,6 +43,15 @@ function Glyph({name}){
     case "structure": return <><rect x="9" y="3.5" width="6" height="4" rx="1"/><rect x="3.5" y="16.5" width="6" height="4" rx="1"/><rect x="14.5" y="16.5" width="6" height="4" rx="1"/><path d="M12 7.5v4.5M6.5 16.5V12h11v4.5"/></>;
     case "research": return <><path d="M8 3.5h8M10 3.5v5l-4.5 8A2.7 2.7 0 0 0 7.8 20h8.4a2.7 2.7 0 0 0 2.3-3.5l-4.5-8v-5M7.8 14h8.4"/><circle cx="12" cy="16.5" r=".7" fill="currentColor" stroke="none"/></>;
     case "report": return <><path d="M6 3.5h12V20H6z"/><path d="M9 16v-3M12 16V9M15 16v-5M9 7h4"/></>;
+    case "presentation": return <><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M7 9h5M7 12h8M12 16.5V21M8.5 21h7"/><Spark x={18.5} y={7}/></>;
+    case "interview": return <><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.7 2.4-5.5 5.5-5.5s4.9 1.8 5.5 5.5M17 7.5c1.5 1.1 1.5 2.9 0 4M19.5 5.5c2.7 2.6 2.7 6.4 0 9"/><circle cx="9" cy="8" r=".5" fill="currentColor" stroke="none"/></>;
+    case "slides": return <><rect x="4" y="4" width="13" height="10" rx="1.5"/><path d="M7 8h5M7 11h7M7 17h13M7 20h10M20 7v8"/><Spark x={20} y={4}/></>;
+    case "upload": return <><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v6h14v-6"/></>;
+    case "audience": return <><circle cx="8" cy="9" r="2.7"/><circle cx="16" cy="9" r="2.7"/><path d="M2.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2M10.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2"/></>;
+    case "building": return <><path d="M5 21V5h10v16M15 9h4v12M3 21h18"/><path d="M8 8h1M12 8h1M8 12h1M12 12h1M8 16h1M12 16h1M17 12h1M17 16h1"/></>;
+    case "pdf": return <><path d="M6 3.5h8l4 4V20H6z"/><path d="M14 3.5V8h4M8.2 16v-4h1.2a1.2 1.2 0 0 1 0 2.4H8.2M12 16v-4h1c1.5 0 2.3.8 2.3 2s-.8 2-2.3 2z"/></>;
+    case "word": return <><path d="M5 4h14v16H5z"/><path d="m8 9 1.5 7L12 11l2.5 5L16 9"/><Spark x={19} y={5}/></>;
+    case "code": return <><path d="m9 7-5 5 5 5M15 7l5 5-5 5M13 5l-2 14"/></>;
     case "image": return <><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="8.5" cy="9.5" r="1.4"/><path d="m5.5 17 4.2-4 2.7 2.4 2.5-2.2 3.6 3.8"/></>;
     case "camera": return <><path d="M4 8h3l1.2-2h7.6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/><Spark x={19} y={5}/></>;
     case "paperclip": return <path d="m8.5 12.5 6.8-6.8a3 3 0 0 1 4.2 4.2l-8.2 8.2a4.2 4.2 0 0 1-6-6l8-8M7.5 14.5l8-8"/>;

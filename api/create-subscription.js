@@ -1,7 +1,8 @@
 /**
  * /api/create-subscription.js — COMPLETE REPLACEMENT
  * ─────────────────────────────────────────────────────
- * Creates a Stripe subscription for GhostwriterMe.
+ * Creates a Stripe subscription for GhostwriterMe, or switches an existing
+ * subscription to a different GhostwriterMe plan.
  *
  * Pricing model (confirmed in-app as of this version):
  *   Pro     monthly: $7/mo first 3 months (intro) → $12/mo after
@@ -139,8 +140,9 @@ module.exports = async function handler(req, res) {
           });
 
     // ── 2. Guard against duplicate subscriptions ────────────────────
-    // Edge case: double-clicking Confirm, or re-submitting after a
-    // network hiccup, must not create two live subscriptions.
+    // Double-clicking Confirm must never create a second live subscription.
+    // A different requested plan, however, is a legitimate Pro -> Student (or
+    // Student -> Pro) change and must update the current subscription in place.
     const subs = await stripe.subscriptions.list({
       customer: customer.id,
       status: "all",
@@ -150,10 +152,73 @@ module.exports = async function handler(req, res) {
       ["active", "trialing", "past_due"].includes(s.status)
     );
     if (alreadyActive) {
-      return res.status(409).json({
-        error: "You already have an active subscription.",
-        subscriptionId: alreadyActive.id,
-        status: alreadyActive.status,
+      const currentPriceId = alreadyActive.items?.data?.[0]?.price?.id;
+      const currentPlan = alreadyActive.metadata?.plan ||
+        ([PRICES.student.intro, PRICES.student.regular, PRICES.student.yearly].includes(currentPriceId) ? "student" : "pro");
+      const currentBilling = alreadyActive.metadata?.billing ||
+        (currentPriceId === PRICES[currentPlan].yearly ? "yearly" : "monthly");
+
+      if (currentPlan === plan && currentBilling === billing) {
+        return res.status(409).json({
+          error: `Your ${plan} ${billing} subscription is already active.`,
+          subscriptionId: alreadyActive.id,
+          status: alreadyActive.status,
+        });
+      }
+
+      // The checkout form has already created a fresh PaymentMethod. Make it
+      // the default before invoicing the proration so SCA/3DS can be completed
+      // by the existing client-secret flow below.
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customer.id });
+      await stripe.customers.update(customer.id, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      });
+
+      // Monthly intro subscriptions are managed by a schedule. Stripe doesn't
+      // allow direct item edits while a schedule owns the subscription, so
+      // release the schedule first. Releasing keeps the live subscription in
+      // place; it does not cancel customer access.
+      const scheduleId = typeof alreadyActive.schedule === "string"
+        ? alreadyActive.schedule
+        : alreadyActive.schedule?.id;
+      if (scheduleId) {
+        const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+        if (["active", "not_started"].includes(schedule.status)) {
+          await stripe.subscriptionSchedules.release(scheduleId);
+        }
+      }
+
+      // Pending subscription updates only accept invoice/proration-related
+      // fields. Apply payment configuration separately so an explicitly set
+      // subscription payment method cannot override the fresh customer default,
+      // and resume renewal if the customer had previously scheduled a cancel.
+      await stripe.subscriptions.update(alreadyActive.id, {
+        default_payment_method: paymentMethodId,
+        cancel_at_period_end: false,
+      });
+
+      const liveSubscription = await stripe.subscriptions.retrieve(alreadyActive.id);
+      const itemId = liveSubscription.items?.data?.[0]?.id;
+      if (!itemId) throw new Error("The active subscription has no billable item to update.");
+
+      // Existing subscribers switch to the regular monthly price (introductory
+      // prices and trials are for new subscriptions). `always_invoice` plus a
+      // pending update bills the prorated difference now and applies the plan
+      // only when payment succeeds, as recommended by Stripe.
+      const targetPrice = billing === "yearly" ? PRICES[plan].yearly : PRICES[plan].regular;
+      const updated = await stripe.subscriptions.update(alreadyActive.id, {
+        items: [{ id: itemId, price: targetPrice, quantity: 1 }],
+        proration_behavior: "always_invoice",
+        payment_behavior: "pending_if_incomplete",
+        metadata: { plan, billing, skipTrial: "true", source: "ghostwriterme", changedFrom: currentPlan },
+        expand: ["latest_invoice.payment_intent"],
+      });
+      const updatePaymentIntent = updated?.latest_invoice?.payment_intent;
+      return res.status(200).json({
+        subscriptionId: updated.id,
+        clientSecret: updatePaymentIntent?.client_secret ?? null,
+        status: updated.status,
+        changedPlan: true,
       });
     }
 

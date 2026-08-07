@@ -13,9 +13,10 @@ const C = {
   blue: "#79BAEC", blueGlow: "rgba(121,186,236,0.2)", accent: "#a8d4f5",
   accentSoft: "rgba(121,186,236,0.1)",
   violet: "#c084fc", violetSoft: "rgba(192,132,252,0.1)", violetGlow: "rgba(192,132,252,0.2)",
+  magenta: "#f472b6", magentaSoft: "rgba(244,114,182,0.11)", magentaGlow: "rgba(244,114,182,0.22)",
   text: "var(--gwm-text)", muted: "var(--gwm-muted)", chrome: "var(--gwm-chrome)",
   green: "#3ddba4", red: "#f06b6b", yellow: "#f5c842",
-  blueText:"var(--gwm-blue-text)", accentText:"var(--gwm-accent-text)", violetText:"var(--gwm-violet-text)",
+  blueText:"var(--gwm-blue-text)", accentText:"var(--gwm-accent-text)", violetText:"var(--gwm-violet-text)", magentaText:"var(--gwm-magenta-text)",
   greenText:"var(--gwm-green-text)", redText:"var(--gwm-red-text)", yellowText:"var(--gwm-yellow-text)",
 };
 
@@ -35,6 +36,7 @@ const GLOBAL_CSS = `
   --gwm-blue-text:#79BAEC;
   --gwm-accent-text:#a8d4f5;
   --gwm-violet-text:#c084fc;
+  --gwm-magenta-text:#f472b6;
   --gwm-green-text:#3ddba4;
   --gwm-red-text:#f06b6b;
   --gwm-yellow-text:#f5c842;
@@ -55,6 +57,7 @@ const GLOBAL_CSS = `
   --gwm-blue-text:#24638e;
   --gwm-accent-text:#285f84;
   --gwm-violet-text:#6f38a5;
+  --gwm-magenta-text:#b4236d;
   --gwm-green-text:#087a55;
   --gwm-red-text:#ad3636;
   --gwm-yellow-text:#725900;
@@ -253,6 +256,20 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 @keyframes showcaseFloatMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-aura,.cinematic-hero .ghost-group,.cinematic-hero .blink-group,.cinematic-hero .pen-group,.cinematic-hero .hat-group,.cinematic-hero .ink1,.cinematic-hero .ink2,.cinematic-hero .ink3,.hero-ghost-playground.is-reacting .hero-ghost-shell,.hero-reaction-spark,.tool-showcase-modal,.tool-demo-panel,.tool-demo-orbit,.tool-demo-live::before,.tool-demo-output::after,.ghosty-aura,.ghosty-spark,.scroll-ghosty.is-booped .ghosty-art{animation:none!important}.tarot-card-shell,.tarot-card-flipper,.tarot-card-face,.tarot-card-sheen,.hero-scroll-cue,.hero-scroll-cue svg,.tarot-preview-button,.tool-showcase-close,.tool-showcase-primary,.tool-showcase-secondary,.hero-ghost-shell,.ghost-eyes-follow,.hero-cursor-glow,.hero-ghost-bubble,.scroll-ghosty,.ghosty-button,.ghosty-art,.scroll-reveal,.tarot-tool-item,.scroll-divider,.scroll-scene-title::after{transition-duration:0.01ms!important}.hero-ghost-shell,.ghost-eyes-follow{transform:none!important}.hero-cursor-glow,.hero-reaction-spark{display:none!important}.scroll-reveal,.tarot-tool-item{opacity:1!important;filter:none!important;transform:none!important}.scroll-divider{opacity:1!important;transform:scaleX(1)!important}.tarot-card:hover .tarot-card-sheen{opacity:0}.hero-scroll-cue:hover svg{transform:none}}
 @media (prefers-reduced-motion:reduce){.mode-card-enter{animation:none!important}.gwm-theme-root,.gwm-theme-toggle{transition-duration:0.01ms!important}}
+.studio-grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.studio-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+.studio-stepper{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:7px;align-items:center;}
+.studio-option-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;}
+.studio-upload-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.studio-slide-shell{aspect-ratio:16/9;min-height:240px;overflow:hidden;border-radius:12px;position:relative;isolation:isolate;}
+.studio-slide-shell::after{content:"";position:absolute;inset:0;border:1px solid rgba(255,255,255,0.12);border-radius:inherit;pointer-events:none;}
+.studio-export-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+.studio-timeline{position:relative;padding-left:21px;}
+.studio-timeline::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:1px;background:var(--gwm-border);}
+.studio-timeline-dot{position:absolute;left:-21px;top:5px;width:13px;height:13px;border:3px solid var(--gwm-card);border-radius:50%;background:#79BAEC;box-shadow:0 0 0 1px rgba(121,186,236,0.45);}
+@media (max-width:620px){.studio-grid-2,.studio-grid-3,.studio-upload-row{grid-template-columns:1fr}.studio-option-grid{grid-template-columns:1fr 1fr}.studio-export-row{grid-template-columns:1fr 1fr}.studio-slide-shell{min-height:205px}}
+@media (max-width:390px){.studio-option-grid,.studio-export-row{grid-template-columns:1fr}.studio-slide-shell{min-height:180px}}
+@media (prefers-reduced-motion:reduce){.studio-slide-shell,.studio-timeline-dot{transition:none!important;animation:none!important}}
 `;
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
@@ -262,6 +279,9 @@ const MODES = [
   { id:"email",    icon:"mail",     label:"Email",       access:"free"        },
   { id:"grammar",  icon:"grammar",  label:"Grammar",     access:"free"        },
   { id:"essay",    icon:"essay",    label:"Essay",       access:"pro+student" },
+  { id:"presentation",icon:"presentation",label:"Present",access:"pro+student" },
+  { id:"interview",icon:"interview",label:"Interview",   access:"pro+student" },
+  { id:"slides",   icon:"slides",   label:"Slides",      access:"pro+student" },
   { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
   { id:"cv",       icon:"cv",       label:"CV/Resume",   access:"pro+student" },
   { id:"author",   icon:"author",   label:"Author",      access:"pro+student" },
@@ -269,6 +289,18 @@ const MODES = [
   { id:"humanize", icon:"humanize", label:"Humanize",    access:"student"     },
   { id:"history",  icon:"history",  label:"History",     access:"free"        },
 ];
+
+// One semantic tier palette drives every mode icon. The text variants remain
+// readable in light mode, while `solid` gives active indicators a consistent
+// high-chroma anchor in both themes.
+const MODE_TIER_VISUALS={
+  free:{solid:C.green,color:C.greenText,soft:"rgba(61,219,164,0.11)"},
+  pro:{solid:C.blue,color:C.blueText,soft:C.accentSoft},
+  student:{solid:C.magenta,color:C.magentaText,soft:C.magentaSoft},
+};
+const modeTier=mode=>mode?.access==="free"?"free":mode?.access==="student"?"student":"pro";
+const modeVisual=mode=>MODE_TIER_VISUALS[modeTier(mode)];
+const modeVisualById=id=>modeVisual(MODES.find(mode=>mode.id===id));
 
 const TONES = [
   {id:"chill",        icon:"chill",       label:"Chill",        desc:"laid-back, unbothered"},
@@ -395,7 +427,7 @@ const HS = {
     try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
   },
   load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
-  loadAll:(email)=>{const ms=["reply","email","essay","academic","cv","author","grammar","humanize","story"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
+  loadAll:(email)=>{const ms=["reply","email","essay","presentation","interview","slides","academic","cv","author","grammar","humanize","story"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
   // Pull the server copy. Returns {ok:true,items} or {ok:false,error} — the
   // error MESSAGE is surfaced (bug fix: the old version returned null on any
   // failure, so a missing database or server error looked identical to
@@ -463,6 +495,42 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
   const d=await r.json();
   return d.content?.map(b=>b.text||"").join("")||"";
 }
+
+// The three Pro studio tools use OpenAI's Responses API through a dedicated
+// server route. Files stay in memory for the request and are never written to
+// localStorage or the history database. The server owns the model allowlist,
+// token cap, file validation, and API secret.
+async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId=""){
+  const r=await fetch("/api/openai",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({system,user,max_output_tokens:maxOutputTokens,files,user_id:userId}),
+  });
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){
+    if(r.status===413)throw new Error("Those files are too large. Keep each file under 4 MB and try again.");
+    if(r.status===429)throw new Error("The studio is busy right now. Wait a moment and try again.");
+    throw new Error(d.error||("Studio API error "+r.status));
+  }
+  return d.output_text||"";
+}
+
+const parseStudioJson=raw=>{
+  const cleaned=String(raw||"").replace(/```json|```/gi,"").trim();
+  const start=cleaned.indexOf("{");const end=cleaned.lastIndexOf("}");
+  if(start<0||end<start)throw new Error("The studio returned an incomplete result. Please generate again.");
+  try{return JSON.parse(cleaned.slice(start,end+1));}
+  catch(e){throw new Error("The studio result could not be read. Please generate again.");}
+};
+
+const downloadBlob=(blob,name)=>{
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1200);
+};
+const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
+
+const studioFileSummary=files=>(files||[]).map(f=>({name:f.name,type:f.type,dataUrl:f.dataUrl}));
 
 function ContactModal({onClose}){
   const [subject,setSubject]=useState("");const [message,setMessage]=useState("");const [sent,setSent]=useState(false);
@@ -635,6 +703,69 @@ function FSelect({label,value,onChange,options}){
   return(<div style={{marginBottom:0}}>{label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}<div style={{position:"relative"}}><select value={value} onChange={e=>onChange(e.target.value)} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}>{options.map(o=><option key={o.value??o} value={o.value??o}>{o.label??o}</option>)}</select><span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span></div></div>);
 }
 
+function StudioTabs({value,onChange,items}){
+  return(
+    <div role="tablist" aria-label="Studio workflow" style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:3,marginBottom:14}}>
+      {items.map(item=><button key={item.id} type="button" role="tab" aria-selected={value===item.id} onClick={()=>onChange(item.id)} style={{flex:1,minHeight:42,padding:"8px 10px",border:0,borderRadius:7,background:value===item.id?C.blue:"transparent",color:value===item.id?"#06111a":C.muted,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:7,transition:"background 0.2s,color 0.2s"}}><GwmIcon name={item.icon} size={16}/>{item.label}</button>)}
+    </div>
+  );
+}
+
+function StudioChoice({active,onClick,icon,title,description,swatch}){
+  return(
+    <button type="button" aria-pressed={active} onClick={onClick} style={{minHeight:66,padding:"10px 11px",borderRadius:9,border:`1px solid ${active?C.blue:C.border}`,background:active?C.accentSoft:C.surface,color:C.text,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",alignItems:"flex-start",gap:9,transition:"border-color 0.2s,background 0.2s,transform 0.2s",transform:active?"translateY(-1px)":"none"}}>
+      {swatch?<span aria-hidden="true" style={{width:26,height:26,borderRadius:8,background:swatch,border:"1px solid rgba(255,255,255,0.22)",flexShrink:0}}/>:<span style={{width:28,height:28,borderRadius:8,background:active?"rgba(121,186,236,0.18)":C.card,color:active?C.blueText:C.muted,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={icon} size={16}/></span>}
+      <span><span style={{display:"block",fontSize:13,fontWeight:800,color:active?C.blueText:C.text}}>{title}</span>{description&&<span style={{display:"block",fontSize:12,color:C.muted,lineHeight:1.4,marginTop:2}}>{description}</span>}</span>
+    </button>
+  );
+}
+
+function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=false}){
+  const inputRef=useRef(null);const [error,setError]=useState("");const [dragging,setDragging]=useState(false);
+  const addFiles=async list=>{
+    const incoming=Array.from(list||[]);if(!incoming.length)return;
+    setError("");
+    const room=Math.max(0,maxFiles-(files?.length||0));
+    if(room===0){setError("Remove a file before adding another.");return;}
+    const chosen=incoming.slice(0,room);const next=[];
+    for(const file of chosen){
+      if(file.size>4*1024*1024){setError(file.name+" is over the 4 MB limit.");continue;}
+      try{
+        const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("read"));reader.readAsDataURL(file);});
+        next.push({name:file.name,type:file.type||"application/octet-stream",size:file.size,dataUrl});
+      }catch(e){setError("Couldn't read "+file.name+". Try another file.");}
+    }
+    if(next.length)onChange([...(files||[]),...next].slice(0,maxFiles));
+    if(inputRef.current)inputRef.current.value="";
+  };
+  return(
+    <div style={{marginBottom:12}}>
+      <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}{required&&<span style={{color:C.redText}}> *</span>}</label>
+      <input ref={inputRef} type="file" accept={accept} multiple={maxFiles>1} onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
+      <div onDragEnter={e=>{e.preventDefault();setDragging(true);}} onDragOver={e=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files);}} style={{border:`1px dashed ${dragging?C.blue:C.border}`,background:dragging?C.accentSoft:C.surface,borderRadius:10,padding:"12px",transition:"border-color 0.2s,background 0.2s"}}>
+        {(files||[]).length===0?(
+          <button type="button" onClick={()=>inputRef.current?.click()} style={{width:"100%",minHeight:64,border:0,background:"transparent",color:C.muted,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,textAlign:"left"}}>
+            <span style={{width:38,height:38,borderRadius:11,background:C.card,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="upload" size={20}/></span>
+            <span><span style={{display:"block",fontSize:13,fontWeight:800,color:C.text}}>Drop or choose {maxFiles>1?"files":"a file"}</span><span style={{fontSize:12,color:C.muted,lineHeight:1.4}}>{hint}</span></span>
+          </button>
+        ):(
+          <div style={{display:"flex",flexDirection:"column",gap:7}}>
+            {files.map((file,index)=><div key={file.name+index} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 9px"}}><span style={{width:30,height:30,borderRadius:8,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={file.type?.startsWith("image/")?"image":"file"} size={16}/></span><span style={{minWidth:0,flex:1}}><span style={{display:"block",fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{file.name}</span><span style={{display:"block",fontSize:11,color:C.muted}}>{Math.max(1,Math.round(file.size/1024))} KB</span></span><button type="button" aria-label={`Remove ${file.name}`} onClick={()=>onChange(files.filter((_,i)=>i!==index))} style={{width:32,height:32,border:0,borderRadius:8,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div>)}
+            {files.length<maxFiles&&<button type="button" onClick={()=>inputRef.current?.click()} style={{minHeight:38,border:`1px solid ${C.border}`,borderRadius:8,background:"transparent",color:C.blueText,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}><IconLabel name="upload">Add another</IconLabel></button>}
+          </div>
+        )}
+      </div>
+      {error?<div role="alert" style={{fontSize:12,color:C.redText,marginTop:4}}>{error}</div>:hint&&files?.length>0?<div style={{fontSize:11.5,color:C.muted,marginTop:4}}>{hint}</div>:null}
+    </div>
+  );
+}
+
+const StudioStat=({label,value,color=C.blueText})=><div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"9px 10px",textAlign:"center"}}><div style={{fontSize:18,fontWeight:900,color}}>{value}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{label}</div></div>;
+
+function StudioExportButton({icon,label,onClick}){
+  return <button type="button" onClick={onClick} style={{minHeight:44,padding:"8px 9px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"border-color 0.2s,color 0.2s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.blueText;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}><GwmIcon name={icon} size={15}/>{label}</button>;
+}
+
 const PriBtn=({children,onClick,loading,disabled,fullWidth=true,variant="blue"})=>{
   const [hover,setHover]=useState(false);
   const active=!(loading||disabled);
@@ -645,7 +776,7 @@ const PriBtn=({children,onClick,loading,disabled,fullWidth=true,variant="blue"})
 const SecBtn=({children,onClick})=>(<button onClick={onClick} style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{children}</button>);
 
 function PlanBadge({plan}){
-  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.violetSoft,color:C.violetText}};
+  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.magentaSoft,color:C.magentaText}};
   const d=map[plan];if(!d)return null;
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
@@ -833,6 +964,9 @@ const TAROT_TOOLS=[
   {id:"email",   name:"Email Writer", tier:"Free",    desc:"Writes polished, professional emails for any situation in seconds."},
   {id:"grammar", name:"Grammar Check",tier:"Free",    desc:"Fixes grammar, spelling, and clarity with one tap."},
   {id:"essay",   name:"Essay Writer", tier:"Pro",     desc:"Generates well-structured essays tailored to your topic and requirements."},
+  {id:"presentation",name:"Presentation",tier:"Pro",  desc:"Builds timed group scripts, smooth handoffs, and helpful feedback for a friend's draft."},
+  {id:"interview",name:"Interview Coach",tier:"Pro",  desc:"Turns your CV and job requirements into a tailored, spoken practice interview."},
+  {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
   {id:"academic",name:"Academic",     tier:"Student", desc:"Provides feedback on your writing and offers research guidance."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
@@ -846,6 +980,9 @@ const TOOL_SHOWCASES={
   email:{kicker:"Professional communication",title:"From blank page",accent:"to ready to send.",prompt:"Follow up after an interview. Warm, professional, not pushy. Mention the product strategy conversation.",output:"Hi Maya, thank you again for the thoughtful conversation yesterday. I especially enjoyed our discussion about where the product strategy is heading, and I left even more excited about the role.",tone:"Professional",meta:"Subject line included"},
   grammar:{kicker:"Clarity engine",title:"Keep your voice.",accent:"Lose the friction.",prompt:"I wanted to let you know that the report are almost finish and I will sending it by tomorrow morning.",output:"I wanted to let you know that the report is almost finished, and I’ll send it by tomorrow morning.",tone:"Natural",meta:"4 improvements"},
   essay:{kicker:"Long-form studio",title:"Turn a thesis",accent:"into a compelling case.",prompt:"Argumentative essay on whether remote work improves productivity. B2 English, 900 words, balanced evidence.",output:"Remote work has changed from an emergency measure into a lasting model of modern employment. Its effect on productivity, however, depends less on location than on how work is designed.",tone:"Academic",meta:"Structured outline"},
+  presentation:{kicker:"Presentation room",title:"Give every speaker",accent:"a moment that matters.",prompt:"Create a seven-minute launch presentation for three teammates, with clear handoffs and balanced speaking time.",output:"I split the story into three distinct roles, gave each speaker a clear purpose, and added handoff lines so the presentation feels rehearsed rather than stitched together.",tone:"Confident",meta:"3 speakers · 7 minutes"},
+  interview:{kicker:"Interview rehearsal",title:"Practice the room",accent:"before you enter it.",prompt:"Use my CV and the product manager requirements to run a friendly but realistic six-question interview.",output:"Let’s begin with your onboarding redesign. What was the hardest tradeoff you made, and how did you know the final decision was working?",tone:"Professional",meta:"Spoken practice ready"},
+  slides:{kicker:"Visual storytelling",title:"Build the deck",accent:"and the story behind it.",prompt:"Create an eight-slide investor deck for a sustainable fashion marketplace with an executive theme.",output:"Your deck opens with the market tension, moves through customer proof and the business model, and closes on a specific funding ask with speaker notes for every slide.",tone:"Executive",meta:"8-slide story"},
   academic:{kicker:"Research companion",title:"Sharper reasoning.",accent:"Stronger academic writing.",prompt:"Review my introduction for argument strength, evidence gaps, and APA-style academic tone.",output:"Your central claim is clear, but the opening needs a stronger link between the cited trend and your research question. Add one recent source here, then define the scope of your argument.",tone:"Reviewer",meta:"Actionable feedback"},
   cv:{kicker:"Career story builder",title:"Make experience",accent:"read like impact.",prompt:"Product designer with 4 years of experience. Rewrite my project bullet for ATS and show measurable impact.",output:"Led the end-to-end redesign of the onboarding flow, reducing time-to-value by 38% and increasing new-user activation across mobile and web.",tone:"Executive",meta:"ATS optimized"},
   author:{kicker:"Creative writing room",title:"Find the scene",accent:"only you could write.",prompt:"A quiet sci-fi opening: a botanist on Mars discovers that one of her plants is responding to music.",output:"On the eighty-third morning, the fern leaned toward the old piano recording. Elara stopped the track. The fronds went still. She pressed play again, and the whole greenhouse seemed to listen.",tone:"Literary",meta:"Original prose"},
@@ -858,7 +995,7 @@ function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
   const [hover,setHover]=React.useState(false);
   const [pressed,setPressed]=React.useState(false);
-  const tierColor=tool.tier==="Student"?TZ.purple:tool.tier==="Pro"?"#79BAEC":"#3ddba4";
+  const tierColor=tool.tier==="Student"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
   const locked=tool.tier!=="Free";
   const toggle=()=>setFlipped(f=>!f);
   return(
@@ -870,8 +1007,8 @@ function TarotCard({tool}){
           {CARD_IMG[tool.id]?(
             <img src={CARD_IMG[tool.id]} alt={tool.name} draggable="false" loading="lazy" decoding="async" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",imageRendering:"auto",transform:"translateZ(0)"}}/>
           ):(
-            /* Ornamental fallback front for any future card added without a
-               commissioned illustration (all 10 current cards have one).
+            /* Ornamental fallback front for any card added without a
+               commissioned illustration.
                Matches the tarot backs' gold-on-dark aesthetic; drop a base64
                into CARD_IMG and this branch stops rendering automatically. */
             <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
@@ -913,6 +1050,7 @@ function TarotCard({tool}){
    because those two lists change together: new card on the deck = new
    entry here. Shape: {date, tag ("New"|"Improved"), tagColor, title, text}. */
 const LANDING_UPDATES=[
+  {date:"Aug 2026",tag:"New",tagColor:C.blue,title:"Three new Pro studios",text:"Create group presentation scripts, rehearse tailored spoken interviews, and build export-ready slide decks in one focused workspace."},
   {date:"Jul 2026",tag:"New",tagColor:C.green,title:"Story Guide gets its tarot card",text:"Story Guide now has its own illustrated card on the deck, with full study guides for both books and movies."},
   {date:"Jul 2026",tag:"Improved",tagColor:C.blue,title:"Full content in History",text:"History details now show your complete generated content — study guides, reviews, CVs and replies — not just a short summary."},
   {date:"Jul 2026",tag:"New",tagColor:C.violet,title:"Generate More + easier checkout",text:"Start a fresh generation in one tap from any tool, and step back from the payment screen at any time."},
@@ -1060,7 +1198,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
   const closeRef=useRef(null);
   const modalRef=useRef(null);
   const copy=TOOL_SHOWCASES[tool.id]||TOOL_SHOWCASES.reply;
-  const tierColor=tool.tier==="Student"?C.violet:tool.tier==="Pro"?C.blue:C.green;
+  const tierColor=tool.tier==="Student"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
 
   useEffect(()=>{
     const previousOverflow=document.body.style.overflow;
@@ -1138,7 +1276,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
               </button>
               <button className="tool-showcase-secondary" onClick={onClose}>
-                <span>Keep exploring</span><span aria-hidden="true">10 tools</span>
+                <span>Keep exploring</span><span aria-hidden="true">13 cards</span>
               </button>
             </div>
           </section>
@@ -1230,8 +1368,8 @@ function LandingScreen({onGetStarted,onSignIn}){
 
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
-    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Essay Writer & CV Builder","Author Mode (12 genres)","Story Analyzer (books & films)","Priority generation"],cta:"Start Free Trial"},
-{name:"Student",price:"$15",per:"/mo",note:"intro, then $20/mo",color:C.violet,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},  ];
+    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","Priority generation"],cta:"Start Free Trial"},
+{name:"Student",price:"$15",per:"/mo",note:"intro, then $20/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
@@ -1282,7 +1420,7 @@ function LandingScreen({onGetStarted,onSignIn}){
             <div className="hero-copy" style={{animation:"fadeUp 0.5s ease both"}}>
               <div className="hero-kicker">
                 <span className="hero-kicker-dot"/>
-              9 AI writing tools &middot; Free to start
+              12 AI writing tools &middot; Free to start
               </div>
               <CinematicHeroVisual/>
               <h1 id="landing-title" className="hero-title">GhostwriterMe</h1>
@@ -1309,7 +1447,7 @@ function LandingScreen({onGetStarted,onSignIn}){
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
               </div>
               <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
-              <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Nine focused tools, each built for a specific kind of writing.</div>
+              <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Twelve focused tools, each built for a specific kind of writing.</div>
               <div className="tarot-grid" role="group" aria-label="Writing tools">
                 {TAROT_TOOLS.map((t,i)=>(
                   <div className="tarot-tool-item" key={t.id} style={{transitionDelay:(i*28)+"ms"}}>
@@ -1434,7 +1572,7 @@ function LandingScreen({onGetStarted,onSignIn}){
           {divider}
 
           {/* FINAL CTA */}
-          <SectionTitle title="Ready to write better?" sub="Join now and start using nine AI writing tools — free." ghostMessage="Ready? Let’s write something brilliant." ghostMood="celebrate"/>
+          <SectionTitle title="Ready to write better?" sub="Join now and start using twelve AI writing tools — free." ghostMessage="Ready? Let’s write something brilliant." ghostMood="celebrate"/>
           <div className="scroll-reveal">{ctaButtons({})}</div>
 
           <div className="scroll-reveal" style={{marginTop:32,textAlign:"center",fontSize:12,color:"#1e3448",lineHeight:1.8}}>
@@ -1494,7 +1632,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
 
-  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.violetText,bg:C.violetSoft}};
+  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.magentaText,bg:C.magentaSoft}};
   const planInfo=planMap[user.plan]||planMap.free;
   const isPaid=user.plan!=="free";
   const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
@@ -1752,32 +1890,36 @@ const GiftIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size
 const LockIcon=({size=12,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>);
 const StarIcon=({size=11,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true"><path d="M12 2l2.6 6.6L21.5 9l-5.4 4.5L17.8 21 12 17.3 6.2 21l1.7-7.5L2.5 9l6.9-0.4z"/></svg>);
 const InfoIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>);
-function PricingScreen({user,onSelect,onContact,onBack}){
-  const [tab,setTab]=useState("pro");const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("monthly");
+function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
+  const safeInitialTab=["free","pro","student"].includes(initialTab)?initialTab:"pro";
+  const [tab,setTab]=useState(safeInitialTab);const [proBill,setProBill]=useState("monthly");const [stuBill,setStuBill]=useState("monthly");
   // True once this browser has consumed its cardless trial (trialPlan covers
   // sessions stored before the trialUsed flag existed). Drives honest CTA
   // labels: "Start Free Trial" would be false advertising for these users,
   // whose click now leads to an immediately-charged subscription.
-  const trialUsed=!!(user&&(user.trialUsed||user.trialPlan));
+  const trialUsed=!!(user&&(user.trialUsed||user.trialPlan||user.plan!=="free"));
 
   const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
-  const PRO_F=["Unlimited AI replies","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
+  const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
   const STU_F=["Everything in Pro","Academic Essay + auto-citations (Student exclusive)","Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
-  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Student",color:C.violet}];
+  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Student",color:C.magenta}];
+  const isExistingSubscriber=user?.plan!=="free"&&!user?.trialPlan;
 
   const getPrice=()=>{
     if(tab==="free")return{main:"$0",per:"forever",sub:null,intro:null};
     if(tab==="pro"){
+      if(proBill==="monthly"&&isExistingSubscriber)return{main:"$12",per:"/ month",sub:"Regular Pro rate",intro:user.plan!=="pro"?"Your plan change is prorated automatically":null};
       if(proBill==="monthly")return{main:"$7",per:"/ month",sub:"First 3 months — new users",intro:"Then $12 / month"};
       return{main:"$60",per:"/ year",sub:"Best annual rate",intro:null};
     }
+    if(stuBill==="monthly"&&isExistingSubscriber)return{main:"$20",per:"/ month",sub:"Regular Student rate",intro:user.plan!=="student"?"Your upgrade is prorated automatically":null};
     if(stuBill==="monthly")return{main:"$15",per:"/ month",sub:"First 2 months — new users",intro:"Then $20 / month"};
     return{main:"$96",per:"/ year",sub:"Best annual rate",intro:null};
   };
 
-  const price=getPrice();const tabColor=tab==="student"?C.violet:tab==="pro"?C.blue:C.green;
+  const price=getPrice();const tabColor=tab==="student"?C.magenta:tab==="pro"?C.blue:C.green;
   const features=tab==="student"?allStuF:tab==="pro"?allProF:FREE_F;
   const freeCount=FREE_F.length;const proCount=FREE_F.length+PRO_F.length;
   const handleCTA=()=>{if(tab==="free"){onSelect("free",null);return;}onSelect(tab,tab==="pro"?proBill:stuBill);};
@@ -1796,19 +1938,19 @@ function PricingScreen({user,onSelect,onContact,onBack}){
           {tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"9px 4px",borderRadius:7,border:"none",background:tab===t.id?t.color:"transparent",color:tab===t.id?"#000":C.muted,fontSize:13,fontWeight:800,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{t.label}</button>))}
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.violet:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.violet}/><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
-        <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(192,132,252,0.07),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(192,132,252,0.4)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.violetGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
-          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:"none"}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
+        {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.magenta:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
+        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
+        <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(244,114,182,0.08),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.46)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.magentaGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
+          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
           <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}><span style={{fontSize:34,fontWeight:900,color:C.text,lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span><span style={{fontSize:13,color:C.muted}}>{price.per}</span></div>
           {price.sub&&<div style={{fontSize:13,color:C.green,marginBottom:price.intro?2:14}}>{price.sub}</div>}
           {price.intro&&<div style={{fontSize:12,color:C.muted,marginBottom:14}}>{price.intro}</div>}
           {!price.sub&&<div style={{marginBottom:14}}/>}
           <ul style={{listStyle:"none",marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
-            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;const checkColor=isStuEx?C.violet:isProEx||isProBas?C.blue:C.green;return(<li key={feat} style={{fontSize:13,lineHeight:1.5,color:isStuEx?C.accent:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="check" size={13} color={checkColor} style={{marginTop:3}}/>{feat}</li>);})}
+            {features.map((feat,i)=>{const isProEx=tab==="pro"&&i>=freeCount;const isStuEx=tab==="student"&&i>=proCount;const isProBas=tab==="student"&&i>=freeCount&&i<proCount;const checkColor=isStuEx?C.magentaText:isProEx||isProBas?C.blueText:C.greenText;return(<li key={feat} style={{fontSize:13,lineHeight:1.5,color:isStuEx?C.magentaText:isProEx||isProBas?C.text:C.muted,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="check" size={13} color={checkColor} style={{marginTop:3}}/>{feat}</li>);})}
           </ul>
-          {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.violetSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(192,132,252,0.2)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{width:28,height:28,borderRadius:"50%",background:tab==="student"?"rgba(192,132,252,0.15)":C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:tabColor}}><GiftIcon size={14} color={tabColor}/></span><div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
+          {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.magentaSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.24)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{width:28,height:28,borderRadius:"50%",background:tab==="student"?C.magentaSoft:C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:tabColor}}><GiftIcon size={14} color={tabColor}/></span><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
           {tab==="free"&&<SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
           {tab==="pro"&&<PriBtn onClick={handleCTA}>{trialUsed?"Continue with Pro →":"Start Free Trial →"}</PriBtn>}
           {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet"><IconLabel name="academic">{trialUsed?"Continue with Student":"Start Student Free Trial"}</IconLabel></PriBtn>}
@@ -1871,15 +2013,17 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
   const stripe=useStripe();
   const elements=useElements();
   const isStudent=targetPlan==="student";
-  const planColor=isStudent?C.violet:C.blue;
+  const planColor=isStudent?C.magenta:C.blue;
+  const isPlanChange=!!skipTrial&&user?.plan&&user.plan!=="free"&&user.plan!==targetPlan;
+  const usesRegularRate=isPlanChange&&!user?.trialPlan;
 
   const [loading,setLoading]=useState(false);
   const [cardErr,setCardErr]=useState("");
   const [step,setStep]=useState("form"); // "form" | "success"
   const [cardFocus,setCardFocus]=useState(false);
 
-  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":"$15 / month"):(billing==="yearly"?"$60 / year":"$7 / month");
-  const introNote=isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
+  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":usesRegularRate?"$20 / month":"$15 / month"):(billing==="yearly"?"$60 / year":usesRegularRate?"$12 / month":"$7 / month");
+  const introNote=isPlanChange?"Your current plan credit and upgrade charge are prorated automatically.":isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
 
   // Stripe renders inside its own iframe, so pass the active theme explicitly.
   const CARD_STYLE={
@@ -1989,9 +2133,9 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
   if(step==="success")return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
-        <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.violetSoft:C.accentSoft,color:isStudent?C.violet:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
+        <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
         <div style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
-        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isStudent?"Student plan activated!":"3-day free trial started."}<br/>All features are unlocked.</div>
+        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isPlanChange?`${isStudent?"Student":"Pro"} plan upgrade complete!`:isStudent?"Student plan activated!":"3-day free trial started."}<br/>All included features are unlocked.</div>
         <PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn>
       </div>
     </div>
@@ -2009,12 +2153,12 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontSize:15,fontWeight:800,color:C.text}}>GhostwriterMe {isStudent?"Student":"Pro"}</div>
-              <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · after 3-day trial</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · {isPlanChange?"plan change":"after 3-day trial"}</div>
               {introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}
             </div>
             <div style={{textAlign:"right"}}>
               <div style={{fontSize:18,fontWeight:900,color:planColor}}>{priceDisplay.split(" ")[0]}</div>
-              <div style={{fontSize:12,color:C.green,marginTop:1}}><IconLabel name="check">{skipTrial?`Today: ${priceDisplay.split(" ")[0]}`:"Today: $0.00"}</IconLabel></div>
+              <div style={{fontSize:12,color:C.greenText,marginTop:1}}><IconLabel name="check">{isPlanChange?"Prorated today":skipTrial?`Today: ${priceDisplay.split(" ")[0]}`:"Today: $0.00"}</IconLabel></div>
             </div>
           </div>
         </Card>
@@ -2130,23 +2274,24 @@ const fmtGrammarHistory=r=>[
 ].filter(Boolean).join("\n\n");
 
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
-const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
-const HIST_MI={reply:"reply",email:"mail",essay:"essay",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
+const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
+const HIST_MI={reply:"reply",email:"mail",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
-const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,m.access==="free"?C.green:m.access==="student"?C.violet:C.blue]));
+const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,modeVisual(m).solid]));
 const ClockIcon=({size=14,color="currentColor"})=>(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>);
 
 // "More Details" bottom sheet (Item 2): full prompt, full output, precise
 // timestamp, and mode — the inline View row truncates output to 200px, this
 // shows everything with copy/listen/save actions.
 function HistoryDetailModal({item,onClose}){
+  const historyVisual=modeVisualById(item.mode);
   return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div style={{width:"100%",maxWidth:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 30px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-          <span style={{width:36,height:36,borderRadius:10,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={HIST_MI[item.mode]||"document"} size={20}/></span>
+          <span style={{width:36,height:36,borderRadius:10,background:historyVisual.soft,color:historyVisual.color,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={HIST_MI[item.mode]||"document"} size={20}/></span>
           <div style={{minWidth:0}}>
             <div style={{fontSize:15,fontWeight:900,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title||"Untitled"}</div>
             <div style={{fontSize:12,color:C.muted}}>{HIST_ML[item.mode]||item.mode}</div>
@@ -3068,23 +3213,296 @@ function HumanizeMode({user}){
   );
 }
 
+const presentationAsText=result=>{
+  if(!result)return"";
+  const sections=(result.sections||[]).map((s,i)=>`${i+1}. ${s.heading||"Section"}\nSpeaker: ${s.speaker||"Presenter"}${s.timing?` (${s.timing})`:""}\n${s.script||""}${s.visualCue?`\nVisual cue: ${s.visualCue}`:""}`).join("\n\n");
+  return `${result.title||"Presentation Script"}\n${result.summary||""}\n\n${sections}${result.handoffs?.length?"\n\nHANDOFFS\n"+result.handoffs.join("\n"):""}`.trim();
+};
+
+function PresentationMode({user}){
+  const [workflow,setWorkflow]=useState("create");
+  const [topic,setTopic]=useState("");const [audience,setAudience]=useState("");const [details,setDetails]=useState("");
+  const [groupSize,setGroupSize]=useState(3);const [duration,setDuration]=useState("10");const [names,setNames]=useState("");
+  const [script,setScript]=useState(null);const [scriptLoading,setScriptLoading]=useState(false);const [scriptError,setScriptError]=useState("");
+  const [friendScript,setFriendScript]=useState("");const [reviewFocus,setReviewFocus]=useState("clarity");const [reviewFiles,setReviewFiles]=useState([]);
+  const [review,setReview]=useState(null);const [reviewLoading,setReviewLoading]=useState(false);const [reviewError,setReviewError]=useState("");
+
+  const generate=async()=>{
+    if(!topic.trim())return;
+    setScriptLoading(true);setScriptError("");setScript(null);
+    const presenters=names.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).slice(0,groupSize);
+    const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return ONLY valid JSON: {"title":"","summary":"","totalMinutes":0,"sections":[{"speaker":"","role":"","heading":"","timing":"","script":"","visualCue":""}],"handoffs":[""]}. Use exactly the requested number of presenters. Every presenter must speak.';
+    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${duration} minutes. Presenter count: ${groupSize}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+groupSize+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments.`;
+    try{
+      const result=parseStudioJson(await callStudioAI(system,prompt,7000,[],user?.email));
+      setScript(result);if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${groupSize} presenters · ${duration} minutes`,output:presentationAsText(result)});
+    }catch(e){setScriptError(e.message||"Something went wrong.");}finally{setScriptLoading(false);}
+  };
+
+  const checkFriendScript=async()=>{
+    if(!friendScript.trim()&&!reviewFiles.length)return;
+    setReviewLoading(true);setReviewError("");setReview(null);
+    const system='You are a supportive presentation coach reviewing a student or colleague script. Be honest, specific, and constructive. Return ONLY valid JSON: {"score":0,"summary":"","estimatedMinutes":"","strengths":[""],"improvements":[{"issue":"","suggestion":"","example":""}],"deliveryTips":[""]}. Never shame the writer. If images are attached, read the script from them.';
+    const prompt=`Review this presentation script with special attention to ${reviewFocus}. Pasted script:\n${friendScript||"The script is supplied in the attached image(s)."}`;
+    try{
+      const result=parseStudioJson(await callStudioAI(system,prompt,5500,studioFileSummary(reviewFiles),user?.email));
+      setReview(result);if(user)HS.save(user.email,"presentation",{title:"Presentation script review",input:friendScript.slice(0,300)||reviewFiles.map(f=>f.name).join(", "),output:`Score: ${result.score}/100\n${result.summary}\n\nStrengths\n${(result.strengths||[]).join("\n")}\n\nImprovements\n${(result.improvements||[]).map(x=>x.issue+": "+x.suggestion).join("\n")}`});
+    }catch(e){setReviewError(e.message||"Something went wrong.");}finally{setReviewLoading(false);}
+  };
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:10,padding:"11px 12px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="presentation" size={19} color={C.blueText}/><div><div style={{fontSize:13,fontWeight:800,color:C.blueText}}>Presentation Studio</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Build a balanced group script, or give a friend thoughtful feedback from pasted text or photos.</div></div></div>
+      <StudioTabs value={workflow} onChange={setWorkflow} items={[{id:"create",icon:"presentation",label:"Create Script"},{id:"review",icon:"reviewer",label:"Check a Friend's Script"}]}/>
+
+      {workflow==="create"&&<>
+        <FArea label="Presentation Topic" placeholder="e.g. How urban gardens improve city life" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
+        <div className="studio-grid-2" style={{marginBottom:12}}>
+          <div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>People in the Group</label><div className="studio-stepper"><button type="button" aria-label="Remove one presenter" onClick={()=>setGroupSize(v=>Math.max(1,v-1))} disabled={groupSize===1} style={{height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:groupSize===1?"not-allowed":"pointer",fontSize:20}}>−</button><div style={{height:44,borderRadius:9,border:`1px solid ${C.blue}`,background:C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",gap:7,color:C.blueText,fontSize:15,fontWeight:900}}><GwmIcon name="users" size={17}/>{groupSize}</div><button type="button" aria-label="Add one presenter" onClick={()=>setGroupSize(v=>Math.min(8,v+1))} disabled={groupSize===8} style={{height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:groupSize===8?"not-allowed":"pointer",fontSize:20}}>+</button></div></div>
+          <FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"}]}/>
+        </div>
+        <FInput label="Presenter Names (optional)" placeholder="Mina, Jay, Alex" value={names} onChange={e=>setNames(e.target.value)} icoL="users"/>
+        <FInput label="Audience (optional)" placeholder="e.g. university class, sales team" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/>
+        <FArea label="Details (optional)" placeholder="Learning goals, required sections, tone, or points that must be included..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
+        <PriBtn onClick={generate} loading={scriptLoading} disabled={!topic.trim()}><IconLabel name="presentation">Generate Group Script</IconLabel></PriBtn>
+        {scriptError&&<ErrBox msg={scriptError}/>}
+        {script&&<div style={{marginTop:15,animation:"fadeUp 0.3s ease"}}>
+          <div className="studio-grid-3" style={{marginBottom:10}}><StudioStat label="Presenters" value={new Set((script.sections||[]).map(x=>x.speaker)).size||groupSize}/><StudioStat label="Estimated time" value={(script.totalMinutes||duration)+" min"}/><StudioStat label="Script sections" value={(script.sections||[]).length}/></div>
+          <Card glow><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}><div><div style={{fontSize:18,fontWeight:900,color:C.text}}>{script.title}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:4}}>{script.summary}</div></div><PlanBadge plan="pro"/></div>
+            <div className="studio-timeline">{(script.sections||[]).map((section,index)=><div key={index} style={{position:"relative",paddingBottom:index<script.sections.length-1?16:0}}><span className="studio-timeline-dot"/><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:5}}><span style={{fontSize:12,fontWeight:900,color:C.blueText}}>{section.speaker||`Speaker ${index+1}`}</span>{section.role&&<span style={{fontSize:11,color:C.muted}}>{section.role}</span>}{section.timing&&<span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="timer" size={12}/>{section.timing}</span>}</div><div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:5}}>{section.heading}</div><div style={{fontSize:13.5,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{section.script}</div>{section.visualCue&&<div style={{marginTop:7,padding:"7px 9px",borderRadius:7,background:C.surface,color:C.muted,fontSize:12,display:"flex",gap:6}}><GwmIcon name="slides" size={14} color={C.blueText}/>{section.visualCue}</div>}</div>)}</div>
+            {script.handoffs?.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Smooth handoffs</div>{script.handoffs.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.6,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="arrowRight" size={13} color={C.blueText} style={{marginTop:3}}/>{x}</div>)}</div>}
+            <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={presentationAsText(script)}/><ListenBtn text={presentationAsText(script)}/><SaveAsImageBtn text={presentationAsText(script)} title="Presentation Script"/><GenMoreBtn loading={scriptLoading} onClick={()=>{setScript(null);setTopic("");setDetails("");setNames("");setScriptError("");}} label="New Script"/></div>
+          </Card>
+        </div>}
+      </>}
+
+      {workflow==="review"&&<>
+        <FArea label="Paste the Script" placeholder="Paste your friend's presentation script here..." value={friendScript} onChange={e=>setFriendScript(e.target.value)} rows={6} voice/>
+        <StudioFileDrop label="Or insert pictures" hint="PNG, JPG or WebP · up to 3 clear script photos" accept="image/png,image/jpeg,image/webp" files={reviewFiles} onChange={setReviewFiles} maxFiles={3}/>
+        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Review Focus</div><div className="studio-option-grid">{[{id:"clarity",icon:"idea",title:"Clarity",desc:"Easy to follow"},{id:"delivery",icon:"volume",title:"Delivery",desc:"Natural to present"},{id:"structure",icon:"structure",title:"Structure",desc:"Strong flow"},{id:"persuasion",icon:"target",title:"Persuasion",desc:"Convincing impact"}].map(x=><StudioChoice key={x.id} active={reviewFocus===x.id} onClick={()=>setReviewFocus(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
+        <PriBtn onClick={checkFriendScript} loading={reviewLoading} disabled={!friendScript.trim()&&!reviewFiles.length}><IconLabel name="reviewer">Review the Script</IconLabel></PriBtn>
+        {reviewError&&<ErrBox msg={reviewError}/>}
+        {review&&<div style={{marginTop:15,animation:"fadeUp 0.3s ease"}}><Card glow><div style={{display:"flex",alignItems:"center",gap:13,marginBottom:12}}><div style={{width:58,height:58,borderRadius:18,background:C.accentSoft,border:`1px solid ${C.blue}`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}><span style={{fontSize:22,fontWeight:900,color:C.blueText}}>{review.score}</span><span style={{fontSize:9,color:C.muted}}>/ 100</span></div><div style={{flex:1}}><div style={{fontSize:15,fontWeight:900,color:C.text}}>Coach's review</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:3}}>{review.summary}</div></div></div><div className="studio-grid-2" style={{marginBottom:12}}><StudioStat label="Estimated time" value={review.estimatedMinutes||"—"}/><StudioStat label="Improvements" value={(review.improvements||[]).length}/></div>
+          {review.strengths?.length>0&&<div style={{marginBottom:13}}><div style={{fontSize:11,color:C.greenText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>What already works</div>{review.strengths.map((x,i)=><div key={i} style={{fontSize:13,color:C.text,display:"flex",gap:7,lineHeight:1.55,marginBottom:5}}><GwmIcon name="check" size={14} color={C.greenText} style={{marginTop:3}}/>{x}</div>)}</div>}
+          {review.improvements?.length>0&&<div><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Make it stronger</div>{review.improvements.map((x,i)=><div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"10px 11px",marginBottom:7}}><div style={{fontSize:13,fontWeight:800,color:C.text}}>{x.issue}</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.55,marginTop:3}}>{x.suggestion}</div>{x.example&&<div style={{fontSize:12.5,color:C.blueText,lineHeight:1.55,marginTop:6,paddingLeft:9,borderLeft:`2px solid ${C.blue}`}}>{x.example}</div>}</div>)}</div>}
+          {review.deliveryTips?.length>0&&<div style={{marginTop:12,paddingTop:11,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Delivery tips</div>{review.deliveryTips.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.55,marginBottom:4,display:"flex",gap:7}}><GwmIcon name="volume" size={14} color={C.blueText} style={{marginTop:2}}/>{x}</div>)}</div>}
+        </Card></div>}
+      </>}
+    </div>
+  );
+}
+
+function InterviewMode({user}){
+  const [role,setRole]=useState("");const [company,setCompany]=useState("");const [level,setLevel]=useState("mid");const [details,setDetails]=useState("");
+  const [requirements,setRequirements]=useState([]);const [cv,setCv]=useState([]);const [tone,setTone]=useState("standard");const [count,setCount]=useState("6");const [pace,setPace]=useState("1");
+  const [pack,setPack]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const [phase,setPhase]=useState("setup");const [questionIndex,setQuestionIndex]=useState(0);const [answer,setAnswer]=useState("");const [answers,setAnswers]=useState([]);
+  const [feedback,setFeedback]=useState(null);const [feedbackLoading,setFeedbackLoading]=useState(false);const [feedbackError,setFeedbackError]=useState("");
+  useEffect(()=>()=>stopSpeak(),[]);
+
+  const say=text=>{
+    if(!hasTTS||!text)return;
+    window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);
+    utterance.rate=Number(pace)||1;utterance.pitch=1;utterance.lang="en-US";window.speechSynthesis.speak(utterance);
+  };
+
+  const generateInterview=async()=>{
+    if(!role.trim()||!cv.length||(!requirements.length&&!details.trim()))return;
+    setLoading(true);setError("");setPack(null);setFeedback(null);setAnswers([]);setPhase("setup");
+    const system='You are an experienced hiring manager and interview coach. Build a realistic interview from the supplied job requirements and CV. Questions must be legal, role-relevant, specific, and progressively challenging. Return ONLY valid JSON: {"title":"","opening":"","candidateSnapshot":"","focusAreas":[""],"questions":[{"question":"","category":"","difficulty":"","whyItMatters":"","idealPoints":[""],"followUp":""}],"closing":""}.';
+    const prompt=`Create a ${tone} mock interview for a ${level}-level ${role} role${company?" at "+company:""}. Include exactly ${count} main questions. Extra context: ${details||"none"}. Use the attached CV and job requirements. Do not invent achievements that are not in the CV.`;
+    try{
+      const result=parseStudioJson(await callStudioAI(system,prompt,7000,studioFileSummary([...requirements,...cv]),user?.email));
+      setPack(result);setPhase("ready");if(user)HS.save(user.email,"interview",{title:result.title||("Interview: "+role),input:`${count} questions · ${tone} tone`,output:`${result.candidateSnapshot}\n\n${(result.questions||[]).map((q,i)=>`${i+1}. ${q.question}`).join("\n")}`});
+    }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
+  };
+
+  const startInterview=()=>{
+    if(!pack?.questions?.length)return;
+    setQuestionIndex(0);setAnswers([]);setAnswer("");setFeedback(null);setPhase("live");
+    say((pack.opening||"Welcome to your mock interview.")+" First question. "+pack.questions[0].question);
+  };
+
+  const submitAnswer=(skip=false)=>{
+    const current=pack?.questions?.[questionIndex];if(!current)return;
+    const response=skip?"Skipped":answer.trim();if(!response)return;
+    const updated=[...answers,{question:current.question,category:current.category,answer:response}];setAnswers(updated);setAnswer("");
+    if(questionIndex>=pack.questions.length-1){setPhase("complete");say(pack.closing||"That completes the interview. Well done.");return;}
+    const next=questionIndex+1;setQuestionIndex(next);setTimeout(()=>say("Question "+(next+1)+". "+pack.questions[next].question),120);
+  };
+
+  const reviewInterview=async()=>{
+    if(!answers.length)return;
+    setFeedbackLoading(true);setFeedbackError("");setFeedback(null);
+    const system='You are an interview coach grading a completed mock interview. Be candid but encouraging. Judge the answers against the role and the question intent. Return ONLY valid JSON: {"overallScore":0,"verdict":"","summary":"","categoryScores":[{"category":"","score":0,"note":""}],"strengths":[""],"answerFeedback":[{"question":"","whatWorked":"","improve":"","sampleAnswer":""}],"nextSteps":[""]}.';
+    const prompt=`Role: ${role}${company?" at "+company:""}. Candidate snapshot: ${pack?.candidateSnapshot||""}. Interview answers:\n${JSON.stringify(answers)}. Score the actual answers only. A skipped answer should score poorly but receive a useful recovery example.`;
+    try{
+      const result=parseStudioJson(await callStudioAI(system,prompt,7500,[],user?.email));setFeedback(result);setPhase("review");
+      if(user)HS.save(user.email,"interview",{title:"Interview score: "+role,input:answers.map(x=>x.answer).join("\n"),output:`Score: ${result.overallScore}/100\n${result.summary}\n\n${(result.nextSteps||[]).join("\n")}`});
+    }catch(e){setFeedbackError(e.message||"Something went wrong.");}finally{setFeedbackLoading(false);}
+  };
+
+  const reset=()=>{stopSpeak();setPack(null);setFeedback(null);setAnswers([]);setAnswer("");setPhase("setup");setError("");setFeedbackError("");};
+  const currentQuestion=pack?.questions?.[questionIndex];
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:10,padding:"11px 12px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="interview" size={20} color={C.blueText}/><div><div style={{fontSize:13,fontWeight:800,color:C.blueText}}>Spoken Interview Simulator</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Ghosty reads each tailored question aloud. Answer by voice or text, then get a detailed coach's score.</div></div></div>
+
+      {phase==="setup"&&<>
+        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Target Role" placeholder="e.g. Product Designer" value={role} onChange={e=>setRole(e.target.value)} icoL="briefcase"/><FInput label="Company (optional)" placeholder="e.g. Acme Studio" value={company} onChange={e=>setCompany(e.target.value)} icoL="building"/></div>
+        <div className="studio-upload-row"><StudioFileDrop label="Job Requirements" hint="PDF, DOCX, TXT or a clear image · max 4 MB" accept=".pdf,.doc,.docx,.txt,.rtf,image/png,image/jpeg,image/webp" files={requirements} onChange={setRequirements} maxFiles={1}/><StudioFileDrop label="Your CV / Resume" hint="PDF, DOCX, TXT or a clear image · max 4 MB" accept=".pdf,.doc,.docx,.txt,.rtf,image/png,image/jpeg,image/webp" files={cv} onChange={setCv} maxFiles={1} required/></div>
+        <FArea label="Extra Details" placeholder="Paste job requirements here if you do not have a file, or add the interview format and concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/>
+        <div className="studio-grid-3" style={{marginBottom:13}}><FSelect label="Seniority" value={level} onChange={setLevel} options={[{value:"entry",label:"Entry level"},{value:"mid",label:"Mid level"},{value:"senior",label:"Senior"},{value:"lead",label:"Lead / manager"}]}/><FSelect label="Questions" value={count} onChange={setCount} options={[{value:"4",label:"4 questions"},{value:"6",label:"6 questions"},{value:"8",label:"8 questions"},{value:"10",label:"10 questions"}]}/><FSelect label="Voice Pace" value={pace} onChange={setPace} options={[{value:"0.86",label:"Calm"},{value:"1",label:"Natural"},{value:"1.14",label:"Fast"}]}/></div>
+        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Interviewer Style</div><div className="studio-option-grid">{[{id:"friendly",icon:"chill",title:"Friendly",desc:"Warm and supportive"},{id:"standard",icon:"professional",title:"Professional",desc:"Realistic and balanced"},{id:"tough",icon:"target",title:"Challenging",desc:"Direct with follow-ups"}].map(x=><StudioChoice key={x.id} active={tone===x.id} onClick={()=>setTone(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
+        <PriBtn onClick={generateInterview} loading={loading} disabled={!role.trim()||!cv.length||(!requirements.length&&!details.trim())}><IconLabel name="interview">Build My Interview</IconLabel></PriBtn>
+        {!hasTTS&&<div style={{fontSize:12,color:C.yellowText,marginTop:7,display:"flex",gap:6}}><GwmIcon name="alert" size={14}/>Audio is not supported in this browser, but the text interview will still work.</div>}
+        {error&&<ErrBox msg={error}/>}
+      </>}
+
+      {phase==="ready"&&pack&&<div style={{animation:"fadeUp 0.3s ease"}}><Card glow><div style={{display:"flex",alignItems:"flex-start",gap:11,marginBottom:13}}><span style={{width:44,height:44,borderRadius:13,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="interview" size={23}/></span><div style={{flex:1}}><div style={{fontSize:17,fontWeight:900,color:C.text}}>{pack.title||"Your mock interview"}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:3}}>{pack.candidateSnapshot}</div></div><PlanBadge plan="pro"/></div>
+        <div className="studio-grid-3" style={{marginBottom:12}}><StudioStat label="Questions" value={pack.questions?.length||0}/><StudioStat label="Interview style" value={tone.charAt(0).toUpperCase()+tone.slice(1)}/><StudioStat label="Sound" value={hasTTS?"Ready":"Text only"}/></div>
+        {pack.focusAreas?.length>0&&<div style={{marginBottom:13}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>What the interviewer will test</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{pack.focusAreas.map(x=><span key={x} style={{padding:"5px 8px",borderRadius:20,background:C.surface,border:`1px solid ${C.border}`,fontSize:12,color:C.muted}}>{x}</span>)}</div></div>}
+        <PriBtn onClick={startInterview}><IconLabel name={hasTTS?"volume":"interview"}>{hasTTS?"Start Spoken Interview":"Start Interview"}</IconLabel></PriBtn><div style={{marginTop:8}}><SecBtn onClick={reset}>Change setup</SecBtn></div></Card></div>}
+
+      {phase==="live"&&currentQuestion&&<div style={{animation:"fadeUp 0.25s ease"}}><div style={{height:4,borderRadius:3,background:C.border,overflow:"hidden",marginBottom:13}}><div style={{height:"100%",width:`${((questionIndex+1)/(pack.questions.length||1))*100}%`,background:`linear-gradient(90deg,${C.blue},${C.accent})`,transition:"width 0.25s ease"}}/></div><Card glow><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:13}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em"}}>Question {questionIndex+1} of {pack.questions.length}</div><div style={{display:"flex",gap:6}}><span style={{fontSize:11,color:C.muted,padding:"3px 7px",border:`1px solid ${C.border}`,borderRadius:20}}>{currentQuestion.category}</span><span style={{fontSize:11,color:C.muted,padding:"3px 7px",border:`1px solid ${C.border}`,borderRadius:20}}>{currentQuestion.difficulty}</span></div></div>
+        <div style={{fontSize:19,fontWeight:900,color:C.text,lineHeight:1.4,letterSpacing:"-0.01em",marginBottom:12}}>{currentQuestion.question}</div>
+        <button type="button" onClick={()=>say(currentQuestion.question)} disabled={!hasTTS} style={{minHeight:42,padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:hasTTS?C.blueText:C.muted,cursor:hasTTS?"pointer":"not-allowed",fontFamily:"inherit",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:6,marginBottom:13}}><GwmIcon name="volume" size={15}/>Hear the question again</button>
+        <FArea label="Your Answer" placeholder="Answer naturally, or tap the microphone..." value={answer} onChange={e=>setAnswer(e.target.value)} rows={5} voice/>
+        <div style={{display:"flex",gap:8}}><button type="button" onClick={()=>submitAnswer(true)} style={{minHeight:44,padding:"9px 13px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}>Skip</button><div style={{flex:1}}><PriBtn onClick={()=>submitAnswer(false)} disabled={!answer.trim()}><IconLabel name={questionIndex===pack.questions.length-1?"check":"arrowRight"}>{questionIndex===pack.questions.length-1?"Finish Interview":"Save & Next"}</IconLabel></PriBtn></div></div>
+        </Card></div>}
+
+      {phase==="complete"&&<div style={{animation:"fadeUp 0.3s ease"}}><Card glow><div style={{textAlign:"center",padding:"8px 4px 16px"}}><div style={{width:62,height:62,borderRadius:20,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}><GwmIcon name="check" size={31}/></div><div style={{fontSize:19,fontWeight:900,color:C.text}}>Interview complete</div><div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginTop:5}}>You answered {answers.filter(x=>x.answer!=="Skipped").length} of {pack.questions.length} questions. Ghosty can now score your interview and suggest stronger answers.</div></div><PriBtn onClick={reviewInterview} loading={feedbackLoading}><IconLabel name="report">Score My Interview</IconLabel></PriBtn>{feedbackError&&<ErrBox msg={feedbackError}/>}<div style={{marginTop:8}}><SecBtn onClick={startInterview}>Practice again</SecBtn></div></Card></div>}
+
+      {phase==="review"&&feedback&&<div style={{animation:"fadeUp 0.3s ease"}}><Card glow><div style={{display:"flex",alignItems:"center",gap:13,marginBottom:13}}><div style={{width:64,height:64,borderRadius:20,background:C.accentSoft,border:`1px solid ${C.blue}`,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}><span style={{fontSize:24,fontWeight:900,color:C.blueText}}>{feedback.overallScore}</span><span style={{fontSize:9,color:C.muted}}>/ 100</span></div><div style={{flex:1}}><div style={{fontSize:16,fontWeight:900,color:C.text}}>{feedback.verdict}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:3}}>{feedback.summary}</div></div></div>
+        {feedback.categoryScores?.length>0&&<div className="studio-grid-2" style={{marginBottom:13}}>{feedback.categoryScores.map(x=><div key={x.category} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"9px 10px"}}><div style={{display:"flex",justifyContent:"space-between",gap:8}}><span style={{fontSize:12.5,fontWeight:800,color:C.text}}>{x.category}</span><span style={{fontSize:13,fontWeight:900,color:C.blueText}}>{x.score}</span></div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:4}}>{x.note}</div></div>)}</div>}
+        {feedback.strengths?.length>0&&<div style={{marginBottom:13}}><div style={{fontSize:11,color:C.greenText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Interview strengths</div>{feedback.strengths.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.text,lineHeight:1.55,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="check" size={14} color={C.greenText} style={{marginTop:2}}/>{x}</div>)}</div>}
+        {feedback.answerFeedback?.map((x,i)=><details key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"9px 11px",marginBottom:7}}><summary style={{fontSize:13,fontWeight:800,color:C.text,cursor:"pointer",lineHeight:1.45}}>Question {i+1}: {x.question}</summary><div style={{paddingTop:9,fontSize:12.5,lineHeight:1.6}}><div style={{color:C.greenText,marginBottom:4}}>Worked: {x.whatWorked}</div><div style={{color:C.muted,marginBottom:7}}>Improve: {x.improve}</div><div style={{color:C.blueText,paddingLeft:9,borderLeft:`2px solid ${C.blue}`}}>Stronger answer: {x.sampleAnswer}</div></div></details>)}
+        {feedback.nextSteps?.length>0&&<div style={{marginTop:12,paddingTop:11,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Next practice steps</div>{feedback.nextSteps.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.55,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="arrowRight" size={13} color={C.blueText} style={{marginTop:3}}/>{x}</div>)}</div>}
+        <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={`Interview score: ${feedback.overallScore}/100\n${feedback.summary}\n\n${(feedback.nextSteps||[]).join("\n")}`}/><GenMoreBtn onClick={reset} loading={feedbackLoading} label="New Interview"/></div>
+      </Card></div>}
+    </div>
+  );
+}
+
+const SLIDE_BACKGROUNDS={
+  midnight:{name:"Midnight",preview:"linear-gradient(135deg,#07111d,#173354)",bg:"#07111d",bg2:"#173354",text:"#f4faff",muted:"#b9d1e3",accent:"#79BAEC"},
+  aurora:{name:"Aurora",preview:"linear-gradient(135deg,#071a17,#17625a)",bg:"#071a17",bg2:"#17625a",text:"#f1fffb",muted:"#bce4db",accent:"#5eead4"},
+  paper:{name:"Warm Paper",preview:"linear-gradient(135deg,#f3eadc,#fffdf8)",bg:"#f3eadc",bg2:"#fffdf8",text:"#24303a",muted:"#596875",accent:"#24638e"},
+  blueprint:{name:"Blueprint",preview:"linear-gradient(135deg,#071d31,#18527a)",bg:"#071d31",bg2:"#18527a",text:"#eef9ff",muted:"#b6d8e9",accent:"#8bd5ff"},
+  sunset:{name:"Sunset",preview:"linear-gradient(135deg,#2b1028,#814759)",bg:"#2b1028",bg2:"#814759",text:"#fff8f4",muted:"#f0c9c5",accent:"#ffbd75"},
+  mono:{name:"Mono",preview:"linear-gradient(135deg,#121212,#343434)",bg:"#121212",bg2:"#343434",text:"#ffffff",muted:"#d0d0d0",accent:"#ffffff"},
+};
+const SLIDE_THEMES=[{id:"executive",icon:"briefcase",title:"Executive",desc:"Clean, decisive"},{id:"storytelling",icon:"story",title:"Storytelling",desc:"Narrative arc"},{id:"classroom",icon:"academic",title:"Classroom",desc:"Clear and teachable"},{id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Persuasive and bold"}];
+const SLIDE_FONTS=["Cabinet Grotesk","Georgia","Arial","Trebuchet MS","Times New Roman"];
+
+const slideDeckAsText=deck=>`${deck?.title||"Slide Deck"}${deck?.subtitle?"\n"+deck.subtitle:""}\n\n${(deck?.slides||[]).map((s,i)=>`SLIDE ${i+1}: ${s.title}\n${(s.bullets||[]).map(x=>"• "+x).join("\n")}${s.speakerNotes?"\n\nSpeaker notes: "+s.speakerNotes:""}`).join("\n\n")}`;
+
+const wrapCanvasLines=(ctx,text,maxWidth)=>{
+  const words=String(text||"").split(/\s+/).filter(Boolean);const lines=[];let line="";
+  words.forEach(word=>{const test=line?line+" "+word:word;if(line&&ctx.measureText(test).width>maxWidth){lines.push(line);line=word;}else line=test;});
+  if(line)lines.push(line);return lines;
+};
+
+function drawSlideCanvas(deck,slide,index,options){
+  const width=1600,height=900,canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d");
+  const palette=SLIDE_BACKGROUNDS[options.background]||SLIDE_BACKGROUNDS.midnight;const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
+  ctx.globalAlpha=0.14;ctx.strokeStyle=palette.accent;ctx.lineWidth=2;for(let x=-300;x<width+400;x+=160){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+440,height);ctx.stroke();}ctx.globalAlpha=1;
+  ctx.fillStyle=palette.accent;ctx.fillRect(96,72,84,8);ctx.font=`700 24px ${options.font},Arial,sans-serif`;ctx.fillText(String(slide.eyebrow||deck.title||"GHOSTWRITERME").toUpperCase(),96,126);
+  ctx.fillStyle=palette.text;ctx.font=`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${options.font},Arial,sans-serif`;let y=235;const titleLines=wrapCanvasLines(ctx,slide.title,width-192);titleLines.slice(0,3).forEach(line=>{ctx.fillText(line,96,y);y+=Number(options.titleSize)*2.35;});
+  y+=26;ctx.font=`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${options.font},Arial,sans-serif`;ctx.fillStyle=palette.muted;
+  (slide.bullets||[]).slice(0,6).forEach(bullet=>{const lines=wrapCanvasLines(ctx,bullet,width-280);ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(112,y-11,6,0,Math.PI*2);ctx.fill();ctx.fillStyle=palette.muted;lines.slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,145,y+lineIndex*(Number(options.bodySize)*2.05)));y+=Math.max(58,lines.slice(0,2).length*(Number(options.bodySize)*2.05)+18);});
+  ctx.fillStyle=palette.accent;ctx.font=`800 22px ${options.font},Arial,sans-serif`;ctx.fillText("GHOSTWRITERME",96,height-76);ctx.textAlign="right";ctx.fillStyle=palette.muted;ctx.fillText(`${index+1} / ${deck.slides.length}`,width-96,height-76);ctx.textAlign="left";
+  return canvas;
+}
+
+function SlideGeneratorMode({user}){
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("midnight");
+  const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
+  const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const palette=SLIDE_BACKGROUNDS[background]||SLIDE_BACKGROUNDS.midnight;const currentSlide=deck?.slides?.[selectedSlide];
+
+  const generateSlides=async()=>{
+    if(!topic.trim())return;
+    setLoading(true);setError("");setDeck(null);setSelectedSlide(0);
+    const themeName=SLIDE_THEMES.find(x=>x.id===theme)?.title||theme;
+    const system='You are an expert presentation designer and concise copywriter. Create a coherent slide story, not a document split into pages. Keep each slide scannable with 2-5 short bullets and useful speaker notes. Return ONLY valid JSON: {"title":"","subtitle":"","slides":[{"eyebrow":"","title":"","bullets":[""],"speakerNotes":"","visualDirection":""}],"closing":""}.';
+    const prompt=`Generate exactly ${slideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName}. Visual background: ${palette.name}. Details and must-include points: ${details||"none"}. Use a clear opening, logical middle, and memorable final slide. Do not include markdown.`;
+    try{
+      const result=parseStudioJson(await callStudioAI(system,prompt,7500,[],user?.email));setDeck(result);
+      if(user)HS.save(user.email,"slides",{title:result.title||("Slides: "+topic.slice(0,42)),input:`${slideCount} slides · ${themeName} · ${palette.name}`,output:slideDeckAsText(result)});
+    }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
+  };
+
+  const exportImage=type=>{
+    if(!deck||!currentSlide)return;
+    const canvas=drawSlideCanvas(deck,currentSlide,selectedSlide,{background,font,titleSize,bodySize});
+    canvas.toBlob(blob=>{if(blob)downloadBlob(blob,`ghostwriterme-slide-${selectedSlide+1}.${type==="image/png"?"png":"jpg"}`);},type,type==="image/jpeg"?0.94:1);
+  };
+
+  const exportWord=()=>{
+    if(!deck)return;const sections=deck.slides.map((slide,i)=>`<section style="page-break-after:always"><div style="color:${palette.accent};font-size:12px;font-weight:700">SLIDE ${i+1}</div><h1>${escapeHtml(slide.title)}</h1><ul>${(slide.bullets||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><h3>Speaker notes</h3><p>${escapeHtml(slide.speakerNotes||"")}</p><p><em>Visual direction: ${escapeHtml(slide.visualDirection||"")}</em></p></section>`).join("");
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title></head><body style="font-family:${escapeHtml(font)},Arial;color:#172535"><h1>${escapeHtml(deck.title)}</h1><p>${escapeHtml(deck.subtitle||"")}</p>${sections}</body></html>`;
+    downloadBlob(new Blob([html],{type:"application/msword;charset=utf-8"}),"ghostwriterme-slide-deck.doc");
+  };
+
+  const exportPdf=()=>{
+    if(!deck)return;const win=window.open("","_blank","noopener,noreferrer");if(!win){alert("Allow pop-ups to export the PDF.");return;}
+    const slides=deck.slides.map((slide,i)=>`<section class="slide"><div class="eyebrow">${escapeHtml(slide.eyebrow||deck.title)}</div><h1>${escapeHtml(slide.title)}</h1><ul>${(slide.bullets||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><div class="page">${i+1} / ${deck.slides.length}</div></section>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title><style>@page{size:landscape;margin:0}*{box-sizing:border-box}body{margin:0}.slide{width:100vw;height:100vh;page-break-after:always;padding:7vh 7vw;position:relative;overflow:hidden;background:linear-gradient(135deg,${palette.bg},${palette.bg2});color:${palette.text};font-family:${escapeHtml(font)},Arial,sans-serif}.eyebrow{color:${palette.accent};font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:16px;margin-bottom:4vh}.slide h1{font-size:${titleSize*1.7}px;line-height:1.06;margin:0 0 5vh;max-width:82%}.slide ul{font-size:${bodySize*1.32}px;line-height:1.55;max-width:80%;color:${palette.muted}}.slide li{margin:1.6vh 0}.page{position:absolute;right:7vw;bottom:5vh;color:${palette.muted};font-size:14px}@media print{.slide{break-after:page}}</style></head><body>${slides}<script>setTimeout(()=>window.print(),350)</script></body></html>`);win.document.close();
+  };
+
+  const exportText=()=>deck&&downloadBlob(new Blob([slideDeckAsText(deck)],{type:"text/plain;charset=utf-8"}),"ghostwriterme-slide-deck.txt");
+  const exportJson=()=>deck&&downloadBlob(new Blob([JSON.stringify({...deck,design:{theme,background,font,titleSize,bodySize}},null,2)],{type:"application/json"}),"ghostwriterme-slide-deck.json");
+  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setSelectedSlide(0);setError("");};
+
+  return(
+    <div>
+      <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:10,padding:"11px 12px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="slides" size={20} color={C.blueText}/><div><div style={{fontSize:13,fontWeight:800,color:C.blueText}}>Slide Generator</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Choose the story and visual system. Ghosty builds the deck, then exports it in the format you need.</div></div></div>
+      {!deck&&<>
+        <FArea label="Topic" placeholder="e.g. A launch plan for a sustainable fashion brand" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
+        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FSelect label="Number of Slides" value={slideCount} onChange={setSlideCount} options={[{value:"5",label:"5 slides"},{value:"8",label:"8 slides"},{value:"10",label:"10 slides"},{value:"12",label:"12 slides"}]}/></div>
+        <FArea label="Details (optional)" placeholder="Facts, sections, data, call to action, or anything the deck must include..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
+        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>setTheme(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
+        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Background</div><div className="studio-grid-3">{Object.entries(SLIDE_BACKGROUNDS).map(([id,bg])=><StudioChoice key={id} active={background===id} onClick={()=>setBackground(id)} title={bg.name} swatch={bg.preview}/>)}</div></div>
+        <div className="studio-grid-3" style={{marginBottom:13}}><FSelect label="Font" value={font} onChange={setFont} options={SLIDE_FONTS}/><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Title Size · {titleSize}</label><input aria-label="Slide title size" type="range" min="26" max="48" value={titleSize} onChange={e=>setTitleSize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Text Size · {bodySize}</label><input aria-label="Slide text size" type="range" min="14" max="28" value={bodySize} onChange={e=>setBodySize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div></div>
+        <PriBtn onClick={generateSlides} loading={loading} disabled={!topic.trim()}><IconLabel name="slides">Generate Slide Deck</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}
+      </>}
+
+      {deck&&currentSlide&&<div style={{animation:"fadeUp 0.3s ease"}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:11}}><div><div style={{fontSize:17,fontWeight:900,color:C.text}}>{deck.title}</div>{deck.subtitle&&<div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{deck.subtitle}</div>}</div><PlanBadge plan="pro"/></div>
+        <div className="studio-slide-shell" style={{background:palette.preview,color:palette.text,fontFamily:`${font},Arial,sans-serif`,padding:"clamp(18px,5vw,38px)",display:"flex",flexDirection:"column",justifyContent:"center",boxShadow:"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease"}}>
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(115deg,rgba(255,255,255,0.08),transparent 34%,rgba(255,255,255,0.03))",pointerEvents:"none"}}/>
+          <div style={{position:"relative",zIndex:1,fontSize:10,color:palette.accent,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>{currentSlide.eyebrow||deck.title}</div>
+          <div style={{position:"relative",zIndex:1,fontSize:`clamp(22px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",maxWidth:"88%",marginBottom:12}}>{currentSlide.title}</div>
+          <ul style={{position:"relative",zIndex:1,paddingLeft:18,color:palette.muted,fontSize:`clamp(12px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.55,maxWidth:"88%"}}>{(currentSlide.bullets||[]).slice(0,6).map((x,i)=><li key={i} style={{marginBottom:5}}>{x}</li>)}</ul>
+          <div style={{position:"absolute",right:18,bottom:13,fontSize:10,color:palette.muted}}>{selectedSlide+1} / {deck.slides.length}</div>
+        </div>
+        <div style={{display:"flex",gap:7,overflowX:"auto",padding:"9px 1px 12px"}}>{deck.slides.map((slide,i)=><button key={i} type="button" aria-label={`Open slide ${i+1}: ${slide.title}`} aria-current={selectedSlide===i?"true":undefined} onClick={()=>setSelectedSlide(i)} style={{flex:"0 0 94px",height:58,borderRadius:7,border:`1px solid ${selectedSlide===i?C.blue:C.border}`,background:palette.preview,color:palette.text,cursor:"pointer",padding:"7px",fontFamily:`${font},Arial,sans-serif`,fontSize:9,fontWeight:800,textAlign:"left",overflow:"hidden",boxShadow:selectedSlide===i?`0 0 0 2px ${C.blueGlow}`:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}><span style={{opacity:0.7,display:"block",fontSize:8,marginBottom:3}}>{i+1}</span>{slide.title}</button>)}</div>
+        <div className="studio-grid-2" style={{marginBottom:10}}><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Speaker notes</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{currentSlide.speakerNotes||"No notes for this slide."}</div></Card><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Visual direction</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6}}>{currentSlide.visualDirection||"Use the selected background and keep visuals simple."}</div></Card></div>
+        <Card><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Export deck</div><div className="studio-export-row"><StudioExportButton icon="pdf" label="PDF / Print" onClick={exportPdf}/><StudioExportButton icon="word" label="Word" onClick={exportWord}/><StudioExportButton icon="image" label="Current PNG" onClick={()=>exportImage("image/png")}/><StudioExportButton icon="camera" label="Current JPEG" onClick={()=>exportImage("image/jpeg")}/><StudioExportButton icon="document" label="Text Outline" onClick={exportText}/><StudioExportButton icon="code" label="JSON" onClick={exportJson}/></div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:8}}>PDF opens your browser's print dialog. PNG and JPEG export the slide currently in view at 1600×900.</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={slideDeckAsText(deck)}/><ListenBtn text={slideDeckAsText(deck)}/><GenMoreBtn onClick={reset} loading={loading} label="New Deck"/></div></Card>
+      </div>}
+    </div>
+  );
+}
+
 function TrialModal({mode,targetPlan,onStart,onClose}){
   const [bill,setBill]=useState("monthly");
-  const isStudent=targetPlan==="student";const planColor=isStudent?C.violet:C.blue;
-  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books & movies","5-stage plot structure","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
+  const isStudent=targetPlan==="student";const planColor=isStudent?C.magenta:C.blue;
+  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},presentation:{icon:"presentation",title:"Presentation Mode",perks:["Scripts for 1–8 speakers","Fair timing and handoffs","Friend-script image review","Delivery coaching"]},interview:{icon:"interview",title:"Interview Simulator",perks:["CV + requirements tailoring","Spoken interview questions","Answer-by-answer feedback","Final readiness score"]},slides:{icon:"slides",title:"Slide Generator",perks:["Custom themes and backgrounds","Fonts and text sizing","Live 16:9 previews","PDF, Word, PNG and JPEG exports"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books & movies","5-stage plot structure","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["CEFR-matched output","3 intensity levels","4 writing contexts","Change breakdown"]}};
   const h=M[mode]||M.essay;
   return(
     <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${isStudent?"rgba(192,132,252,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 28px",animation:"slideUpModal 0.3s ease",maxHeight:"92vh",overflowY:"auto",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${isStudent?"rgba(244,114,182,0.46)":C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 16px 28px",animation:"slideUpModal 0.3s ease",maxHeight:"92vh",overflowY:"auto",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:15}}>
-          <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.violet},#c4b5fd)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={h.icon} size={23} color="#071018"/></div>
+          <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={h.icon} size={23} color="#071018"/></div>
           <div><div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Student plan exclusive":"Unlock with a free trial"}</div></div>
         </div>
-        {isStudent&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.22)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.violet,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Student exclusive — includes Academic Essay + Humanize My Writing tools.</div>}
-        <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><GwmIcon name="check" size={14} color={isStudent?C.violet:C.green}/>{p}</div>)}</div>
+        {isStudent&&<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.24)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.magentaText,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Student exclusive — includes Academic Essay + Humanize My Writing tools.</div>}
+        <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><GwmIcon name="check" size={14} color={isStudent?C.magentaText:C.greenText}/>{p}</div>)}</div>
         {!isStudent&&(<div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:12}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=><button key={b.id} onClick={()=>setBill(b.id)} style={{flex:1,padding:"6px",borderRadius:5,border:"none",background:bill===b.id?C.blue:"transparent",color:bill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>)}</div>)}
-        <div style={{background:isStudent?"rgba(192,132,252,0.07)":C.accentSoft,border:`1px solid ${isStudent?"rgba(192,132,252,0.25)":"rgba(121,186,236,0.22)"}`,borderRadius:10,padding:"13px",marginBottom:12}}>
+        <div style={{background:isStudent?C.magentaSoft:C.accentSoft,border:`1px solid ${isStudent?"rgba(244,114,182,0.28)":"rgba(121,186,236,0.22)"}`,borderRadius:10,padding:"13px",marginBottom:12}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
             <div>
               <div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.02em"}}>
@@ -3094,7 +3512,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
               <div style={{fontSize:13,color:C.green,marginTop:1}}>{isStudent?"Intro offer · then $20 / month":bill==="monthly"?"Intro offer · then $12 / month":"Best annual rate"}</div>
               <div style={{fontSize:12,color:C.muted,marginTop:1}}>billed in USD</div>
             </div>
-            <div style={{background:isStudent?C.violetSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
+            <div style={{background:isStudent?C.magentaSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
               <div style={{fontSize:12,color:planColor,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}><GiftIcon size={12} color={planColor}/>3 DAYS FREE</div>
               <div style={{fontSize:11,color:C.muted,marginTop:1}}>No card required</div>
             </div>
@@ -3117,10 +3535,10 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   const isStudent=targetPlan==="student";
   return(
     <div style={{position:"fixed",inset:0,zIndex:250,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}}>
-      <div style={{width:"100%",maxWidth:460,background:C.card,border:`1px solid ${isStudent?"rgba(192,132,252,0.4)":C.border}`,borderRadius:"14px 14px 0 0",padding:"22px 18px 28px",animation:"slideUpModal 0.3s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:460,background:C.card,border:`1px solid ${isStudent?"rgba(244,114,182,0.46)":C.border}`,borderRadius:"14px 14px 0 0",padding:"22px 18px 28px",animation:"slideUpModal 0.3s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 18px"}}/>
         <div style={{textAlign:"center",marginBottom:18}}>
-          <div style={{width:58,height:58,borderRadius:18,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}><GwmIcon name="timer" size={30}/></div>
+          <div style={{width:58,height:58,borderRadius:18,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}><GwmIcon name="timer" size={30}/></div>
           <div style={{fontSize:18,fontWeight:900,color:C.text,marginBottom:6}}>Your free trial has ended</div>
           <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Keep your unlocked features by continuing with the Pro or Student plan — or switch back to the Free plan.</div>
         </div>
@@ -3194,6 +3612,9 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"email":return <EmailMode user={user}/>;
       case"grammar":return <GrammarMode user={user}/>;
       case"essay":return <EssayMode user={user}/>;
+      case"presentation":return <PresentationMode user={user}/>;
+      case"interview":return <InterviewMode user={user}/>;
+      case"slides":return <SlideGeneratorMode user={user}/>;
       case"academic":return <AcademicMode user={user}/>;
       case"cv":return <CVMode user={user}/>;
       case"author":return <AuthorMode user={user}/>;
@@ -3204,6 +3625,8 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   };
 
   const currentMode=MODES.find(m=>m.id===activeMode);
+  const currentModeVisual=modeVisual(currentMode);
+  const isProUpgradingToStudent=user.plan==="pro"&&currentMode?.access==="student";
 
   if(showSettings){
     return(
@@ -3254,7 +3677,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
         {currentMode&&(
           <div style={{marginBottom:14}}>
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:3}}>
-              <span style={{width:30,height:30,borderRadius:9,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={currentMode.icon} size={18}/></span>
+              <span style={{width:30,height:30,borderRadius:9,background:currentModeVisual.soft,color:currentModeVisual.color,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={currentMode.icon} size={18}/></span>
               <span style={{fontSize:19,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{currentMode.label}</span>
               {currentMode.access!=="free"&&<PlanBadge plan={currentMode.access==="student"?"student":"pro"}/>}
             </div>
@@ -3263,14 +3686,14 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 
         {locked(currentMode||{})&&(
           <div style={{textAlign:"center",padding:"50px 16px",animation:"fadeUp 0.3s ease"}}>
-            <div style={{width:64,height:64,borderRadius:20,background:currentMode.access==="student"?C.violetSoft:C.accentSoft,color:currentMode.access==="student"?C.violetText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name={currentMode.access==="student"?"academic":"lock"} size={31}/></div>
+            <div style={{width:64,height:64,borderRadius:20,background:currentModeVisual.soft,color:currentModeVisual.color,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name={currentMode.access==="student"?"academic":"lock"} size={31}/></div>
             <div style={{fontSize:17,fontWeight:900,color:C.text,marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Student-exclusive":"a Pro feature"}</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:18,maxWidth:320,margin:"0 auto 18px"}}>
-              {currentMode.access==="student"?"Unlock this and other Student-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
+              {isProUpgradingToStudent?"Upgrade from Pro to Student to unlock Academic and Humanize tools.":currentMode.access==="student"?"Unlock this and other Student-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
             </div>
             <div style={{maxWidth:280,margin:"0 auto"}}>
               <PriBtn onClick={()=>onUpgrade(activeMode,currentMode.access==="student"?"student":"pro")} variant={currentMode.access==="student"?"violet":"blue"}>
-                {currentMode.access==="student"?<IconLabel name="academic">Unlock with Student Plan</IconLabel>:"Start Free Trial →"}
+                {currentMode.access==="student"?<IconLabel name="academic">{isProUpgradingToStudent?"Upgrade to Student Plan":"Unlock with Student Plan"}</IconLabel>:"Start Free Trial →"}
               </PriBtn>
             </div>
           </div>
@@ -3296,12 +3719,13 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           {MODES.map(m=>{
             const active=activeMode===m.id;
             const isLocked=locked(m);
+            const tierVisual=modeVisual(m);
             return(
               <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:62,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"7px 4px",border:"none",background:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
-                <span style={{color:active?C.blueText:C.muted,opacity:active?1:isLocked?0.35:0.72,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
-                <span style={{fontSize:10,fontWeight:active?800:500,color:active?C.blueText:isLocked?C.muted:C.muted,opacity:isLocked?0.42:1,letterSpacing:"0.01em"}}>{m.label}</span>
-                {isLocked&&<span style={{position:"absolute",top:2,right:6,color:C.muted}}><GwmIcon name="lock" size={10}/></span>}
-                {active&&<div style={{position:"absolute",bottom:0,left:"30%",right:"30%",height:2,borderRadius:1,background:C.blue}}/>}
+                <span style={{color:tierVisual.color,opacity:active?1:isLocked?0.42:0.76,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px) scale(1.06)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
+                <span style={{fontSize:10,fontWeight:active?800:500,color:active?tierVisual.color:C.muted,opacity:isLocked?0.5:1,letterSpacing:"0.01em"}}>{m.label}</span>
+                {isLocked&&<span style={{position:"absolute",top:2,right:6,color:tierVisual.color,opacity:0.72}}><GwmIcon name="lock" size={10}/></span>}
+                {active&&<div style={{position:"absolute",bottom:0,left:"30%",right:"30%",height:2,borderRadius:1,background:tierVisual.solid,boxShadow:`0 0 10px ${tierVisual.solid}66`}}/>}
               </button>
             );
           })}
@@ -3449,6 +3873,7 @@ function MainApp(){
   const [activeMode,setActiveMode]=useState("reply");
   const [trialInfo,setTrialInfo]=useState(null);
   const [paymentInfo,setPaymentInfo]=useState(null);
+  const [pricingInitialTab,setPricingInitialTab]=useState("pro");
   const [theme,setTheme]=useState(()=>{
     try{return localStorage.getItem(THEME_KEY)==="light"?"light":"dark";}catch{return "dark";}
   });
@@ -3589,17 +4014,27 @@ function MainApp(){
     if(user&&user.email){try{localStorage.setItem("gwm2_lastplan_"+user.email.toLowerCase(),JSON.stringify({plan:user.plan||"free",billing:user.billing||null,renewsAt:user.renewsAt||null,cancelAtPeriodEnd:!!user.cancelAtPeriodEnd,trialPlan:user.trialPlan||null,trialEndsAt:user.trialEndsAt||null,trialUsed:!!user.trialUsed}));}catch(e){}}
   },[user]);
 
-  const handleUpgrade=(mode,targetPlan)=>{
-    // Don't push to pricing if user already has an active paid plan
-    if(user&&(user.plan==="pro"||user.plan==="student")){return;}
-    setTrialInfo({mode,targetPlan});
+  const openPricing=(preferredPlan="pro")=>{
+    setPricingInitialTab(preferredPlan==="student"?"student":preferredPlan==="free"?"free":"pro");
+    setTrialInfo(null);
     setScreen("pricing");
+  };
+  const handleUpgrade=(mode,targetPlan)=>{
+    // Student already includes every tier. Pro includes Pro tools, but must be
+    // able to move upward when a Student-only mode is selected.
+    if(user?.plan==="student")return;
+    if(user?.plan==="pro"){
+      if(targetPlan==="student")openPricing("student");
+      return;
+    }
+    setTrialInfo({mode,targetPlan});
   };
   const handlePricingSelect=(plan,billing)=>{
     if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
+    setPricingInitialTab(plan);
     // Edge case: `user.trialPlan` covers users mid-trial from before the
     // trialUsed flag existed (backward compat with already-stored sessions).
-    const trialAlreadyUsed=!!(user&&(user.trialUsed||user.trialPlan));
+    const trialAlreadyUsed=!!(user&&(user.trialUsed||user.trialPlan||user.plan!=="free"));
     if(!trialAlreadyUsed){
       // First-time user clicking "Start Free Trial" gets exactly that — the
       // cardless 3-day trial, same as the locked-feature path. No card screen.
@@ -3634,6 +4069,7 @@ function MainApp(){
       if(r.status===409){ // trial already consumed on another device
         setUser(u=>({...u,trialUsed:true}));
         setTrialInfo(null);
+        setPricingInitialTab(targetPlan);
         setPaymentInfo({targetPlan,billing:"monthly",skipTrial:true});
         setScreen("pricing");
         return;
@@ -3663,7 +4099,7 @@ function MainApp(){
   // the user navigated back to the app without completing payment.
   const handleTrialContinue=()=>{
     setShowTrialEndedPrompt(false);
-    setScreen("pricing");
+    openPricing(user?.trialPlan||"pro");
   };
 
   // User chose "Switch to Free". Nothing was ever billed, so this is a pure
@@ -3697,12 +4133,12 @@ function MainApp(){
   // setScreen("pricing"/"payment"), so this single check covers them all —
   // no per-button gating that could drift out of sync (DRY). The website
   // (isTwaApp()===false) renders the exact same screens as before.
-  if(screen==="pricing")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>);
+  if(screen==="pricing")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} initialTab={pricingInitialTab} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>);
   if(screen==="payment")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")} theme={theme}/>);
 
   return themed(
     <>
-      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>setScreen("pricing")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme}/>
+      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>openPricing(user?.plan==="student"?"student":"pro")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
       {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>

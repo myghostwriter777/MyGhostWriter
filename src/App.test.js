@@ -1444,3 +1444,13 @@ test("GhostwriterMe icons render as accessible custom SVG artwork",()=>{
   expect(svg).toHaveAttribute("aria-label","GhostwriterMe ghost icon");
   expect(svg?.querySelectorAll("path").length).toBeGreaterThan(0);
 });
+
+test.each(["presentation","interview","slides","upload","audience","building","pdf","word","code"])(
+  "%s uses a dedicated GhostwriterMe glyph",
+  name=>{
+    const {container}=render(<GwmIcon name={name} title={`${name} icon`}/>);
+    const svg=container.querySelector("svg");
+    expect(svg).toHaveAttribute("aria-label",`${name} icon`);
+    expect(svg?.innerHTML).not.toContain('d="M6 6h12v12H6z"');
+  }
+);
