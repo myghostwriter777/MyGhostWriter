@@ -25,6 +25,58 @@ function loadStripeSdk() {
   }
 }
 
+const SUPABASE_URL =
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+async function getPermanentAdminEntitlement(rawEmail) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) return null;
+
+  const email = rawEmail.trim().toLowerCase();
+  const query =
+    `email=eq.${encodeURIComponent(email)}` +
+    "&select=role,all_features,entitlement_expires_at&limit=1";
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/users?${query}`, {
+      headers: {
+        apikey: SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(
+        `[get-subscription] Supabase entitlement lookup failed (${response.status}).`
+      );
+      return null;
+    }
+
+    const [entitlement] = await response.json();
+    if (
+      !entitlement ||
+      entitlement.role !== "admin" ||
+      entitlement.all_features !== true
+    ) {
+      return null;
+    }
+
+    if (
+      entitlement.entitlement_expires_at &&
+      new Date(entitlement.entitlement_expires_at) <= new Date()
+    ) {
+      return null;
+    }
+
+    return entitlement;
+  } catch (err) {
+    console.warn(
+      `[get-subscription] Supabase entitlement lookup error: ${err.message}`
+    );
+    return null;
+  }
+}
+
 
 module.exports = async function handler(req, res) {
   if (req.method !== "GET") {
@@ -35,6 +87,21 @@ module.exports = async function handler(req, res) {
 
   if (!email) {
     return res.status(400).json({ error: "Email is required" });
+  }
+
+  const adminEntitlement = await getPermanentAdminEntitlement(email);
+  if (adminEntitlement) {
+    return res.status(200).json({
+      plan: "student",
+      billing: "lifetime",
+      renewsAt: null,
+      cancelAtPeriodEnd: false,
+      status: "admin",
+      isAdmin: true,
+      allFeatures: true,
+      trialEndsAt: null,
+      trialUsed: true,
+    });
   }
 
   const Stripe = loadStripeSdk();

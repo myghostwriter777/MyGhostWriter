@@ -1,0 +1,15 @@
+[33mb4b6124[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Add UX/UI pro max
+[33me399ba5[m ui: polish settings + compliance pages
+[33m43b8b61[m ui: polish auth + history
+[33mdfa4dc1[m ui: polish pricing + checkout
+[33mf3a13d3[m ui: polish story guide
+[33mb03a4ab[m ui: polish writing workspace
+[33m072e8b9[m ui: polish home + mode selector
+[33mebcb2e9[m Add Digital Asset Links for Play Store TWA (com.ghostwriterme.app)
+[33me3e3228[m Add privacy/terms/delete-account pages and AI content reporting (Play Store compliance)
+[33m488cdc2[m Fix manifest icon paths to match actual public/ location
+[33mda7a5b9[m Add PWA icon files
+[33m5b78be9[m Add PWA icon files
+[33m056bdad[m Manifest v2 + service worker registration for PWABuilder
+[33m7e633c5[m Add public privacy/terms/delete-account pages and AI content reporting (Play Store compliance)
+[33m4548ef4[m Gate Stripe screens inside Play Store TWA

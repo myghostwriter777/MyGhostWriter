@@ -776,7 +776,7 @@ const PriBtn=({children,onClick,loading,disabled,fullWidth=true,variant="blue"})
 const SecBtn=({children,onClick})=>(<button onClick={onClick} style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{children}</button>);
 
 function PlanBadge({plan}){
-  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.magentaSoft,color:C.magentaText}};
+  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.magentaSoft,color:C.magentaText},admin:{label:"ADMIN",bg:"rgba(245,200,66,0.12)",color:C.yellowText}};
   const d=map[plan];if(!d)return null;
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
@@ -1632,9 +1632,10 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
 
-  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.magentaText,bg:C.magentaSoft}};
-  const planInfo=planMap[user.plan]||planMap.free;
-  const isPaid=user.plan!=="free";
+  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.magentaText,bg:C.magentaSoft},admin:{label:"Admin Access",color:C.yellowText,bg:"rgba(245,200,66,0.12)"}};
+  const isAdmin=!!user.isAdmin&&!!user.allFeatures;
+  const planInfo=isAdmin?planMap.admin:(planMap[user.plan]||planMap.free);
+  const isPaid=isAdmin||user.plan!=="free";
   const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
   // Whole days remaining until date x. Math.ceil so a trial ending later
   // today still reads "1 day left" rather than a discouraging "0 days".
@@ -1713,44 +1714,50 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
 
         <Section title="My Plan">
-          <Row icon={user.plan==="student"?<GraduationCapIcon/>:user.plan==="pro"?<ZapIcon/>:<TagIcon/>} label={planInfo.label}>
-            {!isPaid&&<span style={{fontSize:12,color:C.muted}}>Current</span>}
-            {isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellowText}}>Cancelled</span>}
-            {isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.greenText}}><IconLabel name="check">Active</IconLabel></span>}
+          <Row icon={isAdmin?<StarIcon size={15} color={C.yellowText}/>:user.plan==="student"?<GraduationCapIcon/>:user.plan==="pro"?<ZapIcon/>:<TagIcon/>} label={planInfo.label}>
+            {isAdmin&&<span style={{fontSize:12,color:C.yellowText}}>Lifetime</span>}
+            {!isAdmin&&!isPaid&&<span style={{fontSize:12,color:C.muted}}>Current</span>}
+            {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.yellowText}}>Cancelled</span>}
+            {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&<span style={{fontSize:12,color:C.greenText}}><IconLabel name="check">Active</IconLabel></span>}
           </Row>
+          {isAdmin&&(
+            <Row icon={<GiftIcon/>} label="All Features" last>
+              <span style={{fontSize:12,color:C.greenText}}>Unlocked forever</span>
+            </Row>
+          )}
           {/* Item 4: active cardless-trial countdown. renewsAt is null during a
               local trial so the "Renews on" row below never collides with this. */}
-          {user.trialEndsAt&&new Date(user.trialEndsAt)>new Date()&&(
+          {!isAdmin&&user.trialEndsAt&&new Date(user.trialEndsAt)>new Date()&&(
             <Row icon={<GiftIcon/>} label="Free Trial">
               <span style={{fontSize:12,color:C.greenText}}>Ends {fmtDate(user.trialEndsAt)} · {daysLeft(user.trialEndsAt)} day{daysLeft(user.trialEndsAt)===1?"":"s"} left</span>
             </Row>
           )}
           {/* Item 4: cancelled-plan notice, exact wording requested. Replaces the
               old "Access until" row (which is now hidden while cancelled). */}
-          {isPaid&&user.cancelAtPeriodEnd&&user.renewsAt&&(
+          {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&user.renewsAt&&(
             <div style={{padding:"11px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(245,200,66,0.06)"}}>
               <div style={{fontSize:12.5,color:C.yellowText,lineHeight:1.65}}>Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until <span style={{fontWeight:800,color:C.text}}>{fmtDate(user.renewsAt)}</span>. There {daysLeft(user.renewsAt)===1?"is":"are"} <span style={{fontWeight:800,color:C.text}}>{daysLeft(user.renewsAt)}</span> day{daysLeft(user.renewsAt)===1?"":"s"} left.</div>
             </div>
           )}
-          {isPaid&&!user.cancelAtPeriodEnd&&user.renewsAt&&(
+          {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&user.renewsAt&&(
             <Row icon={<CalendarIcon/>} label="Renews on">
               <span style={{fontSize:12,color:C.muted}}>{fmtDate(user.renewsAt)}</span>
             </Row>
           )}
-          <Row icon={<RefreshIcon/>} label="Change Plan" onClick={onChangePlan} last={!isPaid}>
+          {!isAdmin&&<Row icon={<RefreshIcon/>} label="Change Plan" onClick={onChangePlan} last={!isPaid}>
             <ChevronRightIcon size={14} color={C.muted}/>
-          </Row>
-          {isPaid&&user.cancelAtPeriodEnd&&(
+          </Row>}
+          {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&(
             <Row icon={<PlayIcon/>} label="Resume Subscription" onClick={()=>onCancelPlan(false)} last>
               <ChevronRightIcon size={14} color={C.green}/>
             </Row>
           )}
-          {isPaid&&!user.cancelAtPeriodEnd&&!cancelConfirm&&(
+          {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&!cancelConfirm&&(
             <Row icon={<XCircleIcon/>} label="Cancel Subscription" onClick={()=>setCancelConfirm(true)} danger last>
               <ChevronRightIcon size={14} color={C.red}/>
             </Row>
           )}
-          {isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
+          {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
             <div style={{padding:"13px 14px"}}>
               <div style={{fontSize:13,color:C.text,marginBottom:4,fontWeight:700}}>Cancel your subscription?</div>
               <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
@@ -1761,7 +1768,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
             </div>
           )}
         </Section>
-        {isPaid&&user.cancelAtPeriodEnd&&(
+        {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&(
           <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellowText,lineHeight:1.6}}>
             Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
           </div>
@@ -3561,8 +3568,9 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   const modeAnimationRef=useRef(null);
   const modeMountedRef=useRef(false);
 
-  const isPro=user.plan==="pro"||user.plan==="student";
-  const isStudent=user.plan==="student";
+  const hasAllFeatures=!!user.allFeatures;
+  const isPro=hasAllFeatures||user.plan==="pro"||user.plan==="student";
+  const isStudent=hasAllFeatures||user.plan==="student";
 
   const locked=m=>{
     if(m.access==="free")return false;
@@ -3665,7 +3673,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           </div>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
             <ThemeToggle theme={theme} onToggle={onToggleTheme}/>
-            <PlanBadge plan={user.plan}/>
+            <PlanBadge plan={user.allFeatures?"admin":user.plan}/>
             <button onClick={()=>setShowSettings(true)} aria-label="Open settings" style={{border:"2px solid transparent",background:"transparent",cursor:"pointer",padding:0,flexShrink:0,borderRadius:"50%",lineHeight:0,transition:"border-color 0.2s, transform 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="scale(1.06)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="transparent";e.currentTarget.style.transform="scale(1)";}}>
               <Avatar avatar={user.avatar} size={34}/>
             </button>
@@ -3933,15 +3941,18 @@ function MainApp(){
             if(!sub.trialEndsAt){fetch("/api/start-trial",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:u.email,plan:u.trialPlan,trialEndsAt:u.trialEndsAt})}).catch(()=>{});}
             return{...u,trialUsed:u.trialUsed||!!sub.trialUsed}; // protect the trial
           }
+          const isPermanentAdmin=!!sub.isAdmin&&!!sub.allFeatures;
           return{...u,
             plan:sub.plan,
             billing:sub.billing||u.billing,
-            renewsAt:sub.renewsAt||u.renewsAt,
+            renewsAt:isPermanentAdmin?null:(sub.renewsAt||u.renewsAt),
             cancelAtPeriodEnd:sub.cancelAtPeriodEnd??u.cancelAtPeriodEnd,
+            isAdmin:!!sub.isAdmin,
+            allFeatures:!!sub.allFeatures,
             // server-side trial (Stripe customer metadata) — restores an active
             // trial started on another device, and blocks double-trials.
-            trialPlan:sub.status==="local_trial"?sub.plan:u.trialPlan,
-            trialEndsAt:sub.trialEndsAt||u.trialEndsAt,
+            trialPlan:sub.status==="local_trial"?sub.plan:isPermanentAdmin?null:u.trialPlan,
+            trialEndsAt:sub.trialEndsAt||(isPermanentAdmin?null:u.trialEndsAt),
             trialUsed:u.trialUsed||!!sub.trialUsed,
           };
         });
@@ -3953,7 +3964,7 @@ function MainApp(){
   // Existing cancellation-expiry check (for real Stripe subscriptions the user
   // explicitly cancelled) — unchanged.
   useEffect(()=>{
-    if(user&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
+    if(user&&!user.allFeatures&&user.plan!=="free"&&user.cancelAtPeriodEnd&&user.renewsAt&&new Date(user.renewsAt)<=new Date()){
       setUser(u=>({...u,plan:"free",billing:null,renewsAt:null,cancelAtPeriodEnd:false}));
     }
   },[user]);
@@ -3987,7 +3998,7 @@ function MainApp(){
       try{const cached=JSON.parse(localStorage.getItem("gwm2_lastplan_"+u.email.toLowerCase())||"null");if(cached)u={...u,...cached};}catch(e){}
     }
     if(sub&&sub.plan!=="free"){
-      u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,
+      u={...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,isAdmin:!!sub.isAdmin,allFeatures:!!sub.allFeatures,
         trialPlan:sub.status==="local_trial"?sub.plan:null,
         trialEndsAt:sub.trialEndsAt||null,
         trialUsed:!!sub.trialUsed};
@@ -4011,7 +4022,7 @@ function MainApp(){
   // silently downgrade a paying user to "free". A real "free" answer from the
   // server still wins — it overwrites this cache on the next render.
   useEffect(()=>{
-    if(user&&user.email){try{localStorage.setItem("gwm2_lastplan_"+user.email.toLowerCase(),JSON.stringify({plan:user.plan||"free",billing:user.billing||null,renewsAt:user.renewsAt||null,cancelAtPeriodEnd:!!user.cancelAtPeriodEnd,trialPlan:user.trialPlan||null,trialEndsAt:user.trialEndsAt||null,trialUsed:!!user.trialUsed}));}catch(e){}}
+    if(user&&user.email){try{localStorage.setItem("gwm2_lastplan_"+user.email.toLowerCase(),JSON.stringify({plan:user.plan||"free",billing:user.billing||null,renewsAt:user.renewsAt||null,cancelAtPeriodEnd:!!user.cancelAtPeriodEnd,trialPlan:user.trialPlan||null,trialEndsAt:user.trialEndsAt||null,trialUsed:!!user.trialUsed,isAdmin:!!user.isAdmin,allFeatures:!!user.allFeatures}));}catch(e){}}
   },[user]);
 
   const openPricing=(preferredPlan="pro")=>{
@@ -4022,7 +4033,7 @@ function MainApp(){
   const handleUpgrade=(mode,targetPlan)=>{
     // Student already includes every tier. Pro includes Pro tools, but must be
     // able to move upward when a Student-only mode is selected.
-    if(user?.plan==="student")return;
+    if(user?.allFeatures||user?.plan==="student")return;
     if(user?.plan==="pro"){
       if(targetPlan==="student")openPricing("student");
       return;
@@ -4116,7 +4127,7 @@ function MainApp(){
     if(user){
       const sub=await checkSubscription(user.email);
       if(sub&&sub.plan!=="free"){
-        setUser(u=>({...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,trialPlan:null,trialEndsAt:null}));
+        setUser(u=>({...u,plan:sub.plan,billing:sub.billing,renewsAt:sub.renewsAt,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,isAdmin:!!sub.isAdmin,allFeatures:!!sub.allFeatures,trialPlan:null,trialEndsAt:null}));
       }else if(paymentInfo){
         setUser(u=>({...u,plan:paymentInfo.targetPlan,billing:paymentInfo.billing,cancelAtPeriodEnd:false,trialPlan:null,trialEndsAt:null}));
       }
