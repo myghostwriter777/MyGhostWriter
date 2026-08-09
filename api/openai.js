@@ -8,7 +8,7 @@ export const config = {
   },
 };
 
-const MODEL = "gpt-5.6-sol";
+const MODEL = "gpt-5.6-luna";
 const MAX_OUTPUT_TOKENS = 12000;
 const MAX_FILES = 4;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
