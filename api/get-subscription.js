@@ -175,14 +175,19 @@ module.exports = async function handler(req, res) {
     // 4. Determine plan from the price ID
     const priceId = subscription.items.data[0]?.price?.id;
 
-    const PRICE_TO_PLAN = {
-      [process.env.STRIPE_PRICE_PRO_MONTHLY]:  { plan: "pro",     billing: "monthly" },
-      [process.env.STRIPE_PRICE_PRO_REGULAR]:  { plan: "pro",     billing: "monthly" },
-      [process.env.STRIPE_PRICE_PRO_YEARLY]:   { plan: "pro",     billing: "yearly"  },
-      [process.env.STRIPE_PRICE_STUDENT_MONTHLY]: { plan: "student", billing: "monthly" },
-      [process.env.STRIPE_PRICE_STUDENT_REGULAR]: { plan: "student", billing: "monthly" },
-      [process.env.STRIPE_PRICE_STUDENT_YEARLY]:  { plan: "student", billing: "yearly"  },
-    };
+    const PRICE_TO_PLAN = Object.fromEntries([
+      [process.env.STRIPE_PRICE_PRO_MONTHLY,  { plan: "pro", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_PRO_REGULAR,  { plan: "pro", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_PRO_YEARLY,   { plan: "pro", billing: "yearly" }],
+      [process.env.STRIPE_PRICE_MASTER_MONTHLY, { plan: "student", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_MASTER_REGULAR, { plan: "student", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_MASTER_YEARLY,  { plan: "student", billing: "yearly" }],
+      // Legacy price aliases preserve access for customers who subscribed
+      // before the Student package was renamed to Master.
+      [process.env.STRIPE_PRICE_STUDENT_MONTHLY, { plan: "student", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_STUDENT_REGULAR, { plan: "student", billing: "monthly" }],
+      [process.env.STRIPE_PRICE_STUDENT_YEARLY,  { plan: "student", billing: "yearly" }],
+    ].filter(([priceId])=>Boolean(priceId)));
 
     let matched = PRICE_TO_PLAN[priceId];
 

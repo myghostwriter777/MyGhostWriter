@@ -54,3 +54,31 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.integrity-overlay {
+  z-index: 10000 !important;
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+
+.integrity-sheet {
+  max-height: calc(100dvh - max(10px, env(safe-area-inset-top))) !important;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom)) !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.integrity-close-action,
+.integrity-action-row {
+  position: sticky;
+  bottom: calc(-20px - env(safe-area-inset-bottom));
+  z-index: 2;
+  margin: 0 -4px;
+  padding: 12px 4px calc(12px + env(safe-area-inset-bottom));
+  background: var(--gwm-card);
+  box-shadow: 0 -12px 24px color-mix(in srgb, var(--gwm-bg) 72%, transparent);
+}
+
+@media (min-width: 700px) {
+  .integrity-overlay { align-items: center !important; padding: 28px; }
+  .integrity-sheet { max-height: min(820px, calc(100dvh - 56px)) !important; border-radius: 16px !important; }
+}

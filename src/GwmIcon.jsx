@@ -45,6 +45,7 @@ function Glyph({name}){
     case "report": return <><path d="M6 3.5h12V20H6z"/><path d="M9 16v-3M12 16V9M15 16v-5M9 7h4"/></>;
     case "presentation": return <><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M7 9h5M7 12h8M12 16.5V21M8.5 21h7"/><Spark x={18.5} y={7}/></>;
     case "interview": return <><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.7 2.4-5.5 5.5-5.5s4.9 1.8 5.5 5.5M17 7.5c1.5 1.1 1.5 2.9 0 4M19.5 5.5c2.7 2.6 2.7 6.4 0 9"/><circle cx="9" cy="8" r=".5" fill="currentColor" stroke="none"/></>;
+    case "meeting": return <><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20M8 9.5a4 4 0 0 0 8 0M10 7.5v2a2 2 0 0 0 4 0v-2"/><Spark x={19} y={4}/></>;
     case "slides": return <><rect x="4" y="4" width="13" height="10" rx="1.5"/><path d="M7 8h5M7 11h7M7 17h13M7 20h10M20 7v8"/><Spark x={20} y={4}/></>;
     case "upload": return <><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v6h14v-6"/></>;
     case "audience": return <><circle cx="8" cy="9" r="2.7"/><circle cx="16" cy="9" r="2.7"/><path d="M2.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2M10.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2"/></>;

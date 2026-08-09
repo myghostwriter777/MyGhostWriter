@@ -6,9 +6,9 @@
  *
  * Pricing model (confirmed in-app as of this version):
  *   Pro     monthly: $7/mo first 3 months (intro) → $12/mo after
- *   Student monthly: $15/mo first 2 months (intro) → $20/mo after
+ *   Master  monthly: $20/mo first 2 months (intro) → $30/mo after
  *   Pro     yearly:  $60/yr   (single price, no intro phase)
- *   Student yearly:  $96/yr   (single price, no intro phase)
+ *   Master  yearly:  $96/yr   (single price, no intro phase)
  *
  * NEW IN THIS VERSION — `skipTrial` flag:
  *   The frontend's cardless trial grants 3 free days with no Stripe
@@ -22,9 +22,12 @@
  *   STRIPE_PRICE_PRO_MONTHLY       price id — $7/mo  (intro)
  *   STRIPE_PRICE_PRO_REGULAR       price id — $12/mo (post-intro)
  *   STRIPE_PRICE_PRO_YEARLY        price id — $60/yr
- *   STRIPE_PRICE_STUDENT_MONTHLY   price id — $15/mo (intro)
- *   STRIPE_PRICE_STUDENT_REGULAR   price id — $20/mo (post-intro)
- *   STRIPE_PRICE_STUDENT_YEARLY    price id — $96/yr
+ *   STRIPE_PRICE_MASTER_MONTHLY    price id — $20/mo (intro)
+ *   STRIPE_PRICE_MASTER_REGULAR    price id — $30/mo (post-intro)
+ *   STRIPE_PRICE_MASTER_YEARLY     price id — $96/yr
+ *
+ * Legacy STRIPE_PRICE_STUDENT_* IDs remain read-only aliases in
+ * /api/get-subscription.js so existing customers keep their entitlement.
  *
  * NOTE: these names intentionally match the PRICE_TO_PLAN map in
  * /api/get-subscription.js so both files read the same variables.
@@ -48,7 +51,7 @@ function loadStripeSdk() {
 
 const TRIAL_DAYS = 3;
 // How many billing cycles the intro price lasts before switching to regular:
-//   Pro: 3 monthly cycles ($7 × 3), Student: 2 monthly cycles ($15 × 2)
+//   Pro: 3 monthly cycles ($7 × 3), Master: 2 monthly cycles ($20 × 2)
 const INTRO_CYCLES = { pro: 3, student: 2 };
 
 module.exports = async function handler(req, res) {
@@ -104,9 +107,9 @@ module.exports = async function handler(req, res) {
       yearly:  process.env.STRIPE_PRICE_PRO_YEARLY,
     },
     student: {
-      intro:   process.env.STRIPE_PRICE_STUDENT_MONTHLY,
-      regular: process.env.STRIPE_PRICE_STUDENT_REGULAR,
-      yearly:  process.env.STRIPE_PRICE_STUDENT_YEARLY,
+      intro:   process.env.STRIPE_PRICE_MASTER_MONTHLY,
+      regular: process.env.STRIPE_PRICE_MASTER_REGULAR,
+      yearly:  process.env.STRIPE_PRICE_MASTER_YEARLY || process.env.STRIPE_PRICE_STUDENT_YEARLY,
     },
   };
 
@@ -141,8 +144,9 @@ module.exports = async function handler(req, res) {
 
     // ── 2. Guard against duplicate subscriptions ────────────────────
     // Double-clicking Confirm must never create a second live subscription.
-    // A different requested plan, however, is a legitimate Pro -> Student (or
-    // Student -> Pro) change and must update the current subscription in place.
+    // A different requested plan is a legitimate Pro <-> Master change and
+    // must update the current subscription in place. "student" remains the
+    // internal entitlement id for backward compatibility.
     const subs = await stripe.subscriptions.list({
       customer: customer.id,
       status: "all",
@@ -153,10 +157,21 @@ module.exports = async function handler(req, res) {
     );
     if (alreadyActive) {
       const currentPriceId = alreadyActive.items?.data?.[0]?.price?.id;
+      const masterAndLegacyPriceIds = [
+        PRICES.student.intro,
+        PRICES.student.regular,
+        PRICES.student.yearly,
+        process.env.STRIPE_PRICE_STUDENT_MONTHLY,
+        process.env.STRIPE_PRICE_STUDENT_REGULAR,
+        process.env.STRIPE_PRICE_STUDENT_YEARLY,
+      ].filter(Boolean);
       const currentPlan = alreadyActive.metadata?.plan ||
-        ([PRICES.student.intro, PRICES.student.regular, PRICES.student.yearly].includes(currentPriceId) ? "student" : "pro");
+        (masterAndLegacyPriceIds.includes(currentPriceId) ? "student" : "pro");
       const currentBilling = alreadyActive.metadata?.billing ||
-        (currentPriceId === PRICES[currentPlan].yearly ? "yearly" : "monthly");
+        ([
+          PRICES[currentPlan].yearly,
+          currentPlan === "student" ? process.env.STRIPE_PRICE_STUDENT_YEARLY : null,
+        ].filter(Boolean).includes(currentPriceId) ? "yearly" : "monthly");
 
       if (currentPlan === plan && currentBilling === billing) {
         return res.status(409).json({

@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import GwmIcon from "./GwmIcon";
+import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
@@ -282,6 +284,7 @@ const MODES = [
   { id:"presentation",icon:"presentation",label:"Present",access:"pro+student" },
   { id:"interview",icon:"interview",label:"Interview",   access:"pro+student" },
   { id:"slides",   icon:"slides",   label:"Slides",      access:"pro+student" },
+  { id:"meeting",  icon:"meeting",  label:"Meeting",     access:"student"     },
   { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
   { id:"cv",       icon:"cv",       label:"CV/Resume",   access:"pro+student" },
   { id:"author",   icon:"author",   label:"Author",      access:"pro+student" },
@@ -398,13 +401,14 @@ const TERMS_CONTENT = [
   {h:"6. No Warranty",b:"AI-generated content is provided as-is without warranty. Verify all content before use."},
   {h:"7. Limitation of Liability",b:"GhostwriterMe shall not be liable for any damages arising from your use of the Service."},
   {h:"8. Subscriptions & Billing",b:"Subscriptions are billed as selected. 3-day free trials begin upon payment authorization — no charge until day 4. Cancel anytime."},
-  {h:"9. Contact & Governing Law",b:"Questions? Email us at "+CONTACT_EMAIL+". These Terms are governed by the laws of Thailand."},
+  {h:"9. Meeting Assist",b:"You must manually start every Meeting Assist session, obtain any permission required from participants, and follow applicable recording, privacy, workplace, and platform rules. GhostwriterMe does not join meetings or send replies automatically."},
+  {h:"10. Contact & Governing Law",b:"Questions? Email us at "+CONTACT_EMAIL+". These Terms are governed by the laws of Thailand."},
 ];
 
 const PRIVACY_CONTENT = [
-  {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools, sent to our AI provider to generate responses. Payment details are handled entirely by Stripe — we never see or store your card number."},
+  {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, short audio segments and resulting transcript context are sent for transcription and reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
   {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us."},
-  {h:"3. What We Store Locally",b:"Your writing history is stored in your browser's local storage on your own device, not on our servers. Clearing your browser data will remove it."},
+  {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is processed in short segments and is not added to History. A meeting transcript and suggestion are saved only if you press Save session."},
   {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and an AI provider to generate content. Each operates under its own privacy policy."},
   {h:"5. Data Retention",b:"Account information is retained while your account is active. You may request deletion by contacting us at "+CONTACT_EMAIL+"."},
   {h:"6. Your Rights",b:"You may request access to, correction of, or deletion of your personal data at any time by emailing "+CONTACT_EMAIL+"."},
@@ -422,12 +426,17 @@ const HS = {
   // id gets a random suffix so two devices saving in the same millisecond
   // can't collide (edge case that pure Date.now() ids allowed).
   save:(email,mode,entry)=>{
-    const full={...entry,id:Date.now()+"-"+Math.random().toString(36).slice(2,7),ts:new Date().toISOString(),mode};
-    try{const k=HS.key(email,mode);localStorage.setItem(k,JSON.stringify([full,...HS.load(email,mode)].slice(0,50)));}catch(e){}
+    const now=new Date().toISOString();
+    const candidate={...entry,ts:now,mode};
+    const existing=HS.load(email,mode).find(item=>historyItemsMatch(item,candidate,30000));
+    if(existing)return existing;
+    const full={...candidate,id:Date.now()+"-"+Math.random().toString(36).slice(2,7)};
+    try{const k=HS.key(email,mode);localStorage.setItem(k,JSON.stringify(dedupeHistoryItems([full,...HS.load(email,mode)]).slice(0,50)));}catch(e){}
     try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
+    return full;
   },
   load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
-  loadAll:(email)=>{const ms=["reply","email","essay","presentation","interview","slides","academic","cv","author","grammar","humanize","story"];return ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))).sort((a,b)=>new Date(b.ts)-new Date(a.ts));},
+  loadAll:(email)=>{const ms=["reply","email","essay","presentation","interview","slides","meeting","academic","cv","author","grammar","humanize","story"];return dedupeHistoryItems(ms.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m}))));},
   // Pull the server copy. Returns {ok:true,items} or {ok:false,error} — the
   // error MESSAGE is surfaced (bug fix: the old version returned null on any
   // failure, so a missing database or server error looked identical to
@@ -444,8 +453,8 @@ const HS = {
   // still works offline after a sync and both stores converge.
   hydrate:(email,items)=>{try{
     const byMode={};
-    items.forEach(it=>{if(it&&it.mode){(byMode[it.mode]=byMode[it.mode]||[]).push(it);}});
-    Object.keys(byMode).forEach(m=>localStorage.setItem(HS.key(email,m),JSON.stringify(byMode[m].slice(0,50))));
+    dedupeHistoryItems(items).forEach(it=>{if(it&&it.mode){(byMode[it.mode]=byMode[it.mode]||[]).push(it);}});
+    Object.keys(byMode).forEach(m=>localStorage.setItem(HS.key(email,m),JSON.stringify(dedupeHistoryItems(byMode[m]).slice(0,50))));
   }catch(e){}},
 };
 
@@ -776,7 +785,7 @@ const PriBtn=({children,onClick,loading,disabled,fullWidth=true,variant="blue"})
 const SecBtn=({children,onClick})=>(<button onClick={onClick} style={{width:"100%",padding:"11px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>{children}</button>);
 
 function PlanBadge({plan}){
-  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"STUDENT",bg:C.magentaSoft,color:C.magentaText},admin:{label:"ADMIN",bg:"rgba(245,200,66,0.12)",color:C.yellowText}};
+  const map={free:{label:"FREE",bg:"rgba(61,219,164,0.12)",color:C.greenText},pro:{label:"PRO",bg:C.accentSoft,color:C.blueText},student:{label:"MASTER",bg:C.magentaSoft,color:C.magentaText},admin:{label:"ADMIN",bg:"rgba(245,200,66,0.12)",color:C.yellowText}};
   const d=map[plan];if(!d)return null;
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
@@ -967,10 +976,10 @@ const TAROT_TOOLS=[
   {id:"presentation",name:"Presentation",tier:"Pro",  desc:"Builds timed group scripts, smooth handoffs, and helpful feedback for a friend's draft."},
   {id:"interview",name:"Interview Coach",tier:"Pro",  desc:"Turns your CV and job requirements into a tailored, spoken practice interview."},
   {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
-  {id:"academic",name:"Academic",     tier:"Student", desc:"Provides feedback on your writing and offers research guidance."},
+  {id:"academic",name:"Academic",     tier:"Master", desc:"Provides feedback on your writing and offers research guidance."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
-  {id:"humanize",name:"Humanize",     tier:"Student", desc:"Refines AI-generated text into natural, human-like writing."},
+  {id:"humanize",name:"Humanize",     tier:"Master", desc:"Refines AI-generated text into natural, human-like writing."},
   {id:"story",   name:"Story Guide",  tier:"Pro",     desc:"Turns any book or movie into an interactive story guide — plot structure, characters, themes, and conflicts."},
   {id:"history", name:"History",      tier:"Free",    desc:"Saves and organizes all your past creations for easy access."},
 ];
@@ -995,7 +1004,7 @@ function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
   const [hover,setHover]=React.useState(false);
   const [pressed,setPressed]=React.useState(false);
-  const tierColor=tool.tier==="Student"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
+  const tierColor=tool.tier==="Master"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
   const locked=tool.tier!=="Free";
   const toggle=()=>setFlipped(f=>!f);
   return(
@@ -1198,7 +1207,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
   const closeRef=useRef(null);
   const modalRef=useRef(null);
   const copy=TOOL_SHOWCASES[tool.id]||TOOL_SHOWCASES.reply;
-  const tierColor=tool.tier==="Student"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
+  const tierColor=tool.tier==="Master"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
 
   useEffect(()=>{
     const previousOverflow=document.body.style.overflow;
@@ -1369,14 +1378,14 @@ function LandingScreen({onGetStarted,onSignIn}){
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
     {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","Priority generation"],cta:"Start Free Trial"},
-{name:"Student",price:"$15",per:"/mo",note:"intro, then $20/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Student-only tools"],cta:"Start Student Trial"},  ];
+{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Meeting Assist"],cta:"Start Master Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
     {q:"How does GhostwriterMe work?",a:"Pick a writing tool, type or speak what you need, and the AI generates a draft you can edit, copy, or refine. Every tool is built around a specific writing task so you get focused, relevant results."},
     {q:"Is my content private?",a:"Your writing is processed only to generate your results and is not sold or shared. History is stored on your own device. We recommend avoiding sensitive personal data in any AI tool."},
     {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
-    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Student plan that adds the Academic Reviewer and Humanize tools. All paid plans start with a free trial."},
+    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan that adds Academic, Humanize, and Meeting Assist. All paid plans start with a free trial."},
     {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
   ];
 
@@ -1632,7 +1641,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
 
-  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Student Plan",color:C.magentaText,bg:C.magentaSoft},admin:{label:"Admin Access",color:C.yellowText,bg:"rgba(245,200,66,0.12)"}};
+  const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Master Plan",color:C.magentaText,bg:C.magentaSoft},admin:{label:"Admin Access",color:C.yellowText,bg:"rgba(245,200,66,0.12)"}};
   const isAdmin=!!user.isAdmin&&!!user.allFeatures;
   const planInfo=isAdmin?planMap.admin:(planMap[user.plan]||planMap.free);
   const isPaid=isAdmin||user.plan!=="free";
@@ -1736,7 +1745,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
               old "Access until" row (which is now hidden while cancelled). */}
           {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&user.renewsAt&&(
             <div style={{padding:"11px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(245,200,66,0.06)"}}>
-              <div style={{fontSize:12.5,color:C.yellowText,lineHeight:1.65}}>Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until <span style={{fontWeight:800,color:C.text}}>{fmtDate(user.renewsAt)}</span>. There {daysLeft(user.renewsAt)===1?"is":"are"} <span style={{fontWeight:800,color:C.text}}>{daysLeft(user.renewsAt)}</span> day{daysLeft(user.renewsAt)===1?"":"s"} left.</div>
+              <div style={{fontSize:12.5,color:C.yellowText,lineHeight:1.65}}>Subscription cancelled. {user.plan==="student"?"Master":"Pro"} features stay active until <span style={{fontWeight:800,color:C.text}}>{fmtDate(user.renewsAt)}</span>. There {daysLeft(user.renewsAt)===1?"is":"are"} <span style={{fontWeight:800,color:C.text}}>{daysLeft(user.renewsAt)}</span> day{daysLeft(user.renewsAt)===1?"":"s"} left.</div>
             </div>
           )}
           {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&user.renewsAt&&(
@@ -1760,7 +1769,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
           {!isAdmin&&isPaid&&!user.cancelAtPeriodEnd&&cancelConfirm&&(
             <div style={{padding:"13px 14px"}}>
               <div style={{fontSize:13,color:C.text,marginBottom:4,fontWeight:700}}>Cancel your subscription?</div>
-              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Student":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10,lineHeight:1.5}}>You keep all {user.plan==="student"?"Master":"Pro"} features until <span style={{color:C.text,fontWeight:700}}>{fmtDate(user.renewsAt)}</span>. After that your account switches to Free. You can resume anytime before then.</div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setCancelConfirm(false)} style={{flex:1,padding:"9px",borderRadius:7,background:"transparent",border:`1px solid ${C.border}`,color:C.text,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Keep Plan</button>
                 <button onClick={()=>{onCancelPlan(true);setCancelConfirm(false);}} style={{flex:1,padding:"9px",borderRadius:7,background:"rgba(240,107,107,0.12)",border:"1px solid rgba(240,107,107,0.4)",color:C.redText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Confirm Cancel</button>
@@ -1770,7 +1779,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
         {!isAdmin&&isPaid&&user.cancelAtPeriodEnd&&(
           <div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"10px 13px",marginTop:-12,marginBottom:22,fontSize:13,color:C.yellowText,lineHeight:1.6}}>
-            Subscription cancelled. {user.plan==="student"?"Student":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
+            Subscription cancelled. {user.plan==="student"?"Master":"Pro"} features stay active until {fmtDate(user.renewsAt)}.
           </div>
         )}
 
@@ -1908,10 +1917,10 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
 
   const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
   const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Analyzer — books & films","Full history across all modes","Priority generation speed"];
-  const STU_F=["Everything in Pro","Academic Essay + auto-citations (Student exclusive)","Humanize My Writing (Student exclusive)","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Student voice calibration","Priority support"];
+  const STU_F=["Everything in Pro","Academic Essay + auto-citations (Master exclusive)","Humanize My Writing (Master exclusive)","Meeting Assist for supported meeting tabs","CEFR-matched voice output","Draft-to-final coaching","Argument weakness scanner","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
-  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Student",color:C.magenta}];
+  const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Master",color:C.magenta}];
   const isExistingSubscriber=user?.plan!=="free"&&!user?.trialPlan;
 
   const getPrice=()=>{
@@ -1921,8 +1930,8 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
       if(proBill==="monthly")return{main:"$7",per:"/ month",sub:"First 3 months — new users",intro:"Then $12 / month"};
       return{main:"$60",per:"/ year",sub:"Best annual rate",intro:null};
     }
-    if(stuBill==="monthly"&&isExistingSubscriber)return{main:"$20",per:"/ month",sub:"Regular Student rate",intro:user.plan!=="student"?"Your upgrade is prorated automatically":null};
-    if(stuBill==="monthly")return{main:"$15",per:"/ month",sub:"First 2 months — new users",intro:"Then $20 / month"};
+    if(stuBill==="monthly"&&isExistingSubscriber)return{main:"$30",per:"/ month",sub:"Regular Master rate",intro:user.plan!=="student"?"Your upgrade is prorated automatically":null};
+    if(stuBill==="monthly")return{main:"$20",per:"/ month",sub:"First 2 months — new users",intro:"Then $30 / month"};
     return{main:"$96",per:"/ year",sub:"Best annual rate",intro:null};
   };
 
@@ -1946,9 +1955,9 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.magenta:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> with auto-citations + <strong>Humanize My Writing</strong> — Student-only tools.</div></div>)}
+        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong>, <strong>Humanize My Writing</strong>, and manually started <strong>Meeting Assist</strong>.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(244,114,182,0.08),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.46)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.magentaGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
-          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>STUDENT PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
+          {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>MASTER PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
           <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:2}}><span style={{fontSize:34,fontWeight:900,color:C.text,lineHeight:1,letterSpacing:"-0.02em"}}>{price.main}</span><span style={{fontSize:13,color:C.muted}}>{price.per}</span></div>
           {price.sub&&<div style={{fontSize:13,color:C.green,marginBottom:price.intro?2:14}}>{price.sub}</div>}
@@ -1960,10 +1969,10 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
           {tab!=="free"&&!trialUsed&&(<div style={{background:tab==="student"?C.magentaSoft:C.accentSoft,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.24)":"rgba(121,186,236,0.2)"}`,borderRadius:8,padding:"9px 11px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><span style={{width:28,height:28,borderRadius:"50%",background:tab==="student"?C.magentaSoft:C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:tabColor}}><GiftIcon size={14} color={tabColor}/></span><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>3-day free trial</div><div style={{fontSize:12,color:C.muted}}>No card required · Cancel anytime</div></div></div>)}
           {tab==="free"&&<SecBtn onClick={handleCTA}>Continue Free</SecBtn>}
           {tab==="pro"&&<PriBtn onClick={handleCTA}>{trialUsed?"Continue with Pro →":"Start Free Trial →"}</PriBtn>}
-          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet"><IconLabel name="academic">{trialUsed?"Continue with Student":"Start Student Free Trial"}</IconLabel></PriBtn>}
+          {tab==="student"&&<PriBtn onClick={handleCTA} variant="violet"><IconLabel name="academic">{trialUsed?"Continue with Master":"Start Master Free Trial"}</IconLabel></PriBtn>}
         </div>
         <div style={{display:"flex",justifyContent:"center",gap:5,flexWrap:"wrap",animation:"fadeUp 0.4s 0.18s ease both"}}>
-          {tabs.filter(t=>t.id!==tab).map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=t.color;e.currentTarget.style.color=t.color;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>View {t.id==="student"?"Student":t.id==="pro"?"Pro":"Free"} plan</button>))}
+          {tabs.filter(t=>t.id!==tab).map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=t.color;e.currentTarget.style.color=t.color;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>View {t.id==="student"?"Master":t.id==="pro"?"Pro":"Free"} plan</button>))}
         </div>
         <div style={{marginTop:24,textAlign:"center"}}><button onClick={onContact} style={{background:"transparent",border:"none",color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}><IconLabel name="mail">Questions? Contact us</IconLabel></button></div>
       </div>
@@ -2022,15 +2031,15 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
   const isStudent=targetPlan==="student";
   const planColor=isStudent?C.magenta:C.blue;
   const isPlanChange=!!skipTrial&&user?.plan&&user.plan!=="free"&&user.plan!==targetPlan;
-  const usesRegularRate=isPlanChange&&!user?.trialPlan;
+  const usesRegularRate=!!user?.plan&&user.plan!=="free"&&!user?.trialPlan;
 
   const [loading,setLoading]=useState(false);
   const [cardErr,setCardErr]=useState("");
   const [step,setStep]=useState("form"); // "form" | "success"
   const [cardFocus,setCardFocus]=useState(false);
 
-  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":usesRegularRate?"$20 / month":"$15 / month"):(billing==="yearly"?"$60 / year":usesRegularRate?"$12 / month":"$7 / month");
-  const introNote=isPlanChange?"Your current plan credit and upgrade charge are prorated automatically.":isStudent&&billing!=="yearly"?"Intro offer · then $20 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
+  const priceDisplay=isStudent?(billing==="yearly"?"$96 / year":usesRegularRate?"$30 / month":"$20 / month"):(billing==="yearly"?"$60 / year":usesRegularRate?"$12 / month":"$7 / month");
+  const introNote=isPlanChange?"Your current plan credit and upgrade charge are prorated automatically.":isStudent&&billing!=="yearly"?"First 2 months · then $30 / month":!isStudent&&billing==="monthly"?"Intro offer · then $12 / month":null;
 
   // Stripe renders inside its own iframe, so pass the active theme explicitly.
   const CARD_STYLE={
@@ -2142,7 +2151,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
       <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
         <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
         <div style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
-        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isPlanChange?`${isStudent?"Student":"Pro"} plan upgrade complete!`:isStudent?"Student plan activated!":"3-day free trial started."}<br/>All included features are unlocked.</div>
+        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isPlanChange?`${isStudent?"Master":"Pro"} plan upgrade complete!`:isStudent?"Master plan activated!":"3-day free trial started."}<br/>All included features are unlocked.</div>
         <PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn>
       </div>
     </div>
@@ -2159,7 +2168,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
         <Card style={{marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
-              <div style={{fontSize:15,fontWeight:800,color:C.text}}>GhostwriterMe {isStudent?"Student":"Pro"}</div>
+              <div style={{fontSize:15,fontWeight:800,color:C.text}}>GhostwriterMe {isStudent?"Master":"Pro"}</div>
               <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · {isPlanChange?"plan change":"after 3-day trial"}</div>
               {introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}
             </div>
@@ -2281,8 +2290,8 @@ const fmtGrammarHistory=r=>[
 ].filter(Boolean).join("\n\n");
 
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
-const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
-const HIST_MI={reply:"reply",email:"mail",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
+const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",meeting:"Meeting Assist",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
+const HIST_MI={reply:"reply",email:"mail",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",meeting:"meeting",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
 const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,modeVisual(m).solid]));
@@ -2336,21 +2345,17 @@ function HistoryMode({user}){
     const res=await HS.fetchRemote(user.email);
     if(!res||!res.ok){setSync({state:"error",error:res?res.error:"Unknown error"});return;}
     const remote=res.items;
-    const dedupeKey=it=>String(it.id)+"|"+(it.ts||"");
     const local=HS.loadAll(user.email);
     // Backfill UP: items saved before the sync system (or while offline)
     // exist only on this device — push them so other devices get them too.
-    const remoteKeys=new Set(remote.map(dedupeKey));
-    const toPush=local.filter(it=>!remoteKeys.has(dedupeKey(it))).slice(0,50);
+    const toPush=local.filter(item=>!remote.some(remoteItem=>historyItemsMatch(item,remoteItem))).slice(0,50);
     // await the pushes so "Synced" isn't shown while uploads are still going
     // (edge case: user switches device immediately after syncing).
     await Promise.all(toPush.map(it=>
       fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:user.email,item:it})}).catch(()=>{})
     ));
     // Merge DOWN: server + local, newest first, deduped.
-    const seen=new Set();
-    const merged=[...remote,...local].filter(it=>{const k=dedupeKey(it);if(seen.has(k))return false;seen.add(k);return true;})
-      .sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,200);
+    const merged=dedupeHistoryItems([...remote,...local]).slice(0,200);
     HS.hydrate(user.email,merged);
     setItems(merged);
     setSync({state:"synced",error:null});
@@ -2481,14 +2486,22 @@ Users are solely responsible for ensuring that their use of this tool complies w
 
 Users are responsible for ensuring that their use of this feature complies with applicable rules, guidelines, and integrity standards. GhostwriterMe does not encourage or endorse plagiarism, academic dishonesty, or attempts to evade AI detection systems.`;
 
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}
+  useEffect(()=>{
+    const onKeyDown=e=>{if(e.key==="Escape")onCancel();};
+    document.addEventListener("keydown",onKeyDown);
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{document.removeEventListener("keydown",onKeyDown);document.body.style.overflow=previousOverflow;};
+  },[onCancel]);
+
+  const modal=(
+    <div className="integrity-overlay" role="presentation" style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.85)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}}
       onClick={e=>{if(e.target===e.currentTarget)onCancel();}}>
-      <div style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 18px 32px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
+      <div className="integrity-sheet" role="dialog" aria-modal="true" aria-labelledby="integrity-title" style={{width:"100%",maxWidth:500,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",padding:"20px 18px 32px",animation:"slideUpModal 0.3s ease",maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 18px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           <div style={{width:40,height:40,borderRadius:10,background:"rgba(245,200,66,0.12)",border:"1px solid rgba(245,200,66,0.3)",color:C.yellow,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="alert" size={20}/></div>
-          <div style={{fontSize:16,fontWeight:900,color:C.text}}>{title}</div>
+          <div id="integrity-title" style={{fontSize:16,fontWeight:900,color:C.text}}>{title}</div>
         </div>
         {accepted&&(
           <div style={{display:"flex",alignItems:"center",gap:7,background:"rgba(61,219,164,0.08)",border:"1px solid rgba(61,219,164,0.25)",borderRadius:8,padding:"8px 12px",marginBottom:14}}>
@@ -2500,7 +2513,7 @@ Users are responsible for ensuring that their use of this feature complies with 
           <div style={{fontSize:13,color:"#c8a020",lineHeight:1.75,whiteSpace:"pre-wrap"}}>{body}</div>
         </div>
         {accepted?(
-          <button onClick={onCancel} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#79BAEC,#a8d4f5)",color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+          <button className="integrity-close-action" onClick={onCancel} style={{width:"100%",padding:"12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#79BAEC,#a8d4f5)",color:"#000",fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
             Close
           </button>
         ):(
@@ -2511,7 +2524,7 @@ Users are responsible for ensuring that their use of this feature complies with 
               </div>
               <div style={{fontSize:13,color:checked?"#fff":"#8eacc4",lineHeight:1.5}}>{checkLabel}</div>
             </div>
-            <div style={{display:"flex",gap:8}}>
+            <div className="integrity-action-row" style={{display:"flex",gap:8}}>
               <button onClick={onCancel} style={{flex:1,padding:"11px",borderRadius:8,background:"transparent",border:"1px solid #162030",color:"#8eacc4",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="#79BAEC";e.currentTarget.style.color="#fff";}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor="#162030";e.currentTarget.style.color="#8eacc4";}}>
@@ -2526,6 +2539,7 @@ Users are responsible for ensuring that their use of this feature complies with 
       </div>
     </div>
   );
+  return typeof document!=="undefined"?createPortal(modal,document.body):modal;
 }
 
 // ============ ACADEMIC REVIEWER (primary) ============
@@ -3198,7 +3212,7 @@ function HumanizeMode({user}){
       </div>
       <div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.28)",borderRadius:8,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}>
         <GwmIcon name="humanize" size={18} color={C.violet}/>
-        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Student Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Two-pass AI removal. Strips em dashes, robotic transitions, buzzwords, and uniform sentence patterns.</div></div>
+        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Two-pass AI removal. Strips em dashes, robotic transitions, buzzwords, and uniform sentence patterns.</div></div>
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div>
@@ -3216,6 +3230,139 @@ function HumanizeMode({user}){
         {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(192,132,252,0.06)",border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={16} color={C.violet}/><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/><GenMoreBtn onClick={()=>{setText("");setLevel("B2");setIntensity("moderate");setPurpose("essay");setRes(null);setError("");setView("output");}} loading={isLoading}/></div></Card>)}
         {view==="compare"&&(<div><div style={{display:"flex",gap:10,marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(240,107,107,0.25)",border:"1px solid rgba(240,107,107,0.5)"}}/>Original</div><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(192,132,252,0.25)",border:"1px solid rgba(192,132,252,0.5)"}}/>Changed words</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Before</div><div style={{background:"rgba(240,107,107,0.05)",border:"1px solid rgba(240,107,107,0.2)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{text}</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>After</div><div style={{background:"rgba(192,132,252,0.05)",border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{diffWords(text,res.humanized).map((w,i)=>(<span key={i}><span style={{background:w.changed?"rgba(192,132,252,0.22)":"transparent",borderRadius:w.changed?3:0,padding:w.changed?"1px 2px":0,color:w.changed?C.violet:C.text,fontWeight:w.changed?700:400}}>{w.word}</span>{i<res.humanized.split(/\s+/).length-1?" ":""}</span>))}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{[{label:"Original words",val:text.split(/\s+/).filter(Boolean).length},{label:"Final words",val:res.humanized.split(/\s+/).filter(Boolean).length},{label:"Words changed",val:diffWords(text,res.humanized).filter(w=>w.changed).length},{label:"Change rate",val:Math.round(diffWords(text,res.humanized).filter(w=>w.changed).length/Math.max(res.humanized.split(/\s+/).filter(Boolean).length,1)*100)+"%"}].map(s=>(<div key={s.label} style={{flex:1,minWidth:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",textAlign:"center"}}><div style={{fontSize:14,fontWeight:900,color:C.violet}}>{s.val}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{s.label}</div></div>))}</div><OutputActions text={res.humanized}/></div>)}
       </div>)}
+    </div>
+  );
+}
+
+const MEETING_PLATFORMS=["Google Meet","Microsoft Teams","Zoom","WhatsApp","Discord"];
+
+function MeetingAssistMode({user}){
+  const [platform,setPlatform]=useState(MEETING_PLATFORMS[0]);
+  const [context,setContext]=useState("");
+  const [consent,setConsent]=useState(false);
+  const [active,setActive]=useState(false);
+  const [processing,setProcessing]=useState(false);
+  const [transcript,setTranscript]=useState("");
+  const [suggestion,setSuggestion]=useState("");
+  const [error,setError]=useState("");
+  const [saved,setSaved]=useState(false);
+  const displayStreamRef=useRef(null);
+  const recorderRef=useRef(null);
+  const timerRef=useRef(null);
+  const activeRef=useRef(false);
+  const transcriptRef=useRef("");
+  const processChunkRef=useRef(null);
+  const recordNextRef=useRef(null);
+  const queueRef=useRef(Promise.resolve());
+  const canCapture=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getDisplayMedia&&typeof MediaRecorder!=="undefined";
+
+  useEffect(()=>{transcriptRef.current=transcript;},[transcript]);
+  useEffect(()=>()=>{
+    activeRef.current=false;
+    clearTimeout(timerRef.current);
+    try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
+    displayStreamRef.current?.getTracks().forEach(track=>track.stop());
+  },[]);
+
+  const blobToDataUrl=blob=>new Promise((resolve,reject)=>{
+    const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read this audio segment."));reader.readAsDataURL(blob);
+  });
+
+  processChunkRef.current=async blob=>{
+    if(!blob||blob.size<256)return;
+    setProcessing(true);setError("");
+    try{
+      const audio=await blobToDataUrl(blob);
+      const response=await fetch("/api/transcribe",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({audio,language:"en"})});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.error||"This audio segment could not be transcribed.");
+      const latest=String(data.text||"").trim();
+      if(!latest)return;
+      const updated=(transcriptRef.current?transcriptRef.current+"\n":"")+latest;
+      transcriptRef.current=updated;setTranscript(updated);setSaved(false);
+      try{
+        const reply=await callStudioAI(
+          "You are GhostwriterMe Meeting Assist. Based only on the meeting transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Do not claim the user said or agreed to anything. Do not invent facts. Put each option on its own line and return no preamble.",
+          `Platform: ${platform}\nUser context: ${context||"none"}\nLatest speech: ${latest}\nRecent transcript:\n${updated.slice(-6000)}`,
+          1200,[],user?.email
+        );
+        setSuggestion(reply.trim());
+      }catch(replyError){setError("The transcript was captured, but a reply could not be generated yet. "+(replyError.message||"Try again shortly."));}
+    }catch(e){setError(e.message||"Meeting Assist could not process this audio segment.");}
+    finally{setProcessing(false);}
+  };
+
+  recordNextRef.current=()=>{
+    if(!activeRef.current)return;
+    const source=displayStreamRef.current;
+    const audioTrack=source?.getAudioTracks?.()[0];
+    if(!audioTrack||audioTrack.readyState!=="live")return;
+    const audioStream=new MediaStream([audioTrack]);
+    const preferred=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus"].find(type=>MediaRecorder.isTypeSupported?.(type));
+    const recorder=new MediaRecorder(audioStream,preferred?{mimeType:preferred}:undefined);
+    const chunks=[];recorderRef.current=recorder;
+    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
+    recorder.onstop=()=>{
+      const blob=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});
+      queueRef.current=queueRef.current.then(()=>processChunkRef.current(blob)).catch(()=>{});
+      if(activeRef.current)setTimeout(()=>recordNextRef.current?.(),120);
+    };
+    recorder.start();
+    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},12000);
+  };
+
+  const stopSession=()=>{
+    activeRef.current=false;setActive(false);clearTimeout(timerRef.current);
+    try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
+    displayStreamRef.current?.getTracks().forEach(track=>track.stop());
+    displayStreamRef.current=null;
+  };
+
+  const startSession=async()=>{
+    if(!consent||!canCapture)return;
+    setError("");setSuggestion("");setSaved(false);
+    try{
+      const stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+      if(!stream.getAudioTracks().length){stream.getTracks().forEach(track=>track.stop());throw new Error("No shared audio was found. Choose a browser tab and turn on Share tab audio.");}
+      displayStreamRef.current=stream;activeRef.current=true;setActive(true);
+      const ended=()=>stopSession();
+      stream.getVideoTracks()[0]?.addEventListener("ended",ended,{once:true});
+      stream.getAudioTracks()[0]?.addEventListener("ended",ended,{once:true});
+      queueRef.current=Promise.resolve();
+      recordNextRef.current();
+    }catch(e){
+      activeRef.current=false;setActive(false);
+      if(e?.name!=="NotAllowedError")setError(e.message||"Screen audio sharing could not start.");
+      else setError("Sharing was cancelled. Nothing was recorded.");
+    }
+  };
+
+  const saveSession=()=>{
+    if(!transcript.trim()||!user)return;
+    HS.save(user.email,"meeting",{title:`${platform} meeting notes`,input:context||"Shared meeting audio",output:`TRANSCRIPT\n${transcript}${suggestion?"\n\nSUGGESTED REPLY\n"+suggestion:""}`});
+    setSaved(true);
+  };
+
+  return(
+    <div>
+      <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
+        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Live words in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>You manually share a meeting tab or window with audio. GhostwriterMe listens only during this session and suggests replies in text.</div></div></div>
+      </Card>
+      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Meeting platform</div>
+      <div className="studio-option-grid" style={{marginBottom:13}}>{MEETING_PLATFORMS.map(item=><button key={item} onClick={()=>setPlatform(item)} disabled={active} style={{minHeight:44,padding:"9px 10px",borderRadius:8,border:`1px solid ${platform===item?C.magenta:C.border}`,background:platform===item?C.magentaSoft:C.surface,color:platform===item?C.magentaText:C.muted,fontFamily:"inherit",fontWeight:700,cursor:active?"default":"pointer",display:"flex",alignItems:"center",gap:7}}><GwmIcon name="meeting" size={15}/>{item}</button>)}</div>
+      <FArea label="Details for better replies (optional)" placeholder="Your role, meeting goal, names, or facts the assistant should know..." value={context} onChange={e=>setContext(e.target.value)} rows={3}/>
+      <button type="button" role="checkbox" aria-checked={consent} onClick={()=>!active&&setConsent(!consent)} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",marginBottom:12,borderRadius:9,border:`1px solid ${consent?C.magenta:C.border}`,background:consent?C.magentaSoft:C.surface,color:consent?C.text:C.muted,textAlign:"left",fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,cursor:active?"default":"pointer"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${consent?C.magenta:C.border}`,background:consent?C.magenta:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{consent&&<GwmIcon name="check" size={12} color="#071018" strokeWidth={2.5}/>}</span><span>I have permission to capture this meeting audio and will follow the meeting platform, workplace, and local recording rules.</span></button>
+      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">Meeting Assist needs a desktop browser that supports tab or window audio sharing.</IconLabel></div>}
+      {!active?<PriBtn onClick={startSession} disabled={!consent||!canCapture} variant="violet"><IconLabel name="meeting">Start Meeting Assist</IconLabel></PriBtn>:<button onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop sharing audio</button>}
+      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. Browser-tab audio is the most reliable; native-app/system audio depends on your browser and operating system.</div>
+      {error&&<ErrBox msg={error}/>}
+      {(active||processing||transcript)&&<Card style={{marginTop:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:800,color:active?C.greenText:C.muted}}><span style={{width:8,height:8,borderRadius:"50%",background:active?C.green:C.muted,boxShadow:active?`0 0 12px ${C.green}`:"none"}}/>{active?"Listening now":processing?"Finishing the last segment":"Session stopped"}</div>{processing&&<span style={{fontSize:11.5,color:C.magentaText}}>Transcribing…</span>}</div>
+        <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Live transcript</div>
+        <div aria-live="polite" style={{minHeight:100,maxHeight:240,overflowY:"auto",whiteSpace:"pre-wrap",fontSize:13.5,lineHeight:1.75,color:transcript?C.text:C.muted,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 12px"}}>{transcript||"Waiting for speech…"}</div>
+        {suggestion&&<div style={{marginTop:11,padding:"12px",borderRadius:9,background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.25)"}}><div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Suggested reply</div><div style={{whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.7,color:C.text}}>{suggestion}</div><div style={{marginTop:9}}><CopyBtn text={suggestion}/></div></div>}
+        {transcript&&<div style={{display:"flex",gap:8,marginTop:11,flexWrap:"wrap"}}><button onClick={saveSession} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:saved?C.greenText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}><GwmIcon name={saved?"check":"save"} size={14}/>{saved?"Saved to History":"Save session"}</button>{!active&&<button onClick={()=>{setTranscript("");transcriptRef.current="";setSuggestion("");setError("");setSaved(false);}} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Clear</button>}</div>}
+      </Card>}
     </div>
   );
 }
@@ -3504,19 +3651,19 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
         <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:11,marginBottom:15}}>
           <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={h.icon} size={23} color="#071018"/></div>
-          <div><div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Student plan exclusive":"Unlock with a free trial"}</div></div>
+          <div><div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Master plan exclusive":"Unlock with a free trial"}</div></div>
         </div>
-        {isStudent&&<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.24)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.magentaText,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Student exclusive — includes Academic Essay + Humanize My Writing tools.</div>}
+        {isStudent&&<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.24)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.magentaText,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Master exclusive — includes Academic, Humanize, and Meeting Assist.</div>}
         <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><GwmIcon name="check" size={14} color={isStudent?C.magentaText:C.greenText}/>{p}</div>)}</div>
         {!isStudent&&(<div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:12}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=><button key={b.id} onClick={()=>setBill(b.id)} style={{flex:1,padding:"6px",borderRadius:5,border:"none",background:bill===b.id?C.blue:"transparent",color:bill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>)}</div>)}
         <div style={{background:isStudent?C.magentaSoft:C.accentSoft,border:`1px solid ${isStudent?"rgba(244,114,182,0.28)":"rgba(121,186,236,0.22)"}`,borderRadius:10,padding:"13px",marginBottom:12}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}>
             <div>
               <div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.02em"}}>
-                {isStudent?"$15":(bill==="monthly"?"$7":"$60")}
+                {isStudent?"$20":(bill==="monthly"?"$7":"$60")}
                 <span style={{fontSize:13,color:C.muted,fontWeight:400}}>{isStudent?" / month":bill==="monthly"?" / month":" / year"}</span>
               </div>
-              <div style={{fontSize:13,color:C.green,marginTop:1}}>{isStudent?"Intro offer · then $20 / month":bill==="monthly"?"Intro offer · then $12 / month":"Best annual rate"}</div>
+              <div style={{fontSize:13,color:C.green,marginTop:1}}>{isStudent?"First 2 months · then $30 / month":bill==="monthly"?"Intro offer · then $12 / month":"Best annual rate"}</div>
               <div style={{fontSize:12,color:C.muted,marginTop:1}}>billed in USD</div>
             </div>
             <div style={{background:isStudent?C.magentaSoft:C.accentSoft,border:`1px solid ${planColor}44`,borderRadius:6,padding:"6px 9px",textAlign:"center"}}>
@@ -3524,7 +3671,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
               <div style={{fontSize:11,color:C.muted,marginTop:1}}>No card required</div>
             </div>
           </div>
-          <PriBtn onClick={()=>onStart(targetPlan)} variant={isStudent?"violet":"blue"}><IconLabel name={isStudent?"academic":"spark"}>{isStudent?"Start Student Free Trial":"Start Free Trial"}</IconLabel></PriBtn>
+          <PriBtn onClick={()=>onStart(targetPlan)} variant={isStudent?"violet":"blue"}><IconLabel name={isStudent?"academic":"spark"}>{isStudent?"Start Master Free Trial":"Start Free Trial"}</IconLabel></PriBtn>
           <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:7}}>Cancel anytime · No card required</div>
         </div>
         <button onClick={onClose} style={{width:"100%",padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Maybe later</button>
@@ -3547,7 +3694,7 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
         <div style={{textAlign:"center",marginBottom:18}}>
           <div style={{width:58,height:58,borderRadius:18,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}><GwmIcon name="timer" size={30}/></div>
           <div style={{fontSize:18,fontWeight:900,color:C.text,marginBottom:6}}>Your free trial has ended</div>
-          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Keep your unlocked features by continuing with the Pro or Student plan — or switch back to the Free plan.</div>
+          <div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Keep your unlocked features by continuing with the Pro or Master plan — or switch back to the Free plan.</div>
         </div>
         <PriBtn onClick={onContinue} variant={isStudent?"violet":"blue"}>Choose a Plan →</PriBtn>
         <div style={{marginTop:9}}>
@@ -3623,6 +3770,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"presentation":return <PresentationMode user={user}/>;
       case"interview":return <InterviewMode user={user}/>;
       case"slides":return <SlideGeneratorMode user={user}/>;
+      case"meeting":return <MeetingAssistMode user={user}/>;
       case"academic":return <AcademicMode user={user}/>;
       case"cv":return <CVMode user={user}/>;
       case"author":return <AuthorMode user={user}/>;
@@ -3695,13 +3843,13 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
         {locked(currentMode||{})&&(
           <div style={{textAlign:"center",padding:"50px 16px",animation:"fadeUp 0.3s ease"}}>
             <div style={{width:64,height:64,borderRadius:20,background:currentModeVisual.soft,color:currentModeVisual.color,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name={currentMode.access==="student"?"academic":"lock"} size={31}/></div>
-            <div style={{fontSize:17,fontWeight:900,color:C.text,marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Student-exclusive":"a Pro feature"}</div>
+            <div style={{fontSize:17,fontWeight:900,color:C.text,marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Master-exclusive":"a Pro feature"}</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:18,maxWidth:320,margin:"0 auto 18px"}}>
-              {isProUpgradingToStudent?"Upgrade from Pro to Student to unlock Academic and Humanize tools.":currentMode.access==="student"?"Unlock this and other Student-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
+              {isProUpgradingToStudent?"Upgrade from Pro to Master to unlock Academic, Humanize, and Meeting Assist.":currentMode.access==="student"?"Unlock this and other Master-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
             </div>
             <div style={{maxWidth:280,margin:"0 auto"}}>
               <PriBtn onClick={()=>onUpgrade(activeMode,currentMode.access==="student"?"student":"pro")} variant={currentMode.access==="student"?"violet":"blue"}>
-                {currentMode.access==="student"?<IconLabel name="academic">{isProUpgradingToStudent?"Upgrade to Student Plan":"Unlock with Student Plan"}</IconLabel>:"Start Free Trial →"}
+                {currentMode.access==="student"?<IconLabel name="academic">{isProUpgradingToStudent?"Upgrade to Master Plan":"Unlock with Master Plan"}</IconLabel>:"Start Free Trial →"}
               </PriBtn>
             </div>
           </div>
@@ -4031,8 +4179,8 @@ function MainApp(){
     setScreen("pricing");
   };
   const handleUpgrade=(mode,targetPlan)=>{
-    // Student already includes every tier. Pro includes Pro tools, but must be
-    // able to move upward when a Student-only mode is selected.
+    // The legacy "student" entitlement (displayed as Master) includes every
+    // tier. Pro can still move upward when a Master-only mode is selected.
     if(user?.allFeatures||user?.plan==="student")return;
     if(user?.plan==="pro"){
       if(targetPlan==="student")openPricing("student");

@@ -25,15 +25,15 @@ describe("subscription plan changes",()=>{
     process.env.STRIPE_PRICE_PRO_MONTHLY="price_pro_intro";
     process.env.STRIPE_PRICE_PRO_REGULAR="price_pro_regular";
     process.env.STRIPE_PRICE_PRO_YEARLY="price_pro_yearly";
-    process.env.STRIPE_PRICE_STUDENT_MONTHLY="price_student_intro";
-    process.env.STRIPE_PRICE_STUDENT_REGULAR="price_student_regular";
-    process.env.STRIPE_PRICE_STUDENT_YEARLY="price_student_yearly";
+    process.env.STRIPE_PRICE_MASTER_MONTHLY="price_master_intro";
+    process.env.STRIPE_PRICE_MASTER_REGULAR="price_master_regular";
+    process.env.STRIPE_PRICE_MASTER_YEARLY="price_master_yearly";
     mockStripe.customers.list.mockResolvedValue({data:[{id:"cus_ghosty"}]});
     mockStripe.customers.update.mockResolvedValue({});
     mockStripe.paymentMethods.attach.mockResolvedValue({});
   });
 
-  test("updates an active Pro subscription to Student instead of rejecting it",async()=>{
+  test("updates an active Pro subscription to Master instead of rejecting it",async()=>{
     mockStripe.subscriptions.list.mockResolvedValue({data:[{
       id:"sub_pro",status:"active",schedule:"sched_intro",
       metadata:{plan:"pro",billing:"monthly"},
@@ -59,7 +59,7 @@ describe("subscription plan changes",()=>{
       cancel_at_period_end:false,
     });
     expect(mockStripe.subscriptions.update).toHaveBeenCalledWith("sub_pro",expect.objectContaining({
-      items:[{id:"si_pro",price:"price_student_regular",quantity:1}],
+      items:[{id:"si_pro",price:"price_master_regular",quantity:1}],
       proration_behavior:"always_invoice",
       payment_behavior:"pending_if_incomplete",
       metadata:expect.objectContaining({plan:"student",changedFrom:"pro"}),
@@ -81,5 +81,25 @@ describe("subscription plan changes",()=>{
     expect(res.body.error).toMatch(/already active/i);
     expect(mockStripe.paymentMethods.attach).not.toHaveBeenCalled();
     expect(mockStripe.subscriptions.update).not.toHaveBeenCalled();
+  });
+
+  test("creates a two-cycle Master intro schedule with the new price IDs",async()=>{
+    mockStripe.subscriptions.list.mockResolvedValue({data:[]});
+    mockStripe.subscriptionSchedules.create.mockResolvedValue({
+      subscription:{id:"sub_master",status:"active",latest_invoice:{payment_intent:null}},
+    });
+    const req={method:"POST",body:{paymentMethodId:"pm_new",email:"new@example.com",name:"New User",plan:"student",billing:"monthly",skipTrial:true}};
+    const res=mockResponse();
+
+    await handler(req,res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockStripe.subscriptionSchedules.create).toHaveBeenCalledWith(expect.objectContaining({
+      phases:[
+        {items:[{price:"price_master_intro",quantity:1}],iterations:2},
+        {items:[{price:"price_master_regular",quantity:1}]},
+      ],
+      metadata:expect.objectContaining({plan:"student",billing:"monthly"}),
+    }));
   });
 });

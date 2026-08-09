@@ -1,8 +1,12 @@
-[{
-      "relation": ["delegate_permission/common.handle_all_urls"],
-      "target": {
-        "namespace": "android_app",
-        "package_name": "com.ghostwriterme.app",
-        "sha256_cert_fingerprints": ["C2:4F:40:6B:DF:3F:BC:98:84:EF:10:5B:01:F4:C9:BC:1C:3E:B6:7B:24:1B:A9:DD:6C:B9:A2:9B:FB:9F:E9:BB"]
-      }
-    }]
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ghostwriterme.app",
+      "sha256_cert_fingerprints": [
+        "C2:4F:40:6B:DF:3F:BC:98:84:EF:10:5B:01:F4:C9:BC:1C:3E:B6:7B:24:1B:A9:DD:6C:B9:A2:9B:FB:9F:E9:BB"
+      ]
+    }
+  }
+]
