@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import mammoth from "mammoth";
 
 export const config = {
   api: {
@@ -8,19 +9,18 @@ export const config = {
   },
 };
 
-const MODEL = "gpt-5.6-luna";
-const MAX_OUTPUT_TOKENS = 12000;
+const MODEL = "claude-sonnet-4-6";
+const MAX_OUTPUT_TOKENS = 8192;
 const MAX_FILES = 4;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_SYSTEM_CHARS = 12000;
 const MAX_USER_CHARS = 30000;
+const MAX_EXTRACTED_FILE_CHARS = 120000;
 
 const ALLOWED_FILE_TYPES = new Set([
   "application/pdf",
-  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/rtf",
   "text/plain",
   "image/jpeg",
   "image/png",
@@ -61,7 +61,7 @@ function validateFiles(files) {
     return {
       filename: safeFilename(file?.name, index),
       mime,
-      dataUrl: `data:${mime};base64,${base64}`,
+      base64,
     };
   });
 
@@ -71,11 +71,50 @@ function validateFiles(files) {
   return { files: validated, totalBytes };
 }
 
+async function toClaudeContent(files) {
+  const content = [];
+  for (const file of files) {
+    if (file.mime.startsWith("image/")) {
+      content.push({
+        type: "image",
+        source: { type: "base64", media_type: file.mime, data: file.base64 },
+      });
+      continue;
+    }
+
+    if (file.mime === "application/pdf") {
+      content.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: file.base64 },
+        title: file.filename,
+      });
+      continue;
+    }
+
+    let text;
+    if (file.mime === "text/plain") {
+      text = Buffer.from(file.base64, "base64").toString("utf8");
+    } else {
+      const extracted = await mammoth.extractRawText({ buffer: Buffer.from(file.base64, "base64") });
+      text = extracted.value;
+    }
+    text = String(text || "").trim();
+    if (!text) throw new Error(`${file.filename} does not contain readable text.`);
+    if (text.length > MAX_EXTRACTED_FILE_CHARS) {
+      throw new Error(`${file.filename} contains too much text. Please upload a shorter document.`);
+    }
+    content.push({
+      type: "document",
+      source: { type: "text", media_type: "text/plain", data: text },
+      title: file.filename,
+    });
+  }
+  return content;
+}
+
 function extractOutputText(data) {
-  if (typeof data?.output_text === "string") return data.output_text;
-  return (data?.output || [])
-    .flatMap((item) => item?.content || [])
-    .filter((item) => item?.type === "output_text" && typeof item?.text === "string")
+  return (data?.content || [])
+    .filter((item) => item?.type === "text" && typeof item?.text === "string")
     .map((item) => item.text)
     .join("");
 }
@@ -88,7 +127,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: "The Studio AI service is not configured yet." });
   }
@@ -118,12 +157,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: error.message });
   }
 
-  const content = validated.files.map((file) =>
-    file.mime.startsWith("image/")
-      ? { type: "input_image", image_url: file.dataUrl, detail: "auto" }
-      : { type: "input_file", filename: file.filename, file_data: file.dataUrl }
-  );
-  content.push({ type: "input_text", text: user });
+  let content;
+  try {
+    content = await toClaudeContent(validated.files);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "One of the attachments could not be read." });
+  }
+  content.push({ type: "text", text: user });
 
   const requestedTokens = Number(body.max_output_tokens);
   const maxOutputTokens = Number.isFinite(requestedTokens)
@@ -132,27 +172,27 @@ export default async function handler(req, res) {
 
   const requestBody = {
     model: MODEL,
-    instructions: system,
-    input: [{ role: "user", content }],
-    reasoning: { effort: "low" },
-    text: { verbosity: "medium" },
-    max_output_tokens: maxOutputTokens,
-    store: false,
+    system,
+    messages: [{ role: "user", content }],
+    max_tokens: maxOutputTokens,
   };
 
   if (typeof body.user_id === "string" && body.user_id.trim()) {
-    requestBody.safety_identifier = createHash("sha256")
-      .update(body.user_id.trim().toLowerCase())
-      .digest("hex");
+    requestBody.metadata = {
+      user_id: createHash("sha256")
+        .update(body.user_id.trim().toLowerCase())
+        .digest("hex"),
+    };
   }
 
   let response;
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(requestBody),
     });
