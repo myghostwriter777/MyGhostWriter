@@ -27,6 +27,12 @@ yarn-error.log*
 *.aab
 *.apk
 signing-key-info*
+/android/.gradle/
+/android/app/build/
+/android/local.properties
+/.tmp-android-*/
+/.tmp-bubblewrap/
+/.tmp-gradle-home/
 App.backup*.jsx
 .vercel
 .env*

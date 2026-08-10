@@ -1,0 +1,51 @@
+{
+  "packageId": "com.ghostwriterme.app",
+  "host": "www.ghostwriterofficial.com",
+  "name": "GhostwriterMe",
+  "launcherName": "GhostwriterMe",
+  "display": "standalone",
+  "themeColor": "#0A0E14",
+  "themeColorDark": "#0A0E14",
+  "navigationColor": "#0A0E14",
+  "navigationColorDark": "#0A0E14",
+  "navigationDividerColor": "#00000000",
+  "navigationDividerColorDark": "#00000000",
+  "backgroundColor": "#0A0E14",
+  "enableNotifications": true,
+  "startUrl": "/?src=twa",
+  "iconUrl": "https://www.ghostwriterofficial.com/icon-512.png",
+  "maskableIconUrl": "https://www.ghostwriterofficial.com/icon-512-maskable.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "signing.keystore",
+    "alias": "ghostwriterme"
+  },
+  "appVersion": "1.0.1",
+  "appVersionCode": 2,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://www.ghostwriterofficial.com/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://www.ghostwriterofficial.com/",
+  "minSdkVersion": 23,
+  "orientation": "any",
+  "fingerprints": [
+    {
+      "name": "signing-key",
+      "value": "C2:4F:40:6B:DF:3F:BC:98:84:EF:10:5B:01:F4:C9:BC:1C:3E:B6:7B:24:1B:A9:DD:6C:B9:A2:9B:FB:9F:E9:BB"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "displayOverride": [
+    "standalone",
+    "minimal-ui"
+  ]
+}
