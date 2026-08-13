@@ -10,13 +10,94 @@ export const config = {
 };
 
 const MODEL = "claude-sonnet-4-6";
-const MAX_OUTPUT_TOKENS = 8192;
-const MAX_FILES = 4;
+const MEETING_MODEL = "claude-haiku-4-5-20251001";
+const MAX_OUTPUT_TOKENS = 16000;
+const MAX_FILES = 6;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_SYSTEM_CHARS = 12000;
 const MAX_USER_CHARS = 30000;
 const MAX_EXTRACTED_FILE_CHARS = 120000;
+
+const text = { type: "string" };
+const stringList = { type: "array", items: text };
+const objectSchema = (properties) => ({
+  type: "object",
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+const STRUCTURED_OUTPUTS = {
+  study: objectSchema({
+    title: text,
+    sourceSummary: text,
+    summary: text,
+    bulletPoints: stringList,
+    studyGuide: {
+      type: "array",
+      items: objectSchema({
+        heading: text,
+        notes: stringList,
+        keyTerms: {
+          type: "array",
+          items: objectSchema({ term: text, definition: text }),
+        },
+      }),
+    },
+    flashcards: {
+      type: "array",
+      items: objectSchema({ front: text, back: text }),
+    },
+    quiz: {
+      type: "array",
+      items: objectSchema({
+        id: text,
+        type: { type: "string", enum: ["multiple_choice", "short_answer"] },
+        question: text,
+        options: stringList,
+        correctAnswer: text,
+        explanation: text,
+      }),
+    },
+  }),
+  "study-grade": objectSchema({
+    score: { type: "number" },
+    total: { type: "number" },
+    percentage: { type: "number" },
+    results: {
+      type: "array",
+      items: objectSchema({
+        id: text,
+        correct: { type: "boolean" },
+        points: { type: "number" },
+        feedback: text,
+        correctAnswer: text,
+      }),
+    },
+    overallFeedback: text,
+  }),
+  slides: objectSchema({
+    title: text,
+    subtitle: text,
+    slides: {
+      type: "array",
+      items: objectSchema({
+        eyebrow: text,
+        title: text,
+        bullets: stringList,
+        speakerNotes: text,
+        visualDirection: text,
+        visualType: {
+          type: "string",
+          enum: ["signal", "spotlight", "steps", "comparison", "constellation", "gallery"],
+        },
+        visualLabel: text,
+      }),
+    },
+    closing: text,
+  }),
+};
 
 const ALLOWED_FILE_TYPES = new Set([
   "application/pdf",
@@ -165,17 +246,26 @@ export default async function handler(req, res) {
   }
   content.push({ type: "text", text: user });
 
+  const isMeetingRequest = body.mode === "meeting";
   const requestedTokens = Number(body.max_output_tokens);
+  const minimumOutputTokens = isMeetingRequest ? 160 : 500;
   const maxOutputTokens = Number.isFinite(requestedTokens)
-    ? Math.max(500, Math.min(Math.floor(requestedTokens), MAX_OUTPUT_TOKENS))
+    ? Math.max(minimumOutputTokens, Math.min(Math.floor(requestedTokens), MAX_OUTPUT_TOKENS))
     : 5000;
 
   const requestBody = {
-    model: MODEL,
+    model: isMeetingRequest ? MEETING_MODEL : MODEL,
     system,
     messages: [{ role: "user", content }],
     max_tokens: maxOutputTokens,
   };
+
+  const structuredSchema = STRUCTURED_OUTPUTS[body.mode];
+  if (structuredSchema) {
+    requestBody.output_config = {
+      format: { type: "json_schema", schema: structuredSchema },
+    };
+  }
 
   // Study Mode may include a public website URL. Anthropic's server-side
   // search tool lets the model ground that source without our server scraping
@@ -219,6 +309,9 @@ export default async function handler(req, res) {
   }
 
   const outputText = extractOutputText(data);
+  if (data?.stop_reason === "max_tokens") {
+    return res.status(502).json({ error: "The Studio result was too long to finish. Try fewer questions or slides." });
+  }
   if (!outputText) {
     return res.status(502).json({ error: "The Studio returned an empty result. Please try again." });
   }

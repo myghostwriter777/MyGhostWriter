@@ -48,7 +48,7 @@ describe("Studio AI API route",()=>{
     const payload=JSON.parse(options.body);
     expect(options.headers["x-api-key"]).toBe("test-key");
     expect(payload.model).toBe("claude-sonnet-4-6");
-    expect(payload.max_tokens).toBe(8192);
+    expect(payload.max_tokens).toBe(16000);
     expect(payload.metadata.user_id).toMatch(/^[a-f0-9]{64}$/);
     expect(payload.messages[0].content.map(item=>item.type)).toEqual(["image","document","text"]);
     expect(payload.messages[0].content[1].title).toBe("resume.txt");
@@ -69,5 +69,53 @@ describe("Studio AI API route",()=>{
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toMatch(/supported file type/i);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test("uses the low-latency Haiku model and a small token budget for Meeting Assist",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({
+      ok:true,
+      status:200,
+      json:async()=>({content:[{type:"text",text:"Sounds good."}]}),
+    });
+    const req={method:"POST",body:{
+      system:"Suggest a concise reply.",
+      user:"Recent meeting transcript.",
+      mode:"meeting",
+      max_output_tokens:240,
+    }};
+    const res=mockResponse();
+
+    await handler(req,res);
+
+    expect(res.statusCode).toBe(200);
+    const [,options]=global.fetch.mock.calls[0];
+    const payload=JSON.parse(options.body);
+    expect(payload.model).toBe("claude-haiku-4-5-20251001");
+    expect(payload.max_tokens).toBe(240);
+  });
+
+  test("constrains Study and Slide results to valid JSON schemas",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({
+      ok:true,
+      status:200,
+      json:async()=>({content:[{type:"text",text:'{"title":"Pack"}'}]}),
+    });
+    const req={method:"POST",body:{
+      system:"Build a study pack.",
+      user:"Use the source.",
+      mode:"study",
+      max_output_tokens:12000,
+    }};
+    const res=mockResponse();
+
+    await handler(req,res);
+
+    const [,options]=global.fetch.mock.calls[0];
+    const payload=JSON.parse(options.body);
+    expect(payload.output_config.format.type).toBe("json_schema");
+    expect(payload.output_config.format.schema.properties.quiz.items.properties.type.enum).toEqual(["multiple_choice","short_answer"]);
+    expect(payload.max_tokens).toBe(12000);
   });
 });

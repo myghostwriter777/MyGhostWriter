@@ -32,7 +32,9 @@ globalThis.onmessage=async event=>{
       return;
     }
     if(type==="transcribe"){
-      const result=await transcriber(audio,{chunk_length_s:10,stride_length_s:1});
+      // Meeting segments are intentionally short, so direct inference avoids
+      // the extra overlap/windowing work used for long recordings.
+      const result=await transcriber(audio);
       globalThis.postMessage({id,type:"result",text:String(result?.text||"").trim()});
     }
   }catch(error){

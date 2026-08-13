@@ -7,6 +7,7 @@ import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 import { detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS, MEETING_MICROPHONE_OPTIONS, MEETING_SELF_MICROPHONE_OPTIONS, mixMeetingAudio } from "./meetingCapture";
 import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
+import { DEVICE_VOICE_ID, fetchVoiceCatalog, getSavedVoiceId, saveVoiceId, speak, stopSpeak } from "./voiceApi";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
@@ -448,9 +449,9 @@ const TERMS_CONTENT = [
 
 const PRIVACY_CONTENT = [
   {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, meeting audio is transcribed on your device. The resulting text context—not the meeting audio—is sent to our AI provider to generate reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
-  {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us."},
+  {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, create voice audio when you choose Listen, and respond to support requests you send us."},
   {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is processed locally in short segments and is not uploaded or added to History. A meeting transcript and suggestion are saved only if you press Save session."},
-  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and an AI provider to generate content. Each operates under its own privacy policy."},
+  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, AI providers to generate content, and ElevenLabs to create voice audio for text you choose to listen to. Each operates under its own privacy policy."},
   {h:"5. Data Retention",b:"Account information is retained while your account is active. You may request deletion by contacting us at "+CONTACT_EMAIL+"."},
   {h:"6. Your Rights",b:"You may request access to, correction of, or deletion of your personal data at any time by emailing "+CONTACT_EMAIL+"."},
   {h:"7. Children's Privacy",b:"The Service is not directed at children under 13. Users under 18 require parental or guardian consent, as stated in our Terms."},
@@ -509,7 +510,7 @@ const HS = {
 };
 
 const hasSR=typeof window!=="undefined"&&("SpeechRecognition" in window||"webkitSpeechRecognition" in window);
-const hasTTS=typeof window!=="undefined"&&"speechSynthesis" in window;
+const hasTTS=typeof window!=="undefined"&&(typeof Audio!=="undefined"||"speechSynthesis" in window);
 
 function useMic(onResult){
   const [active,setActive]=useState(false);const ref=useRef(null);
@@ -524,9 +525,6 @@ function useMic(onResult){
   },[active,onResult]);
   return{active,toggle};
 }
-
-const speak=(text)=>{if(!hasTTS)return;window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);utterance.lang=selectedLanguage().speech;window.speechSynthesis.speak(utterance);};
-const stopSpeak=()=>{if(hasTTS)window.speechSynthesis.cancel();};
 
 // Appended to EVERY generation's system prompt (Item 4: automatic humanization).
 // Chosen over a second humanize API pass deliberately: one call means no added
@@ -565,11 +563,11 @@ async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",
   const r=await fetch("/api/openai",{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({system:system+HUMAN_STYLE+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch}),
+    body:JSON.stringify({system:system+HUMAN_STYLE+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,mode:opts.mode||""}),
   });
   const d=await r.json().catch(()=>({}));
   if(!r.ok){
-    if(r.status===413)throw new Error("Those files are too large. Keep each file under 4 MB and try again.");
+    if(r.status===413)throw new Error("The prepared sources are still too large for one request. Remove one source or split a very long document.");
     if(r.status===429)throw new Error("The studio is busy right now. Wait a moment and try again.");
     throw new Error(d.error||("Studio API error "+r.status));
   }
@@ -592,6 +590,67 @@ const downloadBlob=(blob,name)=>{
 const escapeHtml=value=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
 
 const studioFileSummary=files=>(files||[]).map(f=>({name:f.name,type:f.type,dataUrl:f.dataUrl}));
+
+const STUDY_FILE_LIMIT_MB=12;
+const STUDY_FILE_LIMIT_BYTES=STUDY_FILE_LIMIT_MB*1024*1024;
+const STUDY_TEXT_LIMIT=115000;
+let pdfJsPromise;
+
+const textDataUrl=value=>{
+  const bytes=new TextEncoder().encode(String(value||""));let binary="";
+  for(let offset=0;offset<bytes.length;offset+=0x8000)binary+=String.fromCharCode(...bytes.subarray(offset,offset+0x8000));
+  return "data:text/plain;base64,"+btoa(binary);
+};
+
+const readFileAsDataUrl=file=>new Promise((resolve,reject)=>{
+  const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("read"));reader.readAsDataURL(file);
+});
+
+const compactStudyImage=async file=>{
+  const source=await readFileAsDataUrl(file);
+  const image=await new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=reject;img.src=source;});
+  const longest=Math.max(image.naturalWidth,image.naturalHeight);const scale=Math.min(1,1600/Math.max(1,longest));
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+  const ctx=canvas.getContext("2d");ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  return {name:file.name,type:"image/jpeg",size:file.size,dataUrl:canvas.toDataURL("image/jpeg",0.8),preparedLabel:"Optimized on this device"};
+};
+
+const extractStudyPdf=async file=>{
+  pdfJsPromise||=import("pdfjs-dist/build/pdf.mjs").then(pdfjs=>{pdfjs.GlobalWorkerOptions.workerSrc=`${process.env.PUBLIC_URL||""}/pdf.worker.min.mjs`;return pdfjs;});
+  const pdfjs=await pdfJsPromise;const bytes=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjs.getDocument({data:bytes}).promise;
+  const pages=[];let length=0;
+  for(let pageNumber=1;pageNumber<=pdf.numPages&&length<STUDY_TEXT_LIMIT;pageNumber++){
+    const page=await pdf.getPage(pageNumber);const content=await page.getTextContent();
+    const pageText=content.items.map(item=>String(item.str||"")+(item.hasEOL?"\n":" ")).join("").replace(/[ \t]+\n/g,"\n").trim();
+    if(pageText){const labelled=`\n\n[Page ${pageNumber}]\n${pageText}`;pages.push(labelled);length+=labelled.length;}
+    page.cleanup();
+  }
+  const extracted=pages.join("").slice(0,STUDY_TEXT_LIMIT).trim();
+  if(!extracted)throw new Error(`${file.name} has no readable text. For a scanned PDF, upload its pages as images.`);
+  return {name:file.name,type:"text/plain",size:file.size,dataUrl:textDataUrl(`Source file: ${file.name}\n${extracted}`),preparedLabel:`${Math.min(pdf.numPages,pages.length)} pages prepared on this device`};
+};
+
+const extractStudyDocument=async file=>{
+  let extracted="";
+  if(file.type==="text/plain"||/\.txt$/i.test(file.name))extracted=await file.text();
+  else{
+    const mammothModule=await import("mammoth/mammoth.browser");const mammoth=mammothModule.default||mammothModule;
+    const result=await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()});extracted=result.value;
+  }
+  extracted=String(extracted||"").trim();
+  if(!extracted)throw new Error(`${file.name} has no readable text.`);
+  const clipped=extracted.slice(0,STUDY_TEXT_LIMIT);
+  return {name:file.name,type:"text/plain",size:file.size,dataUrl:textDataUrl(`Source file: ${file.name}\n${clipped}`),preparedLabel:extracted.length>clipped.length?"Key text prepared; very long tail omitted":"Text prepared on this device"};
+};
+
+const prepareStudyFile=async file=>{
+  if(file.size>STUDY_FILE_LIMIT_BYTES)throw new Error(`${file.name} is over the ${STUDY_FILE_LIMIT_MB} MB limit.`);
+  if(file.type==="application/pdf"||/\.pdf$/i.test(file.name))return extractStudyPdf(file);
+  if(file.type==="application/vnd.openxmlformats-officedocument.wordprocessingml.document"||/\.docx$/i.test(file.name))return extractStudyDocument(file);
+  if(file.type==="text/plain"||/\.txt$/i.test(file.name))return extractStudyDocument(file);
+  if(file.type?.startsWith("image/"))return compactStudyImage(file);
+  throw new Error(`${file.name} is not a supported study source.`);
+};
 
 function ContactModal({onClose}){
   const [subject,setSubject]=useState("");const [message,setMessage]=useState("");const [sent,setSent]=useState(false);
@@ -667,7 +726,15 @@ function CopyBtn({text}){
 
 function ListenBtn({text}){
   const [on,setOn]=useState(false);
-  return <button onClick={()=>{if(on){stopSpeak();setOn(false);}else{speak(text);setOn(true);}}} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${on?C.blue:C.border}`,color:on?C.blueText:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}><IconLabel name={on?"stop":"volume"}>{on?"Stop":"Listen"}</IconLabel></button>;
+  const toggle=async()=>{
+    if(on){stopSpeak();setOn(false);return;}
+    const language=selectedLanguage();
+    setOn(true);
+    try{await speak(text,{language:language.value,speechLocale:language.speech});}
+    catch(error){if(error?.name!=="AbortError")console.warn("Voice playback failed",error);}
+    finally{setOn(false);}
+  };
+  return <button onClick={toggle} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${on?C.blue:C.border}`,color:on?C.blueText:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}><IconLabel name={on?"stop":"volume"}>{on?"Stop":"Listen"}</IconLabel></button>;
 }
 
 const OutputActions=({text})=>(<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={text}/><ListenBtn text={text}/></div>);
@@ -781,38 +848,38 @@ function StudioChoice({active,onClick,icon,title,description,swatch}){
   );
 }
 
-function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=false}){
-  const inputRef=useRef(null);const [error,setError]=useState("");const [dragging,setDragging]=useState(false);
+function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=false,maxFileMB=4,prepareFile}){
+  const inputRef=useRef(null);const [error,setError]=useState("");const [dragging,setDragging]=useState(false);const [preparing,setPreparing]=useState(false);
   const addFiles=async list=>{
     const incoming=Array.from(list||[]);if(!incoming.length)return;
-    setError("");
+    setError("");setPreparing(true);
     const room=Math.max(0,maxFiles-(files?.length||0));
-    if(room===0){setError("Remove a file before adding another.");return;}
+    if(room===0){setError("Remove a file before adding another.");setPreparing(false);return;}
     const chosen=incoming.slice(0,room);const next=[];
     for(const file of chosen){
-      if(file.size>4*1024*1024){setError(file.name+" is over the 4 MB limit.");continue;}
+      if(file.size>maxFileMB*1024*1024){setError(file.name+` is over the ${maxFileMB} MB limit.`);continue;}
       try{
-        const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("read"));reader.readAsDataURL(file);});
-        next.push({name:file.name,type:file.type||"application/octet-stream",size:file.size,dataUrl});
-      }catch(e){setError("Couldn't read "+file.name+". Try another file.");}
+        const prepared=prepareFile?await prepareFile(file):{name:file.name,type:file.type||"application/octet-stream",size:file.size,dataUrl:await readFileAsDataUrl(file)};
+        next.push(prepared);
+      }catch(e){setError(e?.message||("Couldn't read "+file.name+". Try another file."));}
     }
     if(next.length)onChange([...(files||[]),...next].slice(0,maxFiles));
-    if(inputRef.current)inputRef.current.value="";
+    if(inputRef.current)inputRef.current.value="";setPreparing(false);
   };
   return(
     <div style={{marginBottom:12}}>
       <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}{required&&<span style={{color:C.redText}}> *</span>}</label>
-      <input ref={inputRef} type="file" accept={accept} multiple={maxFiles>1} onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
-      <div onDragEnter={e=>{e.preventDefault();setDragging(true);}} onDragOver={e=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files);}} style={{border:`1px dashed ${dragging?C.blue:C.border}`,background:dragging?C.accentSoft:C.surface,borderRadius:10,padding:"12px",transition:"border-color 0.2s,background 0.2s"}}>
+      <input ref={inputRef} type="file" accept={accept} multiple={maxFiles>1} disabled={preparing} onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
+      <div aria-busy={preparing} onDragEnter={e=>{e.preventDefault();if(!preparing)setDragging(true);}} onDragOver={e=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);if(!preparing)addFiles(e.dataTransfer.files);}} style={{border:`1px dashed ${dragging?C.blue:C.border}`,background:dragging?C.accentSoft:C.surface,borderRadius:10,padding:"12px",transition:"border-color 0.2s,background 0.2s",opacity:preparing?0.78:1}}>
         {(files||[]).length===0?(
-          <button type="button" onClick={()=>inputRef.current?.click()} style={{width:"100%",minHeight:64,border:0,background:"transparent",color:C.muted,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,textAlign:"left"}}>
-            <span style={{width:38,height:38,borderRadius:11,background:C.card,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="upload" size={20}/></span>
-            <span><span style={{display:"block",fontSize:13,fontWeight:800,color:C.text}}>Drop or choose {maxFiles>1?"files":"a file"}</span><span style={{fontSize:12,color:C.muted,lineHeight:1.4}}>{hint}</span></span>
+            <button type="button" disabled={preparing} onClick={()=>inputRef.current?.click()} style={{width:"100%",minHeight:64,border:0,background:"transparent",color:C.muted,cursor:preparing?"wait":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,textAlign:"left"}}>
+              <span style={{width:38,height:38,borderRadius:11,background:C.card,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{preparing?<Spin size={18} color={C.blue}/>:<GwmIcon name="upload" size={20}/>}</span>
+              <span><span style={{display:"block",fontSize:13,fontWeight:800,color:C.text}}>{preparing?"Preparing your source…":`Drop or choose ${maxFiles>1?"files":"a file"}`}</span><span style={{fontSize:12,color:C.muted,lineHeight:1.4}}>{preparing?"Large documents are compacted securely on this device.":hint}</span></span>
           </button>
         ):(
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {files.map((file,index)=><div key={file.name+index} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 9px"}}><span style={{width:30,height:30,borderRadius:8,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={file.type?.startsWith("image/")?"image":"file"} size={16}/></span><span style={{minWidth:0,flex:1}}><span style={{display:"block",fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{file.name}</span><span style={{display:"block",fontSize:11,color:C.muted}}>{Math.max(1,Math.round(file.size/1024))} KB</span></span><button type="button" aria-label={`Remove ${file.name}`} onClick={()=>onChange(files.filter((_,i)=>i!==index))} style={{width:32,height:32,border:0,borderRadius:8,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div>)}
-            {files.length<maxFiles&&<button type="button" onClick={()=>inputRef.current?.click()} style={{minHeight:38,border:`1px solid ${C.border}`,borderRadius:8,background:"transparent",color:C.blueText,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}><IconLabel name="upload">Add another</IconLabel></button>}
+            {files.map((file,index)=><div key={file.name+index} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 9px"}}><span style={{width:30,height:30,borderRadius:8,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={file.type?.startsWith("image/")?"image":"file"} size={16}/></span><span style={{minWidth:0,flex:1}}><span style={{display:"block",fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{file.name}</span><span style={{display:"block",fontSize:11,color:C.muted}}>{Math.max(1,Math.round(file.size/1024))} KB{file.preparedLabel?` · ${file.preparedLabel}`:""}</span></span><button type="button" aria-label={`Remove ${file.name}`} onClick={()=>onChange(files.filter((_,i)=>i!==index))} style={{width:32,height:32,border:0,borderRadius:8,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div>)}
+            {files.length<maxFiles&&<button type="button" disabled={preparing} onClick={()=>inputRef.current?.click()} style={{minHeight:38,border:`1px solid ${C.border}`,borderRadius:8,background:"transparent",color:C.blueText,cursor:preparing?"wait":"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}><IconLabel name="upload">{preparing?"Preparing…":"Add another"}</IconLabel></button>}
           </div>
         )}
       </div>
@@ -1699,17 +1766,65 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [language,setLanguage]=useState(()=>localStorage.getItem(LANGUAGE_KEY)||"en");
+  const [voiceId,setVoiceId]=useState(getSavedVoiceId);
+  const [voices,setVoices]=useState([]);
+  const [voiceLoading,setVoiceLoading]=useState(true);
+  const [voiceError,setVoiceError]=useState("");
+  const [previewingVoice,setPreviewingVoice]=useState("");
   const [aiShutdown,setAIShutdown]=useState(isAIShutdown);
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
   const [notifPromo,setNotifPromo]=useState(()=>localStorage.getItem("gwm_notif_promo")!=="false");
   const [saved,setSaved]=useState(false);
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
+  const voicePreviewRef=useRef(null);
+
+  useEffect(()=>{
+    let active=true;
+    fetchVoiceCatalog()
+      .then(items=>{if(active){setVoices(items);setVoiceError("");}})
+      .catch(error=>{if(active)setVoiceError(error.message||"AI voices could not be loaded.");})
+      .finally(()=>{if(active)setVoiceLoading(false);});
+    return()=>{
+      active=false;
+      if(voicePreviewRef.current){voicePreviewRef.current.pause();voicePreviewRef.current=null;}
+      stopSpeak();
+    };
+  },[]);
+
+  const stopVoicePreview=()=>{
+    if(voicePreviewRef.current){voicePreviewRef.current.pause();voicePreviewRef.current.removeAttribute("src");voicePreviewRef.current=null;}
+    stopSpeak();
+    setPreviewingVoice("");
+  };
+
+  const previewVoice=()=>{
+    if(previewingVoice===voiceId){stopVoicePreview();return;}
+    stopVoicePreview();
+    setVoiceError("");
+    setPreviewingVoice(voiceId);
+    const selected=voices.find(item=>item.id===voiceId);
+    const finish=()=>setPreviewingVoice("");
+    if(selected?.previewUrl){
+      const audio=new Audio(selected.previewUrl);
+      voicePreviewRef.current=audio;
+      const finishAudio=()=>{if(voicePreviewRef.current===audio)voicePreviewRef.current=null;finish();};
+      audio.onended=finishAudio;
+      audio.onerror=()=>{finishAudio();setVoiceError("This voice preview could not be played.");};
+      audio.play().catch(()=>{finishAudio();setVoiceError("This voice preview could not be played.");});
+      return;
+    }
+    const chosenLanguage=OUTPUT_LANGUAGES.find(item=>item.value===language)||OUTPUT_LANGUAGES[0];
+    speak("Hi, I’m your GhostwriterMe reading voice.",{voiceId,language:chosenLanguage.value,speechLocale:chosenLanguage.speech})
+      .catch(error=>{if(error?.name!=="AbortError")setVoiceError(error.message||"This voice preview could not be played.");})
+      .finally(finish);
+  };
 
   const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Master Plan",color:C.magentaText,bg:C.magentaSoft},admin:{label:"Admin Access",color:C.yellowText,bg:"rgba(245,200,66,0.12)"}};
   const isAdmin=!!user.isAdmin&&!!user.allFeatures;
   const planInfo=isAdmin?planMap.admin:(planMap[user.plan]||planMap.free);
   const isPaid=isAdmin||user.plan!=="free";
+  const selectedVoice=voices.find(item=>item.id===voiceId);
   const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
   // Whole days remaining until date x. Math.ceil so a trial ending later
   // today still reads "1 day left" rather than a discouraging "0 days".
@@ -1717,6 +1832,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
 
   const handleSave=()=>{
     localStorage.setItem(LANGUAGE_KEY,language);
+    saveVoiceId(voiceId);
     localStorage.setItem(AI_SHUTDOWN_KEY,String(aiShutdown));
     localStorage.setItem("gwm_notif_email",notifEmail);
     localStorage.setItem("gwm_notif_promo",notifPromo);
@@ -1771,6 +1887,33 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
               <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span>
             </div>
             <div style={{fontSize:12,color:C.muted,marginTop:8,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="globe" size={15} style={{marginTop:1}}/>Generated results and voice input follow this language.</div>
+          </div>
+        </Section>
+
+        <Section title="AI Voice">
+          <div style={{padding:"13px 14px"}}>
+            <label htmlFor="gwm-voice" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:6,textTransform:"uppercase"}}>Narration Voice</label>
+            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:8,alignItems:"stretch"}}>
+              <div style={{position:"relative"}}>
+                <select id="gwm-voice" value={voiceId} onChange={e=>{stopVoicePreview();setVoiceId(e.target.value);}} style={{width:"100%",height:"100%",minHeight:42,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
+                  <option value={DEVICE_VOICE_ID}>Device default</option>
+                  {voices.length>0&&<optgroup label="ElevenLabs AI voices">{voices.map(voice=><option key={voice.id} value={voice.id}>{voice.name}{voice.labels?.accent?` · ${voice.labels.accent}`:""}</option>)}</optgroup>}
+                </select>
+                <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span>
+              </div>
+              <button type="button" onClick={previewVoice} disabled={voiceLoading||(!hasTTS&&voiceId===DEVICE_VOICE_ID)} aria-label={previewingVoice===voiceId?"Stop voice preview":"Preview selected voice"} style={{minWidth:96,borderRadius:8,border:`1px solid ${previewingVoice===voiceId?C.blue:C.border}`,background:previewingVoice===voiceId?C.accentSoft:C.surface,color:previewingVoice===voiceId?C.blueText:C.text,cursor:voiceLoading?"wait":"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                {voiceLoading?<Spin size={14} color={C.blueText}/>:<GwmIcon name={previewingVoice===voiceId?"stop":"volume"} size={15}/>} {voiceLoading?"Loading":previewingVoice===voiceId?"Stop":"Preview"}
+              </button>
+            </div>
+            <div style={{marginTop:9,padding:"9px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"flex-start",gap:8}}>
+              <GwmIcon name="volume" size={16} color={voiceId===DEVICE_VOICE_ID?C.muted:C.blueText} style={{marginTop:1,flexShrink:0}}/>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:12.5,fontWeight:800,color:C.text}}>{voiceId===DEVICE_VOICE_ID?"Device default":selectedVoice?.name||"Saved AI voice"}</div>
+                <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:2}}>{voiceId===DEVICE_VOICE_ID?"Uses the built-in voice available on this phone or browser.":selectedVoice?.description||[selectedVoice?.labels?.gender,selectedVoice?.labels?.age,selectedVoice?.labels?.useCase].filter(Boolean).join(" · ")||"Natural AI narration powered by ElevenLabs."}</div>
+              </div>
+            </div>
+            {voiceError&&<div role="status" style={{fontSize:11.5,color:C.yellowText,lineHeight:1.5,marginTop:8}}>{voiceError} Device default remains available.</div>}
+            <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:8}}>Your choice is saved on this device. Text is sent to ElevenLabs only when you choose Listen with an AI voice.</div>
           </div>
         </Section>
 
@@ -3336,7 +3479,7 @@ function StudyMode({user}){
     const system='You are GhostwriterMe Study, a careful learning coach. Analyze only the supplied files, images, and named website. If a website is supplied, use web search to identify and ground the requested page. Never invent missing source facts. Create original study materials without reproducing long copyrighted passages. Return ONLY valid JSON with this exact shape: {"title":"","sourceSummary":"","summary":"","bulletPoints":[""],"studyGuide":[{"heading":"","notes":[""],"keyTerms":[{"term":"","definition":""}]}],"flashcards":[{"front":"","back":""}],"quiz":[{"id":"q1","type":"multiple_choice","question":"","options":["","","",""],"correctAnswer":"","explanation":""}]}. Quiz type must be either multiple_choice or short_answer. For short_answer, options must be an empty array. For multiple_choice, correctAnswer must exactly match one option. Cover the whole source, emphasize understanding over trivia, and make every question answerable from the source.';
     const prompt=`Build a complete study pack from the supplied sources. Website: ${website.trim()||"none"}. Learner focus: ${focus.trim()||"balanced coverage"}. Create ${questionCount} practice questions using ${questionType==="mixed"?"a balanced mix of multiple choice and short answer":questionType==="multiple_choice"?"multiple choice only":"short answer only"}. Include 10-20 useful flashcards. ${files.length?"The uploaded files are the primary sources.":"The website is the primary source."}`;
     try{
-      const result=parseStudioJson(await callStudioAI(system,prompt,8000,studioFileSummary(files),user?.email,{useSearch:!!website.trim()}));
+      const result=parseStudioJson(await callStudioAI(system,prompt,12000,studioFileSummary(files),user?.email,{useSearch:!!website.trim(),mode:"study"}));
       const normalized={...result,quiz:(result.quiz||[]).map((q,index)=>({...q,id:q.id||`q${index+1}`}))};
       setBundle(normalized);setTab("summary");
       if(user)HS.save(user.email,"study",{title:normalized.title||"Study Pack",input:[website.trim(),...files.map(file=>file.name),focus.trim()].filter(Boolean).join(" · "),output:studyBundleAsText(normalized)});
@@ -3350,7 +3493,7 @@ function StudyMode({user}){
     setGradingLoading(true);setError("");
     const system='You are a fair study-test grader. Grade each response only against the supplied answer and explanation. Accept semantically correct short answers even when wording differs. Give each question 1 point. Return ONLY valid JSON: {"score":0,"total":0,"percentage":0,"results":[{"id":"","correct":true,"points":1,"feedback":"","correctAnswer":""}],"overallFeedback":""}.';
     const prompt=`Quiz and answer key:\n${JSON.stringify(quiz)}\n\nLearner responses:\n${JSON.stringify(answers)}`;
-    try{const result=parseStudioJson(await callStudioAI(system,prompt,5000,[],user?.email));setGrading(result);}
+    try{const result=parseStudioJson(await callStudioAI(system,prompt,5000,[],user?.email,{mode:"study-grade"}));setGrading(result);}
     catch(e){setError(e.message||"The practice test could not be graded.");}finally{setGradingLoading(false);}
   };
 
@@ -3371,7 +3514,7 @@ function StudyMode({user}){
 
     {!bundle&&<>
       <FInput label="Source Website (optional)" placeholder="https://example.com/article" value={website} onChange={e=>setWebsite(e.target.value)} icoL="link"/>
-      <StudioFileDrop label="Source Files & Images" hint="PDF, DOCX, TXT, PNG, JPG or WebP · up to 4 files, 4 MB each" accept=".pdf,.docx,.txt,image/png,image/jpeg,image/webp" files={files} onChange={setFiles} maxFiles={4}/>
+      <StudioFileDrop label="Source Files & Images" hint="PDF, DOCX, TXT, PNG, JPG or WebP · up to 6 files, 12 MB each" accept=".pdf,.docx,.txt,image/png,image/jpeg,image/webp" files={files} onChange={setFiles} maxFiles={6} maxFileMB={STUDY_FILE_LIMIT_MB} prepareFile={prepareStudyFile}/>
       <FArea label="What should Ghosty focus on? (optional)" placeholder="Exam topics, difficult chapters, required learning outcomes..." value={focus} onChange={e=>setFocus(e.target.value)} rows={3}/>
       <div className="studio-grid-2" style={{marginBottom:12}}>
         <FSelect label="Question Style" value={questionType} onChange={setQuestionType} options={[{value:"mixed",label:"Mixed"},{value:"multiple_choice",label:"Multiple Choice"},{value:"short_answer",label:"Short Answer"}]}/>
@@ -3425,6 +3568,7 @@ function MeetingAssistMode({user}){
   const transcriptRef=useRef("");
   const processChunkRef=useRef(null);
   const handleTranscriptRef=useRef(null);
+  const requestSuggestionRef=useRef(null);
   const recordNextRef=useRef(null);
   const startRecognitionRef=useRef(null);
   const stopSessionRef=useRef(null);
@@ -3436,6 +3580,9 @@ function MeetingAssistMode({user}){
   const overlayWindowRef=useRef(null);
   const queueRef=useRef(Promise.resolve());
   const failureCountRef=useRef(0);
+  const replyInFlightRef=useRef(false);
+  const pendingSuggestionRef=useRef("");
+  const processingCountRef=useRef(0);
   const canShareAudio=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getDisplayMedia;
   const canUseMicrophone=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getUserMedia;
   const canUseBrowserSpeech=typeof window!=="undefined"&&!!(window.SpeechRecognition||window.webkitSpeechRecognition);
@@ -3460,6 +3607,15 @@ function MeetingAssistMode({user}){
   const updateWhisperProgress=data=>{
     const progress=Number(data?.progress);
     if(Number.isFinite(progress))setSpeechProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);
+  };
+
+  const beginProcessing=()=>{
+    processingCountRef.current+=1;
+    setProcessing(true);
+  };
+  const endProcessing=()=>{
+    processingCountRef.current=Math.max(0,processingCountRef.current-1);
+    if(processingCountRef.current===0)setProcessing(false);
   };
 
   const prepareWhisperFallback=async()=>{
@@ -3521,41 +3677,56 @@ function MeetingAssistMode({user}){
     }
   };
 
-  handleTranscriptRef.current=async text=>{
+  requestSuggestionRef.current=async latest=>{
+    pendingSuggestionRef.current=String(latest||"").trim();
+    if(replyInFlightRef.current||!pendingSuggestionRef.current)return;
+    replyInFlightRef.current=true;
+    try{
+      while(pendingSuggestionRef.current){
+        const speech=pendingSuggestionRef.current;
+        pendingSuggestionRef.current="";
+        beginProcessing();
+        try{
+          assertAIAvailable();
+          const reply=await callStudioAI(
+            "You are GhostwriterMe Meeting Assist. Based only on the meeting transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Do not claim the user said or agreed to anything. Do not invent facts. Put each option on its own line and return no preamble.",
+            `Platform: ${platform}\nUser context: ${context||"none"}\nLatest speech: ${speech}\nRecent transcript:\n${transcriptRef.current.slice(-3000)}`,
+            240,[],user?.email,{mode:"meeting"}
+          );
+          setSuggestion(reply.trim());setError("");
+        }catch(replyError){
+          setError("The transcript was captured, but a reply could not be generated yet. "+(replyError.message||"Try again shortly."));
+        }finally{endProcessing();}
+      }
+    }finally{replyInFlightRef.current=false;}
+  };
+
+  handleTranscriptRef.current=text=>{
     const latest=String(text||"").trim();
     if(!latest)return;
     const updated=(transcriptRef.current?transcriptRef.current+"\n":"")+latest;
-    transcriptRef.current=updated;setTranscript(updated);setInterimTranscript("");setSaved(false);setProcessing(true);
-    try{
-      assertAIAvailable();
-      const reply=await callStudioAI(
-        "You are GhostwriterMe Meeting Assist. Based only on the meeting transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Do not claim the user said or agreed to anything. Do not invent facts. Put each option on its own line and return no preamble.",
-        `Platform: ${platform}\nUser context: ${context||"none"}\nLatest speech: ${latest}\nRecent transcript:\n${updated.slice(-6000)}`,
-        1200,[],user?.email
-      );
-      setSuggestion(reply.trim());setError("");
-    }catch(replyError){setError("The transcript was captured, but a reply could not be generated yet. "+(replyError.message||"Try again shortly."));}
-    finally{setProcessing(false);}
+    transcriptRef.current=updated;setTranscript(updated);setInterimTranscript("");setSaved(false);
+    requestSuggestionRef.current?.(latest);
   };
 
   processChunkRef.current=async blob=>{
     if(!blob||blob.size<256)return{retryAfterMs:0};
-    setProcessing(true);setError("");
+    beginProcessing();setError("");
     try{
       assertAIAvailable();
       const audio=await audioBlobToMono16k(blob);
       const latest=await transcribeLocalAudio(audio,updateWhisperProgress);
       failureCountRef.current=0;
       if(!latest)return{retryAfterMs:120};
-      await handleTranscriptRef.current(latest);
-      return{retryAfterMs:120};
+      handleTranscriptRef.current(latest);
+      return{};
     }catch(e){
       failureCountRef.current=0;
       setError((e?.message||"Meeting Assist could not process this audio segment.")+" Restart Meeting Assist to try the on-device model again.");
       setTimeout(()=>stopSessionRef.current?.(),0);
       return{terminal:true};
     }
-    finally{setProcessing(false);}
+    finally{endProcessing();}
   };
 
   recordNextRef.current=()=>{
@@ -3574,17 +3745,16 @@ function MeetingAssistMode({user}){
     recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
     recorder.onstop=()=>{
       const blob=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});
+      // Start capturing the next segment immediately. Transcription and reply
+      // generation continue in parallel, so the app no longer goes silent
+      // while it is preparing an answer.
+      if(activeRef.current)timerRef.current=setTimeout(()=>recordNextRef.current?.(),20);
       queueRef.current=queueRef.current
         .then(()=>processChunkRef.current(blob))
         .catch(()=>({terminal:true}));
-      queueRef.current.then(result=>{
-        if(activeRef.current&&!result?.terminal){
-          timerRef.current=setTimeout(()=>recordNextRef.current?.(),result?.retryAfterMs??120);
-        }
-      });
     };
     recorder.start();
-    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},8000);
+    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},4000);
   };
 
   localFallbackRef.current=reason=>{
@@ -3659,6 +3829,7 @@ function MeetingAssistMode({user}){
 
   const stopSession=()=>{
     activeRef.current=false;setActive(false);clearTimeout(timerRef.current);
+    pendingSuggestionRef.current="";
     localFallbackActiveRef.current=false;setTranscriptionEngine("idle");
     try{recognitionRef.current?.abort?.();}catch(e){}
     recognitionRef.current=null;setInterimTranscript("");
@@ -3713,6 +3884,7 @@ function MeetingAssistMode({user}){
         }
       }
       activeRef.current=true;setActive(true);
+      processingCountRef.current=0;setProcessing(false);pendingSuggestionRef.current="";
       const ended=()=>stopSession();
       stream.getVideoTracks()[0]?.addEventListener("ended",ended,{once:true});
       stream.getAudioTracks()[0]?.addEventListener("ended",ended,{once:true});
@@ -3875,8 +4047,10 @@ function InterviewMode({user}){
 
   const say=text=>{
     if(!hasTTS||!text)return;
-    window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(text);
-    utterance.rate=Number(pace)||1;utterance.pitch=1;utterance.lang="en-US";window.speechSynthesis.speak(utterance);
+    const language=selectedLanguage();
+    speak(text,{speed:Number(pace)||1,language:language.value,speechLocale:language.speech}).catch(error=>{
+      if(error?.name!=="AbortError")console.warn("Interview voice playback failed",error);
+    });
   };
 
   const generateInterview=async()=>{
@@ -3958,16 +4132,43 @@ function InterviewMode({user}){
   );
 }
 
-const SLIDE_BACKGROUNDS={
-  midnight:{name:"Midnight",preview:"linear-gradient(135deg,#07111d,#173354)",bg:"#07111d",bg2:"#173354",text:"#f4faff",muted:"#b9d1e3",accent:"#79BAEC"},
-  aurora:{name:"Aurora",preview:"linear-gradient(135deg,#071a17,#17625a)",bg:"#071a17",bg2:"#17625a",text:"#f1fffb",muted:"#bce4db",accent:"#5eead4"},
-  paper:{name:"Warm Paper",preview:"linear-gradient(135deg,#f3eadc,#fffdf8)",bg:"#f3eadc",bg2:"#fffdf8",text:"#24303a",muted:"#596875",accent:"#24638e"},
-  blueprint:{name:"Blueprint",preview:"linear-gradient(135deg,#071d31,#18527a)",bg:"#071d31",bg2:"#18527a",text:"#eef9ff",muted:"#b6d8e9",accent:"#8bd5ff"},
-  sunset:{name:"Sunset",preview:"linear-gradient(135deg,#2b1028,#814759)",bg:"#2b1028",bg2:"#814759",text:"#fff8f4",muted:"#f0c9c5",accent:"#ffbd75"},
-  mono:{name:"Mono",preview:"linear-gradient(135deg,#121212,#343434)",bg:"#121212",bg2:"#343434",text:"#ffffff",muted:"#d0d0d0",accent:"#ffffff"},
+const SLIDE_THEMES=[
+  {id:"executive",icon:"briefcase",title:"Executive",desc:"Editorial grids & data signals",accent:"#79BAEC",prompt:"precise editorial grid, restrained data graphics, crisp information hierarchy"},
+  {id:"storytelling",icon:"story",title:"Storytelling",desc:"Cinematic frames & narrative",accent:"#f6bd75",prompt:"cinematic editorial frames, human narrative beats, layered picture-card composition"},
+  {id:"classroom",icon:"academic",title:"Classroom",desc:"Doodles, notes & clear steps",accent:"#5eead4",prompt:"welcoming learning-board composition, useful note cards, hand-drawn accents and clear diagrams"},
+  {id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Bold signals & momentum",accent:"#f472b6",prompt:"high-contrast campaign composition, bold proof points, momentum lines and memorable visual hooks"},
+];
+const SLIDE_FONTS=["Cabinet Grotesk","Inter","Poppins","Open Sans","Raleway","Montserrat","Oswald","League Spartan","Libre Baskerville","Playfair Display","Source Serif 4","Fredoka","Nunito","Plus Jakarta Sans","Newsreader","Roboto","Libre Bodoni","Public Sans","Permanent Marker","Georgia"];
+const GOOGLE_SLIDE_FONTS=new Set(SLIDE_FONTS.filter(name=>!["Cabinet Grotesk","Georgia"].includes(name)));
+
+const normalizeSlideHex=value=>/^#[0-9a-f]{6}$/i.test(String(value||""))?String(value).toLowerCase():"#07111d";
+const hexRgb=value=>{const hex=normalizeSlideHex(value).slice(1);return {r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};};
+const rgbHex=({r,g,b})=>"#"+[r,g,b].map(x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,"0")).join("");
+const mixSlideColor=(from,to,amount)=>{const a=hexRgb(from),b=hexRgb(to);return rgbHex({r:a.r+(b.r-a.r)*amount,g:a.g+(b.g-a.g)*amount,b:a.b+(b.b-a.b)*amount});};
+const slideLuminance=value=>{const {r,g,b}=hexRgb(value);return (0.2126*r+0.7152*g+0.0722*b)/255;};
+const slidePalette=(background,themeId)=>{
+  const bg=normalizeSlideHex(background);const dark=slideLuminance(bg)<0.56;const system=SLIDE_THEMES.find(item=>item.id===themeId)||SLIDE_THEMES[0];
+  const bg2=mixSlideColor(bg,dark?"#ffffff":"#000000",dark?0.16:0.1);const text=dark?"#f8fbff":"#17202c";const muted=mixSlideColor(text,bg,dark?0.29:0.4);const accent=dark?system.accent:mixSlideColor(system.accent,"#000000",0.28);
+  return {bg,bg2,text,muted,accent,preview:`linear-gradient(135deg,${bg},${bg2})`,dark};
 };
-const SLIDE_THEMES=[{id:"executive",icon:"briefcase",title:"Executive",desc:"Clean, decisive"},{id:"storytelling",icon:"story",title:"Storytelling",desc:"Narrative arc"},{id:"classroom",icon:"academic",title:"Classroom",desc:"Clear and teachable"},{id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Persuasive and bold"}];
-const SLIDE_FONTS=["Cabinet Grotesk","Georgia","Arial","Trebuchet MS","Times New Roman"];
+const slideFontStack=font=>`"${String(font||"Cabinet Grotesk").replace(/"/g,"")}", Arial, sans-serif`;
+
+function SlideArtwork({theme,slide,index,palette}){
+  const label=slide.visualLabel||slide.eyebrow||"Key idea";const number=String(index+1).padStart(2,"0");
+  const base={position:"absolute",right:"4.5%",top:"15%",width:"31%",height:"68%",zIndex:1,color:palette.accent,pointerEvents:"none"};
+  if(theme==="storytelling")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"8% 9% 16% 4%",border:`1px solid ${palette.accent}66`,borderRadius:12,background:`linear-gradient(145deg,${palette.accent}22,rgba(255,255,255,0.03))`,transform:"rotate(-6deg)",boxShadow:"0 18px 40px rgba(0,0,0,0.22)"}}/><div style={{position:"absolute",inset:"18% 2% 5% 17%",border:`1px solid ${palette.accent}88`,borderRadius:12,background:`linear-gradient(160deg,rgba(255,255,255,0.12),${palette.accent}16)`,transform:"rotate(5deg)",display:"flex",alignItems:"flex-end",padding:"10%",fontSize:"clamp(9px,1.1vw,13px)",fontWeight:850,lineHeight:1.25}}>{label}</div><span style={{position:"absolute",top:0,right:"4%",fontFamily:"Georgia,serif",fontSize:"clamp(42px,7vw,88px)",opacity:0.24}}>“</span></div>;
+  if(theme==="classroom")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"12% 5% 8% 9%",border:`2px solid ${palette.accent}66`,borderRadius:"18% 12% 16% 10%",transform:"rotate(2deg)",background:`${palette.accent}12`}}/><div style={{position:"absolute",left:"15%",top:"25%",right:"11%",padding:"12% 10%",background:palette.dark?"rgba(255,255,255,0.1)":"rgba(255,255,255,0.72)",borderLeft:`4px solid ${palette.accent}`,boxShadow:"0 14px 32px rgba(0,0,0,0.16)",transform:"rotate(-3deg)",fontSize:"clamp(9px,1.1vw,13px)",fontWeight:850,lineHeight:1.3}}>{label}</div>{[0,1,2].map(i=><span key={i} style={{position:"absolute",width:7+i*3,height:7+i*3,borderRadius:"50%",background:palette.accent,right:`${8+i*14}%`,top:`${8+i*12}%`,opacity:0.8-i*0.16}}/>)}<div style={{position:"absolute",right:"5%",bottom:"5%",width:"15%",aspectRatio:"1",border:`2px solid ${palette.accent}`,transform:"rotate(38deg)",borderRadius:"22%"}}/></div>;
+  if(theme==="pitch")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"4%",border:`1px solid ${palette.accent}77`,borderRadius:"50%",boxShadow:`inset 0 0 0 12px ${palette.accent}0e,0 0 44px ${palette.accent}22`}}/><div style={{position:"absolute",inset:"19%",border:`1px solid ${palette.accent}55`,borderRadius:"50%"}}/><span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"clamp(48px,9vw,110px)",fontWeight:950,letterSpacing:"-0.08em",opacity:0.32}}>{number}</span><span style={{position:"absolute",left:"21%",right:"21%",bottom:"9%",padding:"7px 8px",borderRadius:999,background:palette.accent,color:palette.dark?"#130817":"#ffffff",fontSize:"clamp(8px,1vw,11px)",fontWeight:900,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"}}>{label}</span></div>;
+  return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"3%",border:`1px solid ${palette.accent}55`,borderRadius:14,background:`linear-gradient(145deg,${palette.accent}18,rgba(255,255,255,0.025))`,boxShadow:"0 18px 38px rgba(0,0,0,0.18)"}}/><div style={{position:"absolute",left:"15%",right:"13%",bottom:"19%",height:"44%",display:"flex",alignItems:"flex-end",gap:"7%"}}>{[38,72,52,88].map((height,i)=><span key={i} style={{height:`${height}%`,flex:1,borderRadius:"5px 5px 2px 2px",background:i===3?palette.accent:`${palette.accent}${i===1?"99":"55"}`}}/>)}</div><span style={{position:"absolute",left:"14%",top:"17%",fontSize:"clamp(8px,1vw,11px)",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.1em"}}>{label}</span><span style={{position:"absolute",right:"12%",top:"14%",fontSize:"clamp(28px,5vw,62px)",fontWeight:900,opacity:0.18}}>{number}</span></div>;
+}
+
+const slideArtworkHtml=(theme,slide,index)=>{
+  const label=escapeHtml(slide.visualLabel||slide.eyebrow||"Key idea");const number=String(index+1).padStart(2,"0");
+  if(theme==="storytelling")return `<div class="art story-art"><i></i><i></i><b>${label}</b></div>`;
+  if(theme==="classroom")return `<div class="art class-art"><i></i><b>${label}</b><span></span><span></span><span></span></div>`;
+  if(theme==="pitch")return `<div class="art pitch-art"><i></i><i></i><strong>${number}</strong><b>${label}</b></div>`;
+  return `<div class="art executive-art"><b>${label}</b><i></i><i></i><i></i><i></i><strong>${number}</strong></div>`;
+};
 
 const slideDeckAsText=deck=>`${deck?.title||"Slide Deck"}${deck?.subtitle?"\n"+deck.subtitle:""}\n\n${(deck?.slides||[]).map((s,i)=>`SLIDE ${i+1}: ${s.title}\n${(s.bullets||[]).map(x=>"• "+x).join("\n")}${s.speakerNotes?"\n\nSpeaker notes: "+s.speakerNotes:""}`).join("\n\n")}`;
 
@@ -3979,37 +4180,50 @@ const wrapCanvasLines=(ctx,text,maxWidth)=>{
 
 function drawSlideCanvas(deck,slide,index,options){
   const width=1600,height=900,canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d");
-  const palette=SLIDE_BACKGROUNDS[options.background]||SLIDE_BACKGROUNDS.midnight;const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-  ctx.globalAlpha=0.14;ctx.strokeStyle=palette.accent;ctx.lineWidth=2;for(let x=-300;x<width+400;x+=160){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x+440,height);ctx.stroke();}ctx.globalAlpha=1;
-  ctx.fillStyle=palette.accent;ctx.fillRect(96,72,84,8);ctx.font=`700 24px ${options.font},Arial,sans-serif`;ctx.fillText(String(slide.eyebrow||deck.title||"GHOSTWRITERME").toUpperCase(),96,126);
-  ctx.fillStyle=palette.text;ctx.font=`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${options.font},Arial,sans-serif`;let y=235;const titleLines=wrapCanvasLines(ctx,slide.title,width-192);titleLines.slice(0,3).forEach(line=>{ctx.fillText(line,96,y);y+=Number(options.titleSize)*2.35;});
-  y+=26;ctx.font=`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${options.font},Arial,sans-serif`;ctx.fillStyle=palette.muted;
-  (slide.bullets||[]).slice(0,6).forEach(bullet=>{const lines=wrapCanvasLines(ctx,bullet,width-280);ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(112,y-11,6,0,Math.PI*2);ctx.fill();ctx.fillStyle=palette.muted;lines.slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,145,y+lineIndex*(Number(options.bodySize)*2.05)));y+=Math.max(58,lines.slice(0,2).length*(Number(options.bodySize)*2.05)+18);});
-  ctx.fillStyle=palette.accent;ctx.font=`800 22px ${options.font},Arial,sans-serif`;ctx.fillText("GHOSTWRITERME",96,height-76);ctx.textAlign="right";ctx.fillStyle=palette.muted;ctx.fillText(`${index+1} / ${deck.slides.length}`,width-96,height-76);ctx.textAlign="left";
+  const palette=slidePalette(options.background,options.theme);const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
+  const font=slideFontStack(options.font);const artX=1090,artY=150,artW=390,artH=570;ctx.save();ctx.strokeStyle=palette.accent;ctx.fillStyle=palette.accent;ctx.globalAlpha=0.2;
+  if(options.theme==="storytelling"){ctx.translate(artX+artW/2,artY+artH/2);ctx.rotate(-0.09);ctx.fillRect(-artW/2,-artH/2+45,artW-35,artH-75);ctx.rotate(0.16);ctx.globalAlpha=0.16;ctx.fillRect(-artW/2+45,-artH/2+15,artW-25,artH-55);}
+  else if(options.theme==="classroom"){ctx.lineWidth=5;ctx.strokeRect(artX+30,artY+35,artW-55,artH-65);ctx.globalAlpha=0.13;ctx.fillRect(artX+75,artY+165,artW-120,210);for(let i=0;i<4;i++){ctx.globalAlpha=0.72-i*0.12;ctx.beginPath();ctx.arc(artX+80+i*82,artY+70+i*23,7+i*2,0,Math.PI*2);ctx.fill();}}
+  else if(options.theme==="pitch"){ctx.lineWidth=3;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,184,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,115,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=0.24;ctx.font=`900 190px ${font}`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(index+1).padStart(2,"0"),artX+artW/2,artY+artH/2);ctx.textAlign="left";ctx.textBaseline="alphabetic";}
+  else{ctx.globalAlpha=0.12;ctx.fillRect(artX,artY,artW,artH);const bars=[160,310,220,405];bars.forEach((bar,i)=>{ctx.globalAlpha=i===3?0.9:0.38+i*0.12;ctx.fillRect(artX+54+i*75,artY+artH-68-bar,48,bar);});}
+  ctx.restore();
+  ctx.fillStyle=palette.accent;ctx.fillRect(96,72,84,8);ctx.font=`700 24px ${font}`;ctx.fillText(String(slide.eyebrow||deck.title||"GHOSTWRITERME").toUpperCase(),96,126);
+  ctx.fillStyle=palette.text;ctx.font=`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${font}`;let y=235;const titleLines=wrapCanvasLines(ctx,slide.title,900);titleLines.slice(0,3).forEach(line=>{ctx.fillText(line,96,y);y+=Number(options.titleSize)*2.35;});
+  y+=26;ctx.font=`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${font}`;ctx.fillStyle=palette.muted;
+  (slide.bullets||[]).slice(0,5).forEach(bullet=>{const lines=wrapCanvasLines(ctx,bullet,820);ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(112,y-11,6,0,Math.PI*2);ctx.fill();ctx.fillStyle=palette.muted;lines.slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,145,y+lineIndex*(Number(options.bodySize)*2.05)));y+=Math.max(58,lines.slice(0,2).length*(Number(options.bodySize)*2.05)+18);});
+  ctx.fillStyle=palette.accent;ctx.font=`800 22px ${font}`;ctx.fillText("GHOSTWRITERME",96,height-76);ctx.textAlign="right";ctx.fillStyle=palette.muted;ctx.fillText(`${index+1} / ${deck.slides.length}`,width-96,height-76);ctx.textAlign="left";
   return canvas;
 }
 
 function SlideGeneratorMode({user}){
-  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("midnight");
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("#07111d");
   const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
   const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
-  const palette=SLIDE_BACKGROUNDS[background]||SLIDE_BACKGROUNDS.midnight;const currentSlide=deck?.slides?.[selectedSlide];
+  const palette=slidePalette(background,theme);const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];
+
+  useEffect(()=>{
+    if(!GOOGLE_SLIDE_FONTS.has(font)||document.querySelector(`link[data-slide-font="${font}"]`))return;
+    const link=document.createElement("link");link.rel="stylesheet";link.dataset.slideFont=font;link.href=`https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g,"+")}:wght@400;500;600;700;800;900&display=swap`;document.head.appendChild(link);
+  },[font]);
 
   const generateSlides=async()=>{
     if(!topic.trim())return;
     setLoading(true);setError("");setDeck(null);setSelectedSlide(0);
-    const themeName=SLIDE_THEMES.find(x=>x.id===theme)?.title||theme;
-    const system='You are an expert presentation designer and concise copywriter. Create a coherent slide story, not a document split into pages. Keep each slide scannable with 2-5 short bullets and useful speaker notes. Return ONLY valid JSON: {"title":"","subtitle":"","slides":[{"eyebrow":"","title":"","bullets":[""],"speakerNotes":"","visualDirection":""}],"closing":""}.';
-    const prompt=`Generate exactly ${slideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName}. Visual background: ${palette.name}. Details and must-include points: ${details||"none"}. Use a clear opening, logical middle, and memorable final slide. Do not include markdown.`;
+    const themeName=themeSystem.title;
+    const system='You are an expert presentation art director and concise copywriter. Create a coherent visual slide story, not a document split into pages. Keep every slide scannable with 2-5 short bullets and useful speaker notes. Vary the slide rhythm and assign each slide one visualType from signal, spotlight, steps, comparison, constellation, or gallery. visualLabel is a very short phrase or metric used inside the decorative visual. visualDirection describes a specific picture, diagram, sticker, or editorial composition suited to that slide. Return only the requested structured result.';
+    const prompt=`Generate exactly ${slideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themeSystem.prompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. Use a strong opening, a logical narrative middle, varied visual treatments, and a memorable final slide. Make every visual direction specific to the topic and theme; avoid generic corporate stock-photo ideas. Do not include markdown.`;
     try{
-      const result=parseStudioJson(await callStudioAI(system,prompt,7500,[],user?.email));setDeck(result);
-      if(user)HS.save(user.email,"slides",{title:result.title||("Slides: "+topic.slice(0,42)),input:`${slideCount} slides · ${themeName} · ${palette.name}`,output:slideDeckAsText(result)});
+      const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized={...result,slides:(result.slides||[]).slice(0,Number(slideCount))};
+      if(normalized.slides.length!==Number(slideCount))throw new Error(`Ghosty created ${normalized.slides.length} of ${slideCount} slides. Please generate again.`);
+      setDeck(normalized);
+      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${slideCount} slides · ${themeName} · ${background}`,output:slideDeckAsText(normalized)});
     }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
 
-  const exportImage=type=>{
+  const exportImage=async type=>{
     if(!deck||!currentSlide)return;
-    const canvas=drawSlideCanvas(deck,currentSlide,selectedSlide,{background,font,titleSize,bodySize});
+    if(document.fonts?.load)await document.fonts.load(`700 32px ${slideFontStack(font)}`).catch(()=>{});
+    const canvas=drawSlideCanvas(deck,currentSlide,selectedSlide,{background,theme,font,titleSize,bodySize});
     canvas.toBlob(blob=>{if(blob)downloadBlob(blob,`ghostwriterme-slide-${selectedSlide+1}.${type==="image/png"?"png":"jpg"}`);},type,type==="image/jpeg"?0.94:1);
   };
 
@@ -4021,12 +4235,13 @@ function SlideGeneratorMode({user}){
 
   const exportPdf=()=>{
     if(!deck)return;const win=window.open("","_blank","noopener,noreferrer");if(!win){alert("Allow pop-ups to export the PDF.");return;}
-    const slides=deck.slides.map((slide,i)=>`<section class="slide"><div class="eyebrow">${escapeHtml(slide.eyebrow||deck.title)}</div><h1>${escapeHtml(slide.title)}</h1><ul>${(slide.bullets||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul><div class="page">${i+1} / ${deck.slides.length}</div></section>`).join("");
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title><style>@page{size:landscape;margin:0}*{box-sizing:border-box}body{margin:0}.slide{width:100vw;height:100vh;page-break-after:always;padding:7vh 7vw;position:relative;overflow:hidden;background:linear-gradient(135deg,${palette.bg},${palette.bg2});color:${palette.text};font-family:${escapeHtml(font)},Arial,sans-serif}.eyebrow{color:${palette.accent};font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:16px;margin-bottom:4vh}.slide h1{font-size:${titleSize*1.7}px;line-height:1.06;margin:0 0 5vh;max-width:82%}.slide ul{font-size:${bodySize*1.32}px;line-height:1.55;max-width:80%;color:${palette.muted}}.slide li{margin:1.6vh 0}.page{position:absolute;right:7vw;bottom:5vh;color:${palette.muted};font-size:14px}@media print{.slide{break-after:page}}</style></head><body>${slides}<script>setTimeout(()=>window.print(),350)</script></body></html>`);win.document.close();
+    const slides=deck.slides.map((slide,i)=>`<section class="slide"><div class="content"><div class="eyebrow">${escapeHtml(slide.eyebrow||deck.title)}</div><h1>${escapeHtml(slide.title)}</h1><ul>${(slide.bullets||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${slideArtworkHtml(theme,slide,i)}<div class="page">${i+1} / ${deck.slides.length}</div></section>`).join("");
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title><style>@page{size:landscape;margin:0}*{box-sizing:border-box}body{margin:0}.slide{width:100vw;height:100vh;page-break-after:always;padding:7vh 7vw;position:relative;overflow:hidden;background:linear-gradient(135deg,${palette.bg},${palette.bg2});color:${palette.text};font-family:${escapeHtml(font)},Arial,sans-serif}.content{position:relative;z-index:2;max-width:61%}.eyebrow{color:${palette.accent};font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:16px;margin-bottom:4vh}.slide h1{font-size:${titleSize*1.7}px;line-height:1.06;margin:0 0 5vh}.slide ul{font-size:${bodySize*1.32}px;line-height:1.55;color:${palette.muted};padding-left:1.3em}.slide li{margin:1.6vh 0}.page{position:absolute;right:7vw;bottom:5vh;color:${palette.muted};font-size:14px}.art{position:absolute;right:5vw;top:16vh;width:30vw;height:62vh;color:${palette.accent}}.art i,.art span{position:absolute;display:block}.executive-art{border:1px solid ${palette.accent}55;border-radius:16px;background:${palette.accent}12}.executive-art i{bottom:13%;width:12%;background:${palette.accent}88;border-radius:5px 5px 0 0}.executive-art i:nth-of-type(1){left:13%;height:29%}.executive-art i:nth-of-type(2){left:34%;height:55%}.executive-art i:nth-of-type(3){left:55%;height:39%}.executive-art i:nth-of-type(4){left:76%;height:70%;background:${palette.accent}}.art b{position:absolute;left:12%;top:12%;font-size:13px;letter-spacing:.1em;text-transform:uppercase}.art strong{position:absolute;right:10%;top:8%;font-size:76px;opacity:.18}.story-art i{inset:8% 13%;border:1px solid ${palette.accent}88;border-radius:15px;background:${palette.accent}20;transform:rotate(-6deg)}.story-art i+ i{transform:rotate(6deg);inset:17% 5% 2% 20%;background:rgba(255,255,255,.08)}.story-art b,.class-art b{top:45%;left:26%;right:12%;padding:18px;background:${palette.accent}16;border-left:4px solid ${palette.accent};line-height:1.35}.class-art{border:2px solid ${palette.accent}66;border-radius:18% 12% 16% 10%;transform:rotate(2deg)}.class-art span{width:13px;height:13px;border-radius:50%;background:${palette.accent};top:9%}.class-art span:nth-of-type(1){right:14%}.class-art span:nth-of-type(2){right:30%;top:17%;opacity:.7}.class-art span:nth-of-type(3){right:46%;top:25%;opacity:.45}.pitch-art i{inset:3%;border:1px solid ${palette.accent}88;border-radius:50%}.pitch-art i+i{inset:23%;opacity:.6}.pitch-art strong{inset:0;display:flex;align-items:center;justify-content:center;font-size:136px}.pitch-art b{top:auto;left:21%;right:21%;bottom:5%;text-align:center;background:${palette.accent};color:${palette.dark?"#130817":"#ffffff"};border-radius:999px;padding:9px 12px}@media print{.slide{break-after:page}}</style></head><body>${slides}<script>setTimeout(()=>window.print(),500)</script></body></html>`);win.document.close();
+    if(GOOGLE_SLIDE_FONTS.has(font)){const link=win.document.createElement("link");link.rel="stylesheet";link.href=`https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g,"+")}:wght@400;500;600;700;800;900&display=swap`;win.document.head.appendChild(link);}
   };
 
   const exportText=()=>deck&&downloadBlob(new Blob([slideDeckAsText(deck)],{type:"text/plain;charset=utf-8"}),"ghostwriterme-slide-deck.txt");
-  const exportJson=()=>deck&&downloadBlob(new Blob([JSON.stringify({...deck,design:{theme,background,font,titleSize,bodySize}},null,2)],{type:"application/json"}),"ghostwriterme-slide-deck.json");
+  const exportJson=()=>deck&&downloadBlob(new Blob([JSON.stringify({...deck,design:{theme,backgroundColor:background,font,titleSize,bodySize}},null,2)],{type:"application/json"}),"ghostwriterme-slide-deck.json");
   const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setSelectedSlide(0);setError("");};
 
   return(
@@ -4034,24 +4249,25 @@ function SlideGeneratorMode({user}){
       <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:10,padding:"11px 12px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="slides" size={20} color={C.blueText}/><div><div style={{fontSize:13,fontWeight:800,color:C.blueText}}>Slide Generator</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Choose the story and visual system. Ghosty builds the deck, then exports it in the format you need.</div></div></div>
       {!deck&&<>
         <FArea label="Topic" placeholder="e.g. A launch plan for a sustainable fashion brand" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
-        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FSelect label="Number of Slides" value={slideCount} onChange={setSlideCount} options={[{value:"5",label:"5 slides"},{value:"8",label:"8 slides"},{value:"10",label:"10 slides"},{value:"12",label:"12 slides"}]}/></div>
+        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FSelect label="Number of Slides" value={slideCount} onChange={setSlideCount} options={[{value:"5",label:"5 slides"},{value:"8",label:"8 slides"},{value:"10",label:"10 slides"},{value:"12",label:"12 slides"},{value:"15",label:"15 slides"},{value:"20",label:"20 slides"}]}/></div>
         <FArea label="Details (optional)" placeholder="Facts, sections, data, call to action, or anything the deck must include..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
         <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>setTheme(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
-        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Background</div><div className="studio-grid-3">{Object.entries(SLIDE_BACKGROUNDS).map(([id,bg])=><StudioChoice key={id} active={background===id} onClick={()=>setBackground(id)} title={bg.name} swatch={bg.preview}/>)}</div></div>
+        <div style={{marginBottom:13}}><label htmlFor="slide-background-color" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",display:"block",marginBottom:7}}>Background Color</label><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",alignItems:"center",gap:10,minHeight:58,padding:"9px 11px",border:`1px solid ${C.border}`,borderRadius:10,background:C.surface}}><div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}><span aria-hidden="true" style={{width:36,height:36,borderRadius:10,background:palette.preview,border:"1px solid rgba(255,255,255,0.22)",boxShadow:`0 0 20px ${palette.accent}22`,flexShrink:0}}/><span style={{minWidth:0}}><span style={{display:"block",fontSize:13,fontWeight:850,color:C.text}}>Choose any color</span><span style={{display:"block",fontSize:11.5,color:C.muted,marginTop:2}}>Ghosty builds a readable palette around {background.toUpperCase()}</span></span></div><input id="slide-background-color" aria-label="Choose any slide background color" type="color" value={background} onChange={e=>setBackground(normalizeSlideHex(e.target.value))} style={{width:48,height:42,padding:3,border:`1px solid ${C.border}`,borderRadius:9,background:C.card,cursor:"pointer"}}/></div></div>
         <div className="studio-grid-3" style={{marginBottom:13}}><FSelect label="Font" value={font} onChange={setFont} options={SLIDE_FONTS}/><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Title Size · {titleSize}</label><input aria-label="Slide title size" type="range" min="26" max="48" value={titleSize} onChange={e=>setTitleSize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Text Size · {bodySize}</label><input aria-label="Slide text size" type="range" min="14" max="28" value={bodySize} onChange={e=>setBodySize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div></div>
         <PriBtn onClick={generateSlides} loading={loading} disabled={!topic.trim()}><IconLabel name="slides">Generate Slide Deck</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}
       </>}
 
       {deck&&currentSlide&&<div style={{animation:"fadeUp 0.3s ease"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:11}}><div><div style={{fontSize:17,fontWeight:900,color:C.text}}>{deck.title}</div>{deck.subtitle&&<div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{deck.subtitle}</div>}</div><PlanBadge plan="pro"/></div>
-        <div className="studio-slide-shell" style={{background:palette.preview,color:palette.text,fontFamily:`${font},Arial,sans-serif`,padding:"clamp(18px,5vw,38px)",display:"flex",flexDirection:"column",justifyContent:"center",boxShadow:"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease"}}>
+        <div className="studio-slide-shell" style={{background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),padding:"clamp(18px,5vw,38px)",display:"flex",flexDirection:"column",justifyContent:"center",boxShadow:"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease"}}>
           <div style={{position:"absolute",inset:0,background:"linear-gradient(115deg,rgba(255,255,255,0.08),transparent 34%,rgba(255,255,255,0.03))",pointerEvents:"none"}}/>
-          <div style={{position:"relative",zIndex:1,fontSize:10,color:palette.accent,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>{currentSlide.eyebrow||deck.title}</div>
-          <div style={{position:"relative",zIndex:1,fontSize:`clamp(22px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",maxWidth:"88%",marginBottom:12}}>{currentSlide.title}</div>
-          <ul style={{position:"relative",zIndex:1,paddingLeft:18,color:palette.muted,fontSize:`clamp(12px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.55,maxWidth:"88%"}}>{(currentSlide.bullets||[]).slice(0,6).map((x,i)=><li key={i} style={{marginBottom:5}}>{x}</li>)}</ul>
+          <SlideArtwork theme={theme} slide={currentSlide} index={selectedSlide} palette={palette}/>
+          <div style={{position:"relative",zIndex:2,maxWidth:"62%"}}><div style={{fontSize:10,color:palette.accent,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:10}}>{currentSlide.eyebrow||deck.title}</div>
+          <div style={{fontSize:`clamp(22px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",marginBottom:12}}>{currentSlide.title}</div>
+          <ul style={{paddingLeft:18,color:palette.muted,fontSize:`clamp(12px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.55,marginBottom:0}}>{(currentSlide.bullets||[]).slice(0,5).map((x,i)=><li key={i} style={{marginBottom:5}}>{x}</li>)}</ul></div>
           <div style={{position:"absolute",right:18,bottom:13,fontSize:10,color:palette.muted}}>{selectedSlide+1} / {deck.slides.length}</div>
         </div>
-        <div style={{display:"flex",gap:7,overflowX:"auto",padding:"9px 1px 12px"}}>{deck.slides.map((slide,i)=><button key={i} type="button" aria-label={`Open slide ${i+1}: ${slide.title}`} aria-current={selectedSlide===i?"true":undefined} onClick={()=>setSelectedSlide(i)} style={{flex:"0 0 94px",height:58,borderRadius:7,border:`1px solid ${selectedSlide===i?C.blue:C.border}`,background:palette.preview,color:palette.text,cursor:"pointer",padding:"7px",fontFamily:`${font},Arial,sans-serif`,fontSize:9,fontWeight:800,textAlign:"left",overflow:"hidden",boxShadow:selectedSlide===i?`0 0 0 2px ${C.blueGlow}`:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}><span style={{opacity:0.7,display:"block",fontSize:8,marginBottom:3}}>{i+1}</span>{slide.title}</button>)}</div>
+        <div style={{display:"flex",gap:7,overflowX:"auto",padding:"9px 1px 12px"}}>{deck.slides.map((slide,i)=><button key={i} type="button" aria-label={`Open slide ${i+1}: ${slide.title}`} aria-current={selectedSlide===i?"true":undefined} onClick={()=>setSelectedSlide(i)} style={{flex:"0 0 94px",height:58,borderRadius:7,border:`1px solid ${selectedSlide===i?C.blue:C.border}`,background:palette.preview,color:palette.text,cursor:"pointer",padding:"7px",fontFamily:slideFontStack(font),fontSize:9,fontWeight:800,textAlign:"left",overflow:"hidden",boxShadow:selectedSlide===i?`0 0 0 2px ${C.blueGlow}`:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}><span style={{opacity:0.7,display:"block",fontSize:8,marginBottom:3,color:palette.accent}}>{i+1}</span>{slide.title}</button>)}</div>
         <div className="studio-grid-2" style={{marginBottom:10}}><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Speaker notes</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{currentSlide.speakerNotes||"No notes for this slide."}</div></Card><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Visual direction</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6}}>{currentSlide.visualDirection||"Use the selected background and keep visuals simple."}</div></Card></div>
         <Card><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Export deck</div><div className="studio-export-row"><StudioExportButton icon="pdf" label="PDF / Print" onClick={exportPdf}/><StudioExportButton icon="word" label="Word" onClick={exportWord}/><StudioExportButton icon="image" label="Current PNG" onClick={()=>exportImage("image/png")}/><StudioExportButton icon="camera" label="Current JPEG" onClick={()=>exportImage("image/jpeg")}/><StudioExportButton icon="document" label="Text Outline" onClick={exportText}/><StudioExportButton icon="code" label="JSON" onClick={exportJson}/></div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:8}}>PDF opens your browser's print dialog. PNG and JPEG export the slide currently in view at 1600×900.</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={slideDeckAsText(deck)}/><ListenBtn text={slideDeckAsText(deck)}/><GenMoreBtn onClick={reset} loading={loading} label="New Deck"/></div></Card>
       </div>}
