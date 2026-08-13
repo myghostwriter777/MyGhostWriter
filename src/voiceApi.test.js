@@ -1,6 +1,6 @@
 import voicesHandler from "../api/elevenlabs-voices";
 import speechHandler from "../api/elevenlabs-speech";
-import { splitSpeechText } from "./voiceApi";
+import { DEVICE_SPEECH_CHUNK_LIMIT, splitSpeechText } from "./voiceApi";
 
 function mockResponse(){
   const res={statusCode:200,body:null,headers:{}};
@@ -106,5 +106,13 @@ test("long narration is split into provider-safe sections",()=>{
   const chunks=splitSpeechText(text,4800);
   expect(chunks.length).toBeGreaterThan(1);
   expect(chunks.every(chunk=>chunk.length<=4800)).toBe(true);
+  expect(chunks.join(" ").replace(/\s+/g," ").trim()).toBe(text.replace(/\s+/g," ").trim());
+});
+
+test("device narration uses short mobile-safe sections",()=>{
+  const text="A concise sentence. ".repeat(80);
+  const chunks=splitSpeechText(text,DEVICE_SPEECH_CHUNK_LIMIT);
+  expect(chunks.length).toBeGreaterThan(1);
+  expect(chunks.every(chunk=>chunk.length<=DEVICE_SPEECH_CHUNK_LIMIT)).toBe(true);
   expect(chunks.join(" ").replace(/\s+/g," ").trim()).toBe(text.replace(/\s+/g," ").trim());
 });

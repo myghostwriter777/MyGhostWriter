@@ -4,7 +4,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import GwmIcon from "./GwmIcon";
 import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
-import { detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS, MEETING_MICROPHONE_OPTIONS, MEETING_SELF_MICROPHONE_OPTIONS, mixMeetingAudio } from "./meetingCapture";
+import { detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
 import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
 import { DEVICE_VOICE_ID, fetchVoiceCatalog, getSavedVoiceId, saveVoiceId, speak, stopSpeak } from "./voiceApi";
@@ -307,15 +307,26 @@ const MODES = [
   { id:"presentation",icon:"presentation",label:"Present",access:"pro+student" },
   { id:"interview",icon:"interview",label:"Interview",   access:"pro+student" },
   { id:"slides",   icon:"slides",   label:"Slides",      access:"pro+student" },
-  { id:"study",    icon:"study",    label:"Study",       access:"student"     },
-  { id:"meeting",  icon:"meeting",  label:"Meeting",     access:"student"     },
-  { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
   { id:"cv",       icon:"cv",       label:"CV/Resume",   access:"pro+student" },
   { id:"author",   icon:"author",   label:"Author",      access:"pro+student" },
   { id:"story",    icon:"story",    label:"Story Guide", access:"pro+student" },
+  { id:"study",    icon:"study",    label:"Study",       access:"student"     },
+  { id:"meeting",  icon:"meeting",  label:"Meeting",     access:"student"     },
+  { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
   { id:"humanize", icon:"humanize", label:"Humanize",    access:"student"     },
   { id:"history",  icon:"history",  label:"History",     access:"free"        },
 ];
+
+// The app has more tools than a conventional five-item tab bar can support.
+// A four-destination plan rail keeps the primary hierarchy predictable, then
+// exposes only the tools for the selected plan in the secondary row.
+const NAV_GROUPS=[
+  {id:"free",label:"Free",modeIds:["reply","email","grammar"]},
+  {id:"pro",label:"Pro",modeIds:["essay","presentation","interview","slides","cv","author","story"]},
+  {id:"student",label:"Master",modeIds:["study","meeting","academic","humanize"]},
+  {id:"history",label:"History",modeIds:["history"]},
+];
+const modeGroup=id=>NAV_GROUPS.find(group=>group.modeIds.includes(id))||NAV_GROUPS[0];
 
 // One semantic tier palette drives every mode icon. The text variants remain
 // readable in light mode, while `solid` gives active indicators a consistent
@@ -324,8 +335,9 @@ const MODE_TIER_VISUALS={
   free:{solid:C.green,color:C.greenText,soft:"rgba(61,219,164,0.11)"},
   pro:{solid:C.blue,color:C.blueText,soft:C.accentSoft},
   student:{solid:C.magenta,color:C.magentaText,soft:C.magentaSoft},
+  history:{solid:C.violet,color:C.violetText,soft:C.violetSoft},
 };
-const modeTier=mode=>mode?.access==="free"?"free":mode?.access==="student"?"student":"pro";
+const modeTier=mode=>mode?.id==="history"?"history":mode?.access==="free"?"free":mode?.access==="student"?"student":"pro";
 const modeVisual=mode=>MODE_TIER_VISUALS[modeTier(mode)];
 const modeVisualById=id=>modeVisual(MODES.find(mode=>mode.id===id));
 
@@ -726,15 +738,18 @@ function CopyBtn({text}){
 
 function ListenBtn({text}){
   const [on,setOn]=useState(false);
+  const [voiceError,setVoiceError]=useState("");
+  const playableText=typeof text==="string"?text:String(text||"");
   const toggle=async()=>{
     if(on){stopSpeak();setOn(false);return;}
+    if(!playableText.trim()){setVoiceError("Nothing to read aloud.");return;}
     const language=selectedLanguage();
-    setOn(true);
-    try{await speak(text,{language:language.value,speechLocale:language.speech});}
-    catch(error){if(error?.name!=="AbortError")console.warn("Voice playback failed",error);}
+    setVoiceError("");setOn(true);
+    try{await speak(playableText,{language:language.value,speechLocale:language.speech});}
+    catch(error){if(error?.name!=="AbortError"){console.warn("Voice playback failed",error);setVoiceError(error?.message||"Voice playback is unavailable on this device.");}}
     finally{setOn(false);}
   };
-  return <button onClick={toggle} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${on?C.blue:C.border}`,color:on?C.blueText:C.muted,fontSize:12,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}><IconLabel name={on?"stop":"volume"}>{on?"Stop":"Listen"}</IconLabel></button>;
+  return <span style={{display:"inline-flex",flexDirection:"column",alignItems:"flex-start",gap:3}}><button onClick={toggle} disabled={!playableText.trim()} title={voiceError||undefined} style={{padding:"6px 12px",borderRadius:6,background:on?C.accentSoft:"transparent",border:`1px solid ${voiceError?C.red:on?C.blue:C.border}`,color:voiceError?C.redText:on?C.blueText:C.muted,fontSize:12,cursor:playableText.trim()?"pointer":"not-allowed",fontFamily:"inherit",transition:"all 0.2s",display:"flex",alignItems:"center",gap:5}}><IconLabel name={voiceError?"alert":on?"stop":"volume"}>{voiceError?"Try voice again":on?"Stop":"Listen"}</IconLabel></button>{voiceError&&<span role="status" style={{fontSize:10.5,color:C.redText,maxWidth:190,lineHeight:1.35}}>{voiceError}</span>}</span>;
 }
 
 const OutputActions=({text})=>(<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={text}/><ListenBtn text={text}/></div>);
@@ -2501,9 +2516,57 @@ const fmtGrammarHistory=r=>[
   fmtSection("Rewritten Text",r.rewritten||""),
 ].filter(Boolean).join("\n\n");
 
+const SLIDE_HISTORY_PREFIX="GWM_SLIDE_DECK_V1\n";
+const encodeSlideHistory=(deck,design)=>SLIDE_HISTORY_PREFIX+JSON.stringify({deck,design});
+const legacySlideDeckFromText=(item,text)=>{
+  const input=String(text||"");
+  const pattern=/(?:^|\n)SLIDE\s+\d+:\s*([^\n]+)\n([\s\S]*?)(?=\n\nSLIDE\s+\d+:|$)/gi;
+  const slides=[];let match;
+  while((match=pattern.exec(input))){
+    const section=match[2]||"";
+    const noteMatch=section.match(/\n\s*Speaker notes:\s*([\s\S]*)$/i);
+    const bulletSection=noteMatch?section.slice(0,noteMatch.index):section;
+    const bullets=bulletSection.split("\n").map(line=>line.replace(/^\s*(?:•|â€¢|-)+\s*/,"").trim()).filter(Boolean);
+    slides.push({title:match[1].trim(),eyebrow:item?.title||"Slide Deck",bullets,speakerNotes:noteMatch?.[1]?.trim()||"",visualType:["signal","spotlight","steps","comparison","constellation","gallery"][slides.length%6],visualLabel:""});
+  }
+  return slides.length?{title:item?.title||"Slide Deck",subtitle:"Recovered from History",slides}:null;
+};
+const historySlidePayload=item=>{
+  if(item?.deck?.slides?.length)return{deck:item.deck,design:item.slideDesign||{}};
+  const output=String(item?.output||"");
+  if(output.startsWith(SLIDE_HISTORY_PREFIX)){
+    try{const parsed=JSON.parse(output.slice(SLIDE_HISTORY_PREFIX.length));if(parsed?.deck?.slides?.length)return parsed;}catch{}
+  }
+  const legacy=legacySlideDeckFromText(item,output);
+  return legacy?{deck:legacy,design:{}}:null;
+};
+const objectAsReadableText=value=>{
+  if(value==null)return"";
+  if(typeof value==="string")return value;
+  if(Array.isArray(value))return value.map(objectAsReadableText).filter(Boolean).join("\n");
+  if(typeof value==="object")return Object.entries(value).map(([key,entry])=>`${key}: ${objectAsReadableText(entry)}`).join("\n");
+  return String(value);
+};
+const historyOutputText=item=>{
+  const slides=item?.mode==="slides"?historySlidePayload(item):null;
+  return slides?slideDeckAsText(slides.deck):objectAsReadableText(item?.output);
+};
+
+function HistorySlideDeckPreview({item}){
+  const payload=historySlidePayload(item);const [index,setIndex]=useState(0);
+  useEffect(()=>setIndex(0),[item?.id]);
+  if(!payload)return null;
+  const {deck}=payload;const design=payload.design||{};const theme=design.theme||"executive";const background=design.background||"#07111d";const font=design.font||"Cabinet Grotesk";const titleSize=Number(design.titleSize)||34;const bodySize=Number(design.bodySize)||18;const palette=slidePalette(background,theme);const current=deck.slides[Math.min(index,deck.slides.length-1)];
+  return <div style={{marginBottom:14}}>
+    <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Saved slide deck</div>
+    <SlideFrame deck={deck} slide={current} index={index} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:9}}><button type="button" aria-label="Previous slide" disabled={index===0} onClick={()=>setIndex(value=>Math.max(0,value-1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===0?C.muted:C.text,cursor:index===0?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===0?0.55:1}}><GwmIcon name="arrowLeft" size={17}/></button><div style={{flex:1,display:"flex",gap:6,overflowX:"auto",padding:"3px 0"}}>{deck.slides.map((slide,slideIndex)=><button key={slideIndex} type="button" aria-label={`Open slide ${slideIndex+1}: ${slide.title}`} aria-current={slideIndex===index?"true":undefined} onClick={()=>setIndex(slideIndex)} style={{width:38,height:38,flex:"0 0 38px",borderRadius:8,border:`1px solid ${slideIndex===index?palette.accent:C.border}`,background:slideIndex===index?palette.accent:C.surface,color:slideIndex===index?(palette.dark?"#071018":"#ffffff"):C.muted,fontSize:11,fontWeight:900,cursor:"pointer"}}>{slideIndex+1}</button>)}</div><button type="button" aria-label="Next slide" disabled={index===deck.slides.length-1} onClick={()=>setIndex(value=>Math.min(deck.slides.length-1,value+1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===deck.slides.length-1?C.muted:C.text,cursor:index===deck.slides.length-1?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===deck.slides.length-1?0.55:1}}><GwmIcon name="chevronRight" size={17}/></button></div>
+  </div>;
+}
+
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
-const HIST_ML={reply:"AI Reply",email:"Email",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",cv:"CV",author:"Author",grammar:"Grammar",humanize:"Humanize",story:"Story Guide"};
-const HIST_MI={reply:"reply",email:"mail",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",study:"study",meeting:"meeting",academic:"academic",cv:"cv",author:"author",grammar:"grammar",humanize:"humanize",story:"story"};
+const HIST_ML={reply:"AI Reply",email:"Email",grammar:"Grammar",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",cv:"CV",author:"Author",story:"Story Guide",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",humanize:"Humanize"};
+const HIST_MI={reply:"reply",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",cv:"cv",author:"author",story:"story",study:"study",meeting:"meeting",academic:"academic",humanize:"humanize"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
 const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,modeVisual(m).solid]));
@@ -2514,9 +2577,11 @@ const ClockIcon=({size=14,color="currentColor"})=>(<svg width={size} height={siz
 // shows everything with copy/listen/save actions.
 function HistoryDetailModal({item,onClose,onDelete}){
   const historyVisual=modeVisualById(item.mode);
+  const outputText=historyOutputText(item);
+  const hasSlides=item.mode==="slides"&&!!historySlidePayload(item);
   return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div role="dialog" aria-modal="true" aria-label="History details" style={{width:"100%",maxWidth:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",animation:"slideUpModal 0.3s ease",maxHeight:"calc(100dvh - 12px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div role="dialog" aria-modal="true" aria-label="History details" style={{width:"100%",maxWidth:hasSlides?760:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px 14px 0 0",animation:"slideUpModal 0.3s ease",maxHeight:"calc(100dvh - 12px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{overflowY:"auto",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",padding:"14px 16px 16px"}}>
           <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
@@ -2533,14 +2598,14 @@ function HistoryDetailModal({item,onClose,onDelete}){
               <div style={{fontSize:13,color:C.text,lineHeight:1.7,whiteSpace:"pre-wrap",overflowWrap:"anywhere",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>{item.input}</div>
             </div>
           )}
-          <div style={{marginBottom:12}}>
+          {hasSlides?<HistorySlideDeckPreview item={item}/>:<div style={{marginBottom:12}}>
             <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Generated Content</div>
-            <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",overflowWrap:"anywhere",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>{item.output}</div>
-          </div>
+            <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",overflowWrap:"anywhere",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>{outputText}</div>
+          </div>}
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            <CopyBtn text={item.output||""}/>
-            <ListenBtn text={item.output||""}/>
-            <SaveAsImageBtn text={item.output||""} title={HIST_ML[item.mode]||"History"}/>
+            <CopyBtn text={outputText}/>
+            <ListenBtn text={outputText}/>
+            <SaveAsImageBtn text={outputText} title={HIST_ML[item.mode]||"History"}/>
           </div>
         </div>
         <div style={{flexShrink:0,padding:"10px 16px calc(10px + env(safe-area-inset-bottom, 0px))",background:C.card,borderTop:`1px solid ${C.border}`,boxShadow:"0 -10px 24px rgba(0,0,0,0.22)",display:"flex",gap:8}}>
@@ -3545,7 +3610,6 @@ function MeetingAssistMode({user}){
   const [platform,setPlatform]=useState(MEETING_PLATFORMS[0]);
   const [context,setContext]=useState("");
   const [consent,setConsent]=useState(false);
-  const [captureMode,setCaptureMode]=useState(()=>captureProfile.recommendedMode);
   const [active,setActive]=useState(false);
   const [processing,setProcessing]=useState(false);
   const [transcript,setTranscript]=useState("");
@@ -3560,9 +3624,7 @@ function MeetingAssistMode({user}){
   const [overlayWindow,setOverlayWindow]=useState(null);
   const [saved,setSaved]=useState(false);
   const displayStreamRef=useRef(null);
-  const microphoneStreamRef=useRef(null);
   const recordingStreamRef=useRef(null);
-  const audioContextRef=useRef(null);
   const recorderRef=useRef(null);
   const timerRef=useRef(null);
   const activeRef=useRef(false);
@@ -3585,12 +3647,10 @@ function MeetingAssistMode({user}){
   const pendingSuggestionRef=useRef("");
   const processingCountRef=useRef(0);
   const canShareAudio=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getDisplayMedia;
-  const canUseMicrophone=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getUserMedia;
   const canUseBrowserSpeech=typeof window!=="undefined"&&!!(window.SpeechRecognition||window.webkitSpeechRecognition);
   const canRecordAudio=typeof window!=="undefined"&&"MediaRecorder" in window;
   const canUseOverlay=typeof window!=="undefined"&&!!window.documentPictureInPicture?.requestWindow;
-  const hasAudioCapture=captureMode==="microphone"?canUseMicrophone:canShareAudio;
-  const canCapture=hasAudioCapture&&(canUseBrowserSpeech||canRecordAudio);
+  const canCapture=captureProfile.remoteAudioOnlyAvailable&&canShareAudio&&(canUseBrowserSpeech||canRecordAudio);
 
   useEffect(()=>{transcriptRef.current=transcript;},[transcript]);
   useEffect(()=>()=>{
@@ -3599,9 +3659,7 @@ function MeetingAssistMode({user}){
     try{recognitionRef.current?.abort?.();}catch(e){}
     try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
     displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-    microphoneStreamRef.current?.getTracks().forEach(track=>track.stop());
     recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-    try{audioContextRef.current?.close?.();}catch(e){}
     try{overlayWindowRef.current?.close?.();}catch(e){}
   },[]);
 
@@ -3818,8 +3876,7 @@ function MeetingAssistMode({user}){
     };
     recognitionRef.current=recognition;
     try{
-      if(captureMode==="shared")recognition.start(audioTrack);
-      else recognition.start();
+      recognition.start(audioTrack);
       setTranscriptionEngine(localSpeechRef.current?"offline":"browser");
       return true;
     }catch{
@@ -3836,13 +3893,9 @@ function MeetingAssistMode({user}){
     recognitionRef.current=null;setInterimTranscript("");
     try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
     displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-    microphoneStreamRef.current?.getTracks().forEach(track=>track.stop());
     recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-    try{audioContextRef.current?.close?.();}catch(e){}
     displayStreamRef.current=null;
-    microphoneStreamRef.current=null;
     recordingStreamRef.current=null;
-    audioContextRef.current=null;
   };
   stopSessionRef.current=stopSession;
 
@@ -3852,38 +3905,15 @@ function MeetingAssistMode({user}){
     try{
       const speechReady=await prepareOfflineSpeech();
       if(!speechReady)return;
-      const stream=captureMode==="microphone"
-        ?await navigator.mediaDevices.getUserMedia(MEETING_MICROPHONE_OPTIONS)
-        :await navigator.mediaDevices.getDisplayMedia(MEETING_DISPLAY_OPTIONS);
+      const stream=await navigator.mediaDevices.getDisplayMedia(MEETING_DISPLAY_OPTIONS);
       if(!stream.getAudioTracks().length){
         const surface=stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
         stream.getTracks().forEach(track=>track.stop());
-        if(captureMode==="microphone")throw new Error("No microphone audio source was found. Check this browser's microphone permission and your selected input device.");
-        throw new Error(surface==="browser"?"The selected tab did not provide an audio track. In Chrome or Edge, select the meeting tab and enable Share tab audio.":"The selected window or screen did not provide an audio track. Try a meeting tab in Chrome or Edge, or switch to the microphone fallback.");
+        throw new Error(surface==="browser"?"The selected tab did not provide an audio track. In Chrome or Edge, select the meeting tab and enable Share tab audio.":"The selected window or screen did not provide an audio track. Choose the meeting tab in Chrome or Edge and enable its audio.");
       }
-      if(captureMode==="microphone"){
-        microphoneStreamRef.current=stream;
-        recordingStreamRef.current=stream;
-        setCaptureNotice("Microphone audio is connected. Remote voices are captured only when the meeting plays through your device speakers.");
-      }else{
-        displayStreamRef.current=stream;
-        recordingStreamRef.current=new MediaStream(stream.getAudioTracks());
-        try{
-          const microphone=await navigator.mediaDevices.getUserMedia(MEETING_SELF_MICROPHONE_OPTIONS);
-          microphoneStreamRef.current=microphone;
-          const mixed=mixMeetingAudio(stream,microphone);
-          audioContextRef.current=mixed.audioContext;
-          await mixed.audioContext.resume?.();
-          recordingStreamRef.current=mixed.stream;
-          setCaptureNotice("Meeting audio and your microphone are connected. Remote participants and your own voice can both be transcribed.");
-        }catch{
-          microphoneStreamRef.current?.getTracks().forEach(track=>track.stop());
-          microphoneStreamRef.current=null;
-          try{audioContextRef.current?.close?.();}catch{}
-          audioContextRef.current=null;
-          setCaptureNotice("Meeting audio is connected, but microphone access was not granted. Remote participants can be transcribed; your own voice may be missing.");
-        }
-      }
+      displayStreamRef.current=stream;
+      recordingStreamRef.current=new MediaStream(stream.getAudioTracks());
+      setCaptureNotice("Meeting audio is connected. Your microphone is not opened, so GhostwriterMe listens only to audio from the shared meeting source.");
       activeRef.current=true;setActive(true);
       processingCountRef.current=0;setProcessing(false);pendingSuggestionRef.current="";
       const ended=()=>stopSession();
@@ -3897,12 +3927,10 @@ function MeetingAssistMode({user}){
     }catch(e){
       activeRef.current=false;setActive(false);
       displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-      microphoneStreamRef.current?.getTracks().forEach(track=>track.stop());
       recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-      try{audioContextRef.current?.close?.();}catch{}
-      displayStreamRef.current=null;microphoneStreamRef.current=null;recordingStreamRef.current=null;audioContextRef.current=null;
+      displayStreamRef.current=null;recordingStreamRef.current=null;
       if(e?.name!=="NotAllowedError")setError(e.message||"Screen audio sharing could not start.");
-      else setError(captureMode==="microphone"?"Microphone permission was not granted. Nothing was recorded.":"Sharing was cancelled. Nothing was recorded.");
+      else setError("Sharing was cancelled. Nothing was recorded.");
     }
   };
 
@@ -3915,19 +3943,16 @@ function MeetingAssistMode({user}){
   return(
     <div>
       <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Live words in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>{captureMode==="microphone"?"GhostwriterMe listens only while this session is active and uses on-device Whisper when browser speech is unavailable.":"GhostwriterMe combines meeting audio with your microphone and transcribes it on your device. No transcription account or credit card is required."}</div></div></div>
+        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Remote voices in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>GhostwriterMe listens only to the meeting tab or system audio you share. Your device microphone stays off, so your own voice is excluded from capture.</div></div></div>
       </Card>
       {captureProfile.firefoxLike&&<Card style={{marginBottom:14,padding:"12px 13px",background:"rgba(245,200,66,0.07)",border:"1px solid rgba(245,200,66,0.28)"}}>
-        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="info" size={18} color={C.yellowText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.yellowText}}>Zen / Firefox microphone fallback</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Zen and Firefox cannot share a meeting tab's audio directly. Use Microphone fallback with the meeting playing through your speakers; GhostwriterMe will transcribe locally with Whisper.</div></div></div>
+        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="info" size={18} color={C.yellowText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.yellowText}}>Remote-only capture needs Chrome or Edge</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Zen and Firefox cannot provide a meeting tab's audio track to this web app. Open GhostwriterMe and the meeting in current desktop Chrome or Edge; the microphone fallback has been removed so your voice is never mixed in.</div></div></div>
       </Card>}
       {captureProfile.mobile&&<Card style={{marginBottom:14,padding:"12px 13px",background:"rgba(121,186,236,0.07)",border:"1px solid rgba(121,186,236,0.25)"}}>
-        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="mic" size={18} color={C.blueText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Native / mobile microphone mode</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Mobile browsers cannot pass a shared meeting track into speech recognition. GhostwriterMe uses the microphone instead; play the meeting through device speakers so remote voices can be heard.</div></div></div>
+        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="meeting" size={18} color={C.blueText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Remote-only capture is desktop-only for now</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Mobile web cannot provide another app's playback audio without also using the microphone. Use desktop Chrome or Edge so GhostwriterMe can hear the shared meeting source without recording you.</div></div></div>
       </Card>}
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Audio source</div>
-      <div className="studio-option-grid" style={{marginBottom:13}}>
-        <button type="button" aria-pressed={captureMode==="shared"} onClick={()=>{if(!active&&!captureProfile.firefoxLike){setCaptureMode("shared");setCaptureNotice("");}}} disabled={active||captureProfile.firefoxLike||!canShareAudio} title={captureProfile.firefoxLike?"Zen / Firefox cannot provide tab or system audio to this web app.":"Capture a supported browser tab, window, or system audio source."} style={{minHeight:48,padding:"9px 10px",borderRadius:8,border:`1px solid ${captureMode==="shared"?C.magenta:C.border}`,background:captureMode==="shared"?C.magentaSoft:C.surface,color:captureProfile.firefoxLike?C.muted:captureMode==="shared"?C.magentaText:C.text,fontFamily:"inherit",fontWeight:800,cursor:active||captureProfile.firefoxLike?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:8,opacity:captureProfile.firefoxLike?0.55:1}}><GwmIcon name="meeting" size={16}/><span style={{textAlign:"left"}}>Meeting + microphone<span style={{display:"block",fontSize:10.5,fontWeight:500,color:C.muted,marginTop:2}}>{captureProfile.firefoxLike?"Chrome or Edge required":"Mixed direct capture"}</span></span></button>
-        <button type="button" aria-pressed={captureMode==="microphone"} onClick={()=>{if(!active){setCaptureMode("microphone");setCaptureNotice("");}}} disabled={active||!canUseMicrophone} style={{minHeight:48,padding:"9px 10px",borderRadius:8,border:`1px solid ${captureMode==="microphone"?C.magenta:C.border}`,background:captureMode==="microphone"?C.magentaSoft:C.surface,color:captureMode==="microphone"?C.magentaText:C.text,fontFamily:"inherit",fontWeight:800,cursor:active?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:8}}><GwmIcon name="mic" size={16}/><span style={{textAlign:"left"}}>Microphone fallback<span style={{display:"block",fontSize:10.5,fontWeight:500,color:C.muted,marginTop:2}}>Use device speakers</span></span></button>
-      </div>
+      <div style={{marginBottom:13,minHeight:54,padding:"10px 12px",borderRadius:9,border:`1px solid ${canCapture?C.magenta:C.border}`,background:canCapture?C.magentaSoft:C.surface,color:canCapture?C.magentaText:C.muted,display:"flex",alignItems:"center",gap:9}}><GwmIcon name="meeting" size={17}/><span style={{fontSize:13,fontWeight:850}}>Meeting audio only<span style={{display:"block",fontSize:11,fontWeight:500,color:C.muted,marginTop:2}}>Local microphone excluded</span></span><span style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:canCapture?C.greenText:C.yellowText}}>{canCapture?"AVAILABLE":"UNAVAILABLE"}</span></div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 11px",marginBottom:13,borderRadius:9,border:`1px solid ${speechSetup==="ready"?"rgba(61,219,164,0.32)":C.border}`,background:speechSetup==="ready"?"rgba(61,219,164,0.07)":C.surface}}>
         <div style={{minWidth:0}}><div style={{fontSize:12.5,fontWeight:850,color:speechSetup==="ready"||speechSetup==="whisper"?C.greenText:C.text}}>{speechSetup==="ready"?"Browser offline speech ready":speechSetup==="whisper"?"On-device Whisper ready":speechSetup==="downloading"?`Downloading on-device speech${speechProgress?` · ${speechProgress}`:"…"}`:"Prepare card-free speech"}</div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:2}}>{speechSetup==="ready"?"Recognition stays on this device.":speechSetup==="whisper"?"The model is cached in this browser; meeting audio stays on the device.":"One-time model preparation, then no transcription service or credit card is required."}</div></div>
         <button type="button" onClick={prepareOfflineSpeech} disabled={preparingSpeech||speechSetup==="ready"||speechSetup==="whisper"} style={{minHeight:36,padding:"7px 10px",borderRadius:8,border:`1px solid ${speechSetup==="ready"||speechSetup==="whisper"?C.green:C.magenta}`,background:speechSetup==="ready"||speechSetup==="whisper"?"rgba(61,219,164,0.1)":C.magentaSoft,color:speechSetup==="ready"||speechSetup==="whisper"?C.greenText:C.magentaText,fontFamily:"inherit",fontSize:11.5,fontWeight:800,cursor:preparingSpeech||speechSetup==="ready"||speechSetup==="whisper"?"default":"pointer",whiteSpace:"nowrap"}}>{preparingSpeech?"Preparing…":speechSetup==="ready"||speechSetup==="whisper"?"Ready":"Prepare Offline"}</button>
@@ -3936,14 +3961,14 @@ function MeetingAssistMode({user}){
       <div className="studio-option-grid" style={{marginBottom:13}}>{MEETING_PLATFORMS.map(item=><button key={item} onClick={()=>setPlatform(item)} disabled={active} style={{minHeight:44,padding:"9px 10px",borderRadius:8,border:`1px solid ${platform===item?C.magenta:C.border}`,background:platform===item?C.magentaSoft:C.surface,color:platform===item?C.magentaText:C.muted,fontFamily:"inherit",fontWeight:700,cursor:active?"default":"pointer",display:"flex",alignItems:"center",gap:7}}><GwmIcon name="meeting" size={15}/>{item}</button>)}</div>
       <FArea label="Details for better replies (optional)" placeholder="Your role, meeting goal, names, or facts the assistant should know..." value={context} onChange={e=>setContext(e.target.value)} rows={3}/>
       <button type="button" role="checkbox" aria-checked={consent} onClick={()=>!active&&setConsent(!consent)} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",marginBottom:12,borderRadius:9,border:`1px solid ${consent?C.magenta:C.border}`,background:consent?C.magentaSoft:C.surface,color:consent?C.text:C.muted,textAlign:"left",fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,cursor:active?"default":"pointer"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${consent?C.magenta:C.border}`,background:consent?C.magenta:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{consent&&<GwmIcon name="check" size={12} color="#071018" strokeWidth={2.5}/>}</span><span>I have permission to capture this meeting audio and will follow the meeting platform, workplace, and local recording rules.</span></button>
-      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">{!canRecordAudio&&!canUseBrowserSpeech?"This browser supports neither speech recognition nor audio recording for Meeting Assist.":captureMode==="microphone"?"This browser cannot access a microphone for Meeting Assist.":"This browser cannot share tab or system audio with Meeting Assist."}</IconLabel></div>}
-      {!active?<PriBtn onClick={startSession} loading={preparingSpeech} disabled={!consent||!canCapture||preparingSpeech} variant="violet"><IconLabel name={captureMode==="microphone"?"mic":"meeting"}>{captureMode==="microphone"?"Start Speaker Listening":"Start Meeting Assist"}</IconLabel></PriBtn>:<button onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop listening</button>}
+      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">{captureProfile.firefoxLike?"Open this screen in current desktop Chrome or Edge to share meeting-tab audio without the microphone.":captureProfile.mobile?"Remote-only meeting capture is not available in mobile web. Use desktop Chrome or Edge.":!canRecordAudio&&!canUseBrowserSpeech?"This browser supports neither speech recognition nor audio recording for Meeting Assist.":"This browser cannot share tab or system audio with Meeting Assist."}</IconLabel></div>}
+      {!active?<PriBtn onClick={startSession} loading={preparingSpeech} disabled={!consent||!canCapture||preparingSpeech} variant="violet"><IconLabel name="meeting">Start Remote-Only Meeting Assist</IconLabel></PriBtn>:<button onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop listening</button>}
       <button type="button" onClick={openMeetingOverlay} disabled={!canUseOverlay} title={canUseOverlay?"Open an always-on-top Ghosty panel over Google Meet, Zoom, or Teams.":"Requires current desktop Chrome or Edge."} style={{width:"100%",minHeight:42,marginTop:8,borderRadius:9,border:`1px solid ${canUseOverlay?C.magenta:C.border}`,background:canUseOverlay?C.magentaSoft:C.surface,color:canUseOverlay?C.magentaText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:850,cursor:canUseOverlay?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:7,opacity:canUseOverlay?1:0.65}}><GwmIcon name="ghost" size={16}/>{overlayWindow?"Ghosty Overlay Is Open":"Open Ghosty Answer Overlay"}</button>
-      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>{captureMode==="microphone"?"Nothing is captured until you press Start. This fallback records microphone input, so keep meeting audio on speakers and follow local consent and recording rules.":"Nothing is captured until you press Start. In Chrome or Edge, choose the meeting tab and enable its audio; system audio depends on your operating system."}</div>
+      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. In Chrome or Edge, choose the meeting tab and enable its audio. GhostwriterMe does not request microphone permission.</div>
       {captureNotice&&<div style={{marginTop:10,padding:"10px 12px",background:"rgba(61,219,164,0.07)",border:"1px solid rgba(61,219,164,0.24)",borderRadius:8,fontSize:12.5,color:C.greenText,lineHeight:1.55,display:"flex",gap:8,alignItems:"flex-start"}}><GwmIcon name="info" size={15} color={C.greenText} style={{marginTop:2,flexShrink:0}}/><span>{captureNotice}</span></div>}
       {error&&<ErrBox msg={error}/>}
       {(active||processing||transcript)&&<Card style={{marginTop:14}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:800,color:active?C.greenText:C.muted}}><span style={{width:8,height:8,borderRadius:"50%",background:active?C.green:C.muted,boxShadow:active?`0 0 12px ${C.green}`:"none"}}/>{active?(transcriptionEngine==="whisper"?`${captureMode==="microphone"?"Listening through microphone":"Listening to meeting + microphone"} · On-device Whisper`:captureMode==="microphone"?"Listening through microphone · Offline speech":microphoneStreamRef.current?"Listening to meeting + microphone · Offline speech":"Listening to meeting audio · Offline speech"):processing?"Finishing the last reply":"Session stopped"}</div>{processing&&<span style={{fontSize:11.5,color:C.magentaText}}>Preparing reply…</span>}</div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:800,color:active?C.greenText:C.muted}}><span style={{width:8,height:8,borderRadius:"50%",background:active?C.green:C.muted,boxShadow:active?`0 0 12px ${C.green}`:"none"}}/>{active?(transcriptionEngine==="whisper"?"Listening to remote meeting audio · On-device Whisper":"Listening to remote meeting audio · Offline speech"):processing?"Finishing the last reply":"Session stopped"}</div>{processing&&<span style={{fontSize:11.5,color:C.magentaText}}>Preparing reply…</span>}</div>
         <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Live transcript</div>
         <div aria-live="polite" style={{minHeight:100,maxHeight:240,overflowY:"auto",whiteSpace:"pre-wrap",fontSize:13.5,lineHeight:1.75,color:transcript||interimTranscript?C.text:C.muted,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 12px"}}>{transcript||interimTranscript||"Waiting for speech…"}{transcript&&interimTranscript?<span style={{color:C.muted}}>{"\n"+interimTranscript}</span>:null}</div>
         {suggestion&&<div style={{marginTop:11,padding:"12px",borderRadius:9,background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.25)"}}><div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Suggested reply</div><div style={{whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.7,color:C.text}}>{suggestion}</div><div style={{marginTop:9}}><CopyBtn text={suggestion}/></div></div>}
@@ -4257,7 +4282,7 @@ function SlideGeneratorMode({user}){
       const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized={...result,slides:(result.slides||[]).slice(0,Number(slideCount))};
       if(normalized.slides.length!==Number(slideCount))throw new Error(`Ghosty created ${normalized.slides.length} of ${slideCount} slides. Please generate again.`);
       setDeck(normalized);
-      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${slideCount} slides · ${themeName} · ${background}`,output:slideDeckAsText(normalized)});
+      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${slideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,font,titleSize,bodySize})});
     }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
 
@@ -4580,13 +4605,21 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       </div>
 
       <div className="app-chrome" style={{position:"sticky",bottom:0,background:C.chrome,backdropFilter:"blur(14px)",borderTop:`1px solid ${C.border}`,zIndex:50}}>
-        <div style={{maxWidth:600,margin:"0 auto",display:"flex",overflowX:"auto",padding:"6px 6px"}}>
-          {MODES.map(m=>{
+        <nav aria-label="GhostwriterMe tools" style={{maxWidth:600,margin:"0 auto",padding:"6px 8px 2px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:5,marginBottom:5}}>
+            {NAV_GROUPS.map(group=>{
+              const groupActive=modeGroup(activeMode).id===group.id;
+              const groupVisual=MODE_TIER_VISUALS[group.id];
+              return <button key={group.id} type="button" aria-pressed={groupActive} onClick={()=>changeMode(group.modeIds.includes(activeMode)?activeMode:group.modeIds[0])} style={{minHeight:36,borderRadius:9,border:`1px solid ${groupActive?groupVisual.solid:C.border}`,background:groupActive?groupVisual.soft:"transparent",color:groupActive?groupVisual.color:C.muted,fontFamily:"inherit",fontSize:10.5,fontWeight:900,letterSpacing:"0.07em",textTransform:"uppercase",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"background 0.18s,border-color 0.18s,color 0.18s"}}><span aria-hidden="true" style={{width:6,height:6,borderRadius:"50%",background:groupVisual.solid,boxShadow:groupActive?`0 0 8px ${groupVisual.solid}88`:"none"}}/>{group.label}</button>;
+            })}
+          </div>
+          <div role="group" aria-label={`${modeGroup(activeMode).label} tools`} style={{display:"flex",justifyContent:modeGroup(activeMode).modeIds.length<=4?"center":"flex-start",overflowX:"auto",overscrollBehaviorX:"contain",scrollbarWidth:"thin",padding:"1px 0 4px"}}>
+          {MODES.filter(m=>modeGroup(activeMode).modeIds.includes(m.id)).map(m=>{
             const active=activeMode===m.id;
             const isLocked=locked(m);
             const tierVisual=modeVisual(m);
             return(
-              <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:62,display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"7px 4px",border:"none",background:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
+              <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:68,minHeight:54,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:"6px 5px",border:"none",borderRadius:8,background:active?tierVisual.soft:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
                 <span style={{color:tierVisual.color,opacity:active?1:isLocked?0.42:0.76,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px) scale(1.06)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
                 <span style={{fontSize:10,fontWeight:active?800:500,color:active?tierVisual.color:C.muted,opacity:isLocked?0.5:1,letterSpacing:"0.01em"}}>{m.label}</span>
                 {isLocked&&<span style={{position:"absolute",top:2,right:6,color:tierVisual.color,opacity:0.72}}><GwmIcon name="lock" size={10}/></span>}
@@ -4594,7 +4627,8 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
               </button>
             );
           })}
-        </div>
+          </div>
+        </nav>
         <div style={{textAlign:"center",padding:"4px 0 8px",display:"flex",justifyContent:"center",gap:14}}>
           <button onClick={()=>setShowSettings(true)} style={{fontSize:11,color:C.muted,cursor:"pointer",border:0,background:"transparent",display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="settings" size={12}/>Settings</button>
           <button onClick={()=>setShowContact(true)} style={{fontSize:11,color:C.muted,cursor:"pointer",border:0,background:"transparent",display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="mail" size={12}/>Contact</button>

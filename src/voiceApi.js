@@ -1,6 +1,10 @@
 export const VOICE_KEY = "gwm_voice_v1";
 export const DEVICE_VOICE_ID = "device";
 const SPEECH_CHUNK_LIMIT = 4800;
+// Browser speech synthesis is much less reliable with long utterances,
+// especially in Android WebViews and mobile Chromium. Short chunks keep the
+// speech engine alive and make Stop responsive instead of failing silently.
+export const DEVICE_SPEECH_CHUNK_LIMIT = 220;
 
 let activeAudio = null;
 let activeAudioUrl = "";
@@ -127,19 +131,34 @@ export async function speak(text, options = {}) {
   const language = options.language || "en";
   const speechLocale = options.speechLocale || language;
   const speed = Math.max(0.7, Math.min(1.2, Number(options.speed) || 1));
-  const chunks = splitSpeechText(text);
+  const normalizedText = String(text || "").replace(/<[^>]*>/g, " ").replace(/[ \t]+/g, " ").trim();
+  const chunks = splitSpeechText(normalizedText, voiceId === DEVICE_VOICE_ID ? DEVICE_SPEECH_CHUNK_LIMIT : SPEECH_CHUNK_LIMIT);
   if (!chunks.length) return;
 
   const controller = new AbortController();
   activeController = controller;
   try {
-    for (const chunk of chunks) {
-      if (controller.signal.aborted) break;
-      if (voiceId === DEVICE_VOICE_ID) {
+    if (voiceId === DEVICE_VOICE_ID) {
+      for (const chunk of chunks) {
+        if (controller.signal.aborted) break;
         await speakOnDevice(chunk, speechLocale, speed, controller.signal);
-      } else {
-        const blob = await requestVoiceAudio(chunk, voiceId, language, speed, controller.signal);
-        if (!controller.signal.aborted) await playAudioBlob(blob, 1, controller.signal);
+      }
+    } else {
+      try {
+        for (const chunk of chunks) {
+          if (controller.signal.aborted) break;
+          const blob = await requestVoiceAudio(chunk, voiceId, language, speed, controller.signal);
+          if (!controller.signal.aborted) await playAudioBlob(blob, 1, controller.signal);
+        }
+      } catch (error) {
+        // A missing provider key, quota issue, or transient audio response
+        // should not leave a History Listen button apparently doing nothing.
+        // Fall back to the device voice when the browser provides one.
+        if (controller.signal.aborted || typeof window === "undefined" || !("speechSynthesis" in window)) throw error;
+        for (const chunk of splitSpeechText(normalizedText, DEVICE_SPEECH_CHUNK_LIMIT)) {
+          if (controller.signal.aborted) break;
+          await speakOnDevice(chunk, speechLocale, speed, controller.signal);
+        }
       }
     }
   } finally {
