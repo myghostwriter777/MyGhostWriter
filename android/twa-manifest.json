@@ -20,8 +20,8 @@
     "path": "signing.keystore",
     "alias": "ghostwriterme"
   },
-  "appVersion": "1.0.1",
-  "appVersionCode": 2,
+  "appVersion": "1.0.2",
+  "appVersionCode": 3,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://www.ghostwriterofficial.com/manifest.json",

@@ -9,9 +9,14 @@ GhostwriterMe PWA.
 - Compile SDK: Android 16 / API 36
 - Target SDK: Android 16 / API 36
 - Minimum SDK: API 23
-- Version code: `2`
-- Version name: `1.0.1`
+- Version code: `3`
+- Version name: `1.0.2`
 - Production host: `www.ghostwriterofficial.com`
+
+The wrapper trusts the canonical `www` host. Before testing an updated build,
+install the new version (or clear Chrome's site relationship cache) so Android
+re-verifies `/.well-known/assetlinks.json` and opens the site as a full Trusted
+Web Activity instead of a visible Custom Tab.
 
 The release bundle must be signed with the existing GhostwriterMe upload key
 whose alias is `ghostwriterme`. The keystore and all APK/AAB files are ignored

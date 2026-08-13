@@ -11,7 +11,7 @@
  *    OAuth and history sync behave exactly as they do today.
  */
 
-const CACHE_VERSION = "gwm-v1"; // bump this string to force-refresh old caches
+const CACHE_VERSION = "gwm-v2"; // bump this string to force-refresh old caches
 
 self.addEventListener("install", (event) => {
   // Pre-cache the app shell so offline fallback works from first install.

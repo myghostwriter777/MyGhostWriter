@@ -177,6 +177,15 @@ export default async function handler(req, res) {
     max_tokens: maxOutputTokens,
   };
 
+  // Study Mode may include a public website URL. Anthropic's server-side
+  // search tool lets the model ground that source without our server scraping
+  // arbitrary URLs. Other Studio requests keep the existing no-tool behavior.
+  if (body.use_search === true) {
+    requestBody.tools = [
+      { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+    ];
+  }
+
   if (typeof body.user_id === "string" && body.user_id.trim()) {
     requestBody.metadata = {
       user_id: createHash("sha256")

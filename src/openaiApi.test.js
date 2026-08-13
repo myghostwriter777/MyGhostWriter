@@ -9,23 +9,23 @@ function mockResponse(){
   return res;
 }
 
-describe("OpenAI Studio API route",()=>{
+describe("Studio AI API route",()=>{
   const originalFetch=global.fetch;
-  const originalKey=process.env.OPENAI_API_KEY;
+  const originalKey=process.env.ANTHROPIC_API_KEY;
 
   afterEach(()=>{
     global.fetch=originalFetch;
-    if(originalKey===undefined)delete process.env.OPENAI_API_KEY;
-    else process.env.OPENAI_API_KEY=originalKey;
+    if(originalKey===undefined)delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY=originalKey;
     jest.clearAllMocks();
   });
 
-  test("builds a bounded Responses API request with image and document inputs",async()=>{
-    process.env.OPENAI_API_KEY="test-key";
+  test("builds a bounded Anthropic request with image and document inputs",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
     global.fetch=jest.fn().mockResolvedValue({
       ok:true,
       status:200,
-      json:async()=>({output:[{content:[{type:"output_text",text:"{\"ok\":true}"}]}]}),
+      json:async()=>({content:[{type:"text",text:"{\"ok\":true}"}]}),
     });
     const req={method:"POST",body:{
       system:"Return JSON.",
@@ -46,16 +46,16 @@ describe("OpenAI Studio API route",()=>{
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [,options]=global.fetch.mock.calls[0];
     const payload=JSON.parse(options.body);
-    expect(payload.model).toBe("gpt-5.6-sol");
-    expect(payload.max_output_tokens).toBe(12000);
-    expect(payload.store).toBe(false);
-    expect(payload.safety_identifier).toMatch(/^[a-f0-9]{64}$/);
-    expect(payload.input[0].content.map(item=>item.type)).toEqual(["input_image","input_file","input_text"]);
-    expect(payload.input[0].content[1].filename).toBe("resume.txt");
+    expect(options.headers["x-api-key"]).toBe("test-key");
+    expect(payload.model).toBe("claude-sonnet-4-6");
+    expect(payload.max_tokens).toBe(8192);
+    expect(payload.metadata.user_id).toMatch(/^[a-f0-9]{64}$/);
+    expect(payload.messages[0].content.map(item=>item.type)).toEqual(["image","document","text"]);
+    expect(payload.messages[0].content[1].title).toBe("resume.txt");
   });
 
-  test("rejects unsupported attachments before contacting OpenAI",async()=>{
-    process.env.OPENAI_API_KEY="test-key";
+  test("rejects unsupported attachments before contacting the provider",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
     global.fetch=jest.fn();
     const req={method:"POST",body:{
       system:"Return JSON.",

@@ -2,7 +2,12 @@
   "name": "ghostwriterme",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.0-canary.107",
+    "@huggingface/transformers": "^4.2.0",
     "@stripe/react-stripe-js": "^6.7.0",
     "@stripe/stripe-js": "^9.9.0",
     "@supabase/supabase-js": "^2.108.1",
@@ -10,6 +15,8 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
+    "@vercel/oidc": "^3.2.0",
+    "ai": "^7.0.0-canary.176",
     "mammoth": "^1.12.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -19,7 +26,7 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "node scripts/build.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

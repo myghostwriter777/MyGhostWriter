@@ -32,7 +32,7 @@ const LIST_LIMIT = 200;
 module.exports = async function handler(req, res) {
   // CORS + preflight — mirrors claude.js, which needed this for mobile browsers.
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -121,6 +121,26 @@ module.exports = async function handler(req, res) {
             error: "History table missing — run create-history-table.sql in the Supabase SQL Editor, then try again.",
           });
         }
+        return res.status(500).json({ error: "Database error: " + msg.slice(0, 140) });
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    if (req.method === "DELETE") {
+      const deleteAll = body.all === true;
+      const id = body.id != null ? String(body.id).trim() : "";
+      if (!deleteAll && !id) {
+        return res.status(400).json({ error: "id is required" });
+      }
+      const url =
+        `${SUPABASE_URL}/rest/v1/history?email=eq.${encodeURIComponent(email)}` +
+        (deleteAll ? "" : `&id=eq.${encodeURIComponent(id)}`);
+      const r = await fetch(url, {
+        method: "DELETE",
+        headers: { ...headers, Prefer: "return=minimal" },
+      });
+      if (!r.ok) {
+        const msg = await r.text();
         return res.status(500).json({ error: "Database error: " + msg.slice(0, 140) });
       }
       return res.status(200).json({ ok: true });
