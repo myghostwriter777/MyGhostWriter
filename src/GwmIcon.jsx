@@ -90,6 +90,7 @@ function Glyph({name}){
     case "celebrate": return <><path d="m5 20 3-10 6 6zM8 10l6 6"/><path d="M13 5h.01M17 8h.01M18 3l.5 2M10 3l1 2M20 12l-2-.5"/></>;
     case "timer": return <><circle cx="12" cy="13" r="7.5"/><path d="M9 3h6M12 5.5V3M12 9v4l2.5 1.5"/></>;
     case "trash": return <><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></>;
+    case "expand": return <><path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5"/><path d="m4 9 5-5M15 4l5 5M20 15l-5 5M9 20l-5-5"/></>;
     case "arrowLeft": return <path d="M19 12H5m6-6-6 6 6 6"/>;
     case "arrowRight": case "chevronRight": return <path d="m8 5 7 7-7 7"/>;
     case "chevronDown": return <path d="m5 9 7 7 7-7"/>;

@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/public/pptxgen.bundle.js
 /.pnp
 .pnp.js
 
