@@ -16,6 +16,8 @@ function Glyph({name}){
     case "cv": case "profileDocument": return <><path d="M6 3.5h12V20H6z"/><circle cx="10" cy="9" r="2"/><path d="M8 14c1.2-1.5 2.8-1.5 4 0M14.5 9h1.5M14.5 12h1.5M9 17h7"/></>;
     case "author": case "book": case "memoir": return <><path d="M4 5.5h5.2c1.5 0 2.8 1 2.8 2.4v11c0-1.4-1.3-2.4-2.8-2.4H4zM20 5.5h-5.2c-1.5 0-2.8 1-2.8 2.4v11c0-1.4 1.3-2.4 2.8-2.4H20z"/><path d="M7 9h2M15 9h2"/></>;
     case "story": case "movie": return <><rect x="4" y="7.5" width="16" height="11" rx="2"/><path d="M4 11h16M7 7.5l2.5-4M12 7.5l2.5-4M17 7.5l2.5-4M4.5 5.5h15"/></>;
+    case "video": return <><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="m10 9 5 3-5 3z"/><Spark x={19} y={4}/></>;
+    case "captions": return <><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M7 11.2c.3-1.3 1.1-2 2.4-2 .7 0 1.3.2 1.8.7M11.2 14.1c-.5.5-1.1.7-1.8.7-1.3 0-2.1-.7-2.4-2M13 11.2c.3-1.3 1.1-2 2.4-2 .7 0 1.3.2 1.8.7M17.2 14.1c-.5.5-1.1.7-1.8.7-1.3 0-2.1-.7-2.4-2"/></>;
     case "humanize": return <><path d="M7 18.5c-2-2-3-4.2-3-6.5a8 8 0 0 1 16 0c0 2.3-1 4.5-3 6.5"/><path d="M8 13c1-2.7 2.4-4 4-4s3 1.3 4 4M9 16c2-1.3 4-1.3 6 0M10.5 19h3"/><circle cx="12" cy="6" r=".8" fill="currentColor" stroke="none"/></>;
     case "history": case "clock": return <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2M6 4.8 4.5 6"/><Spark x={19} y={5}/></>;
     case "chill": return <><path d="M4 13c2.2-2 4.3-2 6.5 0s4.3 2 6.5 0M6 17h12M7 8h5"/><circle cx="17.5" cy="7" r="1.2"/></>;
@@ -47,9 +49,11 @@ function Glyph({name}){
     case "interview": return <><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.7 2.4-5.5 5.5-5.5s4.9 1.8 5.5 5.5M17 7.5c1.5 1.1 1.5 2.9 0 4M19.5 5.5c2.7 2.6 2.7 6.4 0 9"/><circle cx="9" cy="8" r=".5" fill="currentColor" stroke="none"/></>;
     case "meeting": return <><rect x="3.5" y="4.5" width="17" height="12" rx="2"/><path d="M8 20h8M12 16.5V20M8 9.5a4 4 0 0 0 8 0M10 7.5v2a2 2 0 0 0 4 0v-2"/><Spark x={19} y={4}/></>;
     case "slides": return <><rect x="4" y="4" width="13" height="10" rx="1.5"/><path d="M7 8h5M7 11h7M7 17h13M7 20h10M20 7v8"/><Spark x={20} y={4}/></>;
+    case "manga": return <><path d="M5 3.5h14v17H5zM5 11h14M12 11v9.5"/><path d="M8 6.5h5M8 8.5h3M14.5 14.5h2M14.5 16.5h2"/><circle cx="8.5" cy="15.5" r="1.5"/><Spark x={20} y={4}/></>;
     case "study": return <><path d="M5 4.5h6c1.2 0 2.2.8 2.2 2v13c0-1.2-1-2-2.2-2H5zM19 4.5h-3.4c-1.3 0-2.4.8-2.4 2v13c0-1.2 1.1-2 2.4-2H19z"/><path d="M7.5 8.5h3M7.5 11.5h3M15.5 8.5h1"/><Spark x={19} y={4}/></>;
     case "power": return <><path d="M12 3v9"/><path d="M7.2 6.4a8 8 0 1 0 9.6 0"/></>;
     case "upload": return <><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v6h14v-6"/></>;
+    case "download": return <><path d="M12 4v12M7.5 11.5 12 16l4.5-4.5"/><path d="M5 15v5h14v-5"/></>;
     case "audience": return <><circle cx="8" cy="9" r="2.7"/><circle cx="16" cy="9" r="2.7"/><path d="M2.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2M10.8 19c.5-3.5 2.2-5.2 5.2-5.2s4.7 1.7 5.2 5.2"/></>;
     case "building": return <><path d="M5 21V5h10v16M15 9h4v12M3 21h18"/><path d="M8 8h1M12 8h1M8 12h1M12 12h1M8 16h1M12 16h1M17 12h1M17 16h1"/></>;
     case "pdf": return <><path d="M6 3.5h8l4 4V20H6z"/><path d="M14 3.5V8h4M8.2 16v-4h1.2a1.2 1.2 0 0 1 0 2.4H8.2M12 16v-4h1c1.5 0 2.3.8 2.3 2s-.8 2-2.3 2z"/></>;

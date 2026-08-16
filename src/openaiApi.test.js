@@ -118,4 +118,14 @@ describe("Studio AI API route",()=>{
     expect(payload.output_config.format.schema.properties.quiz.items.properties.type.enum).toEqual(["multiple_choice","short_answer"]);
     expect(payload.max_tokens).toBe(12000);
   });
+
+  test("constrains Manga Studio storyboards to page and panel schemas",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"title":"Page"}'}]})});
+    const req={method:"POST",body:{system:"Build a manga storyboard.",user:"Use original characters.",mode:"manga",max_output_tokens:8500}};const res=mockResponse();
+    await handler(req,res);
+    const payload=JSON.parse(global.fetch.mock.calls[0][1].body);const schema=payload.output_config.format.schema;
+    expect(schema.properties.pages.items.properties.panels.items.required).toEqual(["shot","action","speaker","dialogue","caption"]);
+    expect(schema.properties.characterBible.items.required).toEqual(["name","appearance","personality"]);
+  });
 });

@@ -97,6 +97,31 @@ const STRUCTURED_OUTPUTS = {
     },
     closing: text,
   }),
+  manga: objectSchema({
+    title: text,
+    logline: text,
+    characterBible: {
+      type: "array",
+      items: objectSchema({ name: text, appearance: text, personality: text }),
+    },
+    pages: {
+      type: "array",
+      items: objectSchema({
+        pageNumber: { type: "number" },
+        visualPrompt: text,
+        panels: {
+          type: "array",
+          items: objectSchema({
+            shot: text,
+            action: text,
+            speaker: text,
+            dialogue: text,
+            caption: text,
+          }),
+        },
+      }),
+    },
+  }),
 };
 
 const ALLOWED_FILE_TYPES = new Set([
