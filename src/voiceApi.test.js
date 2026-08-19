@@ -99,6 +99,22 @@ describe("ElevenLabs voice API routes",()=>{
     expect(res.body.code).toBe("voice_not_allowed");
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  test("surfaces exhausted ElevenLabs credits instead of changing voices",async()=>{
+    global.fetch=jest.fn().mockResolvedValue({
+      ok:false,
+      status:401,
+      json:async()=>({detail:{message:"This request exceeds your quota. You have 33 credits remaining."}}),
+    });
+    const res=mockResponse();
+
+    await speechHandler({method:"POST",body:{text:"Keep the chosen narrator.",voiceId:"JBFqnCBsd6RMkjVDRZzb",language:"en"}},res);
+
+    expect(res.statusCode).toBe(402);
+    expect(res.body.code).toBe("speech_quota_exceeded");
+    expect(res.body.error).toMatch(/credits/i);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 test("long narration is split into provider-safe sections",()=>{

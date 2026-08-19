@@ -107,7 +107,10 @@ async function requestVoiceAudio(text, voiceId, language, speed, signal) {
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || "The AI voice could not generate the audio.");
+    const error = new Error(data.error || "The AI voice could not generate the audio.");
+    error.code = data.code || "speech_failed";
+    error.status = response.status;
+    throw error;
   }
   return response.blob();
 }
@@ -144,21 +147,13 @@ export async function speak(text, options = {}) {
         await speakOnDevice(chunk, speechLocale, speed, controller.signal);
       }
     } else {
-      try {
-        for (const chunk of chunks) {
-          if (controller.signal.aborted) break;
-          const blob = await requestVoiceAudio(chunk, voiceId, language, speed, controller.signal);
-          if (!controller.signal.aborted) await playAudioBlob(blob, 1, controller.signal);
-        }
-      } catch (error) {
-        // A missing provider key, quota issue, or transient audio response
-        // should not leave a History Listen button apparently doing nothing.
-        // Fall back to the device voice when the browser provides one.
-        if (controller.signal.aborted || typeof window === "undefined" || !("speechSynthesis" in window)) throw error;
-        for (const chunk of splitSpeechText(normalizedText, DEVICE_SPEECH_CHUNK_LIMIT)) {
-          if (controller.signal.aborted) break;
-          await speakOnDevice(chunk, speechLocale, speed, controller.signal);
-        }
+      // Never silently replace a selected ElevenLabs voice with Ghosty's
+      // device voice. If the provider is busy or out of credits, surface that
+      // exact failure so the user can retry or explicitly choose Device.
+      for (const chunk of chunks) {
+        if (controller.signal.aborted) break;
+        const blob = await requestVoiceAudio(chunk, voiceId, language, speed, controller.signal);
+        if (!controller.signal.aborted) await playAudioBlob(blob, 1, controller.signal);
       }
     }
   } finally {

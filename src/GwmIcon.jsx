@@ -67,6 +67,7 @@ function Glyph({name}){
     case "volume": return <><path d="M4 10h4l4-3v10l-4-3H4zM15 10c1.2 1.2 1.2 2.8 0 4M17.5 7.5c2.7 2.7 2.7 6.3 0 9"/></>;
     case "stop": return <rect x="6" y="6" width="12" height="12" rx="2"/>;
     case "copy": return <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></>;
+    case "edit": return <><path d="M5 19h4l10-10a2.2 2.2 0 0 0-4-4L5 15z"/><path d="m13.8 6.2 4 4M5 15l4 4M4 21h16"/></>;
     case "save": return <><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v5h7V4M8 20v-7h8v7"/></>;
     case "check": return <path d="m5 12.5 4.2 4.2L19 7"/>;
     case "alert": return <><path d="M12 3.5 21 20H3z"/><path d="M12 9v5M12 17h.01"/></>;

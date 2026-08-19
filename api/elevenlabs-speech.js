@@ -70,20 +70,29 @@ export default async function handler(req, res) {
   const modelId = modelForLanguage(language);
   const url = `${ELEVENLABS_TTS_URL}/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`;
   let response;
+  const requestSpeech=()=>fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "xi-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      text,
+      model_id: modelId,
+      voice_settings: { speed },
+      ...(modelId === "eleven_multilingual_v2" ? {} : { language_code: language }),
+    }),
+  });
   try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "xi-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: { speed },
-        ...(modelId === "eleven_multilingual_v2" ? {} : { language_code: language }),
-      }),
-    });
+    response = await requestSpeech();
+    // A second Listen tap can briefly overlap an ElevenLabs request that the
+    // browser already cancelled. One bounded retry absorbs that hand-off while
+    // still keeping generation serial and within the function timeout.
+    if(response.status===429){
+      const retryAfter=Math.min(1800,Math.max(500,Number(response.headers?.get?.("retry-after")||0)*1000||750));
+      await new Promise(resolve=>setTimeout(resolve,retryAfter));
+      response=await requestSpeech();
+    }
   } catch {
     return res.status(503).json({ error: "The AI voice service is temporarily unavailable.", code: "speech_unavailable" });
   }
@@ -96,11 +105,14 @@ export default async function handler(req, res) {
       modelId,
     });
     const rateLimited = response.status === 429;
-    return res.status(rateLimited ? 429 : 502).json({
-      error: rateLimited
-        ? "AI voice playback is busy right now. Please try again shortly."
-        : "This AI voice could not generate the audio.",
-      code: rateLimited ? "speech_rate_limited" : "speech_provider_error",
+    const quotaExceeded = /quota|credits? remaining|exceeds your quota/i.test(providerMessage);
+    return res.status(quotaExceeded ? 402 : rateLimited ? 429 : 502).json({
+      error: quotaExceeded
+        ? "ElevenLabs voice credits are currently exhausted. The selected voice cannot play until credits are available."
+        : rateLimited
+          ? "AI voice playback is busy right now. Please try again shortly."
+          : "This AI voice could not generate the audio.",
+      code: quotaExceeded ? "speech_quota_exceeded" : rateLimited ? "speech_rate_limited" : "speech_provider_error",
     });
   }
 

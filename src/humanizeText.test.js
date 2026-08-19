@@ -1,16 +1,13 @@
-import {limitQuestionsToSource,protectCitationMarkers,restoreCitationMarkers} from "./humanizeText";
+import {limitQuestionsToSource,removeBeginnerDashPunctuation,removeBracketedNumberCitations} from "./humanizeText";
 
 describe("Humanize text safeguards",()=>{
-  test("preserves NotebookLM-style citation markers exactly",()=>{
-    const input="The finding was replicated [1,2] and later reviewed [3].";
-    const protectedText=protectCitationMarkers(input);
-    const rewritten=`The result held up ${protectedText.citations[0].token}. A later review agreed ${protectedText.citations[1].token}.`;
-    expect(restoreCitationMarkers(rewritten,protectedText.citations)).toBe("The result held up [1,2]. A later review agreed [3].");
+  test("removes NotebookLM-style numeric citation markers",()=>{
+    expect(removeBracketedNumberCitations("The result held up [1,2]. A later review agreed [3].")).toBe("The result held up. A later review agreed.");
+    expect(removeBracketedNumberCitations("Keep [draft] but remove [4-6] and [7; 8].")).toBe("Keep [draft] but remove and.");
   });
 
-  test("restores a citation even if a model drops its placeholder",()=>{
-    const protectedText=protectCitationMarkers("Evidence supports this [4-6].");
-    expect(restoreCitationMarkers("The evidence supports this.",protectedText.citations)).toBe("The evidence supports this. [4-6]");
+  test("removes clause dashes without breaking compound words",()=>{
+    expect(removeBeginnerDashPunctuation("It is useful — but not perfect. It is a well-known tool - many people use it.")).toBe("It is useful, but not perfect. It is a well-known tool, many people use it.");
   });
 
   test("does not allow Humanize to invent rhetorical questions",()=>{
@@ -18,4 +15,3 @@ describe("Humanize text safeguards",()=>{
     expect(limitQuestionsToSource("Why now? Why later?","Why now?")).toBe("Why now? Why later.");
   });
 });
-
