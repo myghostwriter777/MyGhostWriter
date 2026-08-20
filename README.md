@@ -2,16 +2,9 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## ElevenLabs AI voices
+## Voice playback
 
-Voice playback is proxied through the server so the ElevenLabs API key is never exposed to the website or Android app.
-
-1. Create a restricted ElevenLabs API key with voice-list and text-to-speech access, plus an appropriate credit quota.
-2. Add `ELEVENLABS_API_KEY` to the Vercel project environment variables.
-3. Optionally set `ELEVENLABS_VOICE_IDS` to a comma-separated, ordered set of voice IDs. If omitted, GhostwriterMe lists up to 100 voices available to the account.
-4. Redeploy the project. Users can then choose and preview a narration voice under **Settings → AI Voice**.
-
-The app uses Eleven Multilingual v2 by default and Eleven v3 for Thai. Set `ELEVENLABS_MODEL_ID` only if you want to override that selection for every language.
+Listen buttons and spoken interview questions use the speech engine built into the user's browser or device. No third-party text-to-speech key is required.
 
 ## Available Scripts
 

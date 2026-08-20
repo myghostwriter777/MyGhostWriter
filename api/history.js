@@ -26,7 +26,10 @@ const SUPABASE_URL =
 // it to the browser — it lives here in a serverless function, which is safe.
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const MAX_ITEM_BYTES = 100_000; // longest study guides fit comfortably
+// Manga History stores small, compressed page previews alongside the text.
+// Full-resolution artwork is never copied here; this ceiling only allows the
+// lightweight previews to sync across the user's devices.
+const MAX_ITEM_BYTES = 350_000;
 const LIST_LIMIT = 200;
 
 module.exports = async function handler(req, res) {

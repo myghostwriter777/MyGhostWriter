@@ -7,8 +7,8 @@ import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 import { detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
 import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
-import { DEVICE_VOICE_ID, fetchVoiceCatalog, getSavedVoiceId, saveVoiceId, speak, stopSpeak } from "./voiceApi";
-import { limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
+import { speak, stopSpeak } from "./voiceApi";
+import { cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { buildZenBlueprint, resolveSlideCount } from "./slideDeckRules";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
@@ -464,9 +464,9 @@ const TERMS_CONTENT = [
 
 const PRIVACY_CONTENT = [
   {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, meeting audio is transcribed on your device. The resulting text context—not the meeting audio—is sent to our AI provider to generate reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
-  {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, create voice audio when you choose Listen, and respond to support requests you send us."},
+  {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us. Listen playback uses the speech engine built into your device or browser."},
   {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is processed locally in short segments and is not uploaded or added to History. A meeting transcript and suggestion are saved only if you press Save session."},
-  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, AI providers to generate content, and ElevenLabs to create voice audio for text you choose to listen to. Each operates under its own privacy policy."},
+  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and AI providers to generate content. Each operates under its own privacy policy."},
   {h:"5. Data Retention",b:"Account information is retained while your account is active. You may request deletion by contacting us at "+CONTACT_EMAIL+"."},
   {h:"6. Your Rights",b:"You may request access to, correction of, or deletion of your personal data at any time by emailing "+CONTACT_EMAIL+"."},
   {h:"7. Children's Privacy",b:"The Service is not directed at children under 13. Users under 18 require parental or guardian consent, as stated in our Terms."},
@@ -489,6 +489,13 @@ const HS = {
     if(existing)return existing;
     const full={...candidate,id:Date.now()+"-"+Math.random().toString(36).slice(2,7)};
     try{const k=HS.key(email,mode);localStorage.setItem(k,JSON.stringify(dedupeHistoryItems([full,...HS.load(email,mode)]).slice(0,50)));}catch(e){}
+    try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
+    return full;
+  },
+  update:(email,mode,id,entry)=>{
+    const items=HS.load(email,mode);const current=items.find(item=>item.id===id);if(!current)return HS.save(email,mode,entry);
+    const full={...current,...entry,id,mode,ts:current.ts};
+    try{localStorage.setItem(HS.key(email,mode),JSON.stringify(items.map(item=>item.id===id?full:item)));}catch(e){}
     try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
     return full;
   },
@@ -1798,65 +1805,17 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [language,setLanguage]=useState(()=>localStorage.getItem(LANGUAGE_KEY)||"en");
-  const [voiceId,setVoiceId]=useState(getSavedVoiceId);
-  const [voices,setVoices]=useState([]);
-  const [voiceLoading,setVoiceLoading]=useState(true);
-  const [voiceError,setVoiceError]=useState("");
-  const [previewingVoice,setPreviewingVoice]=useState("");
   const [aiShutdown,setAIShutdown]=useState(isAIShutdown);
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
   const [notifPromo,setNotifPromo]=useState(()=>localStorage.getItem("gwm_notif_promo")!=="false");
   const [saved,setSaved]=useState(false);
   const [cancelConfirm,setCancelConfirm]=useState(false);
   const [showReport,setShowReport]=useState(false);
-  const voicePreviewRef=useRef(null);
-
-  useEffect(()=>{
-    let active=true;
-    fetchVoiceCatalog()
-      .then(items=>{if(active){setVoices(items);setVoiceError("");}})
-      .catch(error=>{if(active)setVoiceError(error.message||"AI voices could not be loaded.");})
-      .finally(()=>{if(active)setVoiceLoading(false);});
-    return()=>{
-      active=false;
-      if(voicePreviewRef.current){voicePreviewRef.current.pause();voicePreviewRef.current=null;}
-      stopSpeak();
-    };
-  },[]);
-
-  const stopVoicePreview=()=>{
-    if(voicePreviewRef.current){voicePreviewRef.current.pause();voicePreviewRef.current.removeAttribute("src");voicePreviewRef.current=null;}
-    stopSpeak();
-    setPreviewingVoice("");
-  };
-
-  const previewVoice=()=>{
-    if(previewingVoice===voiceId){stopVoicePreview();return;}
-    stopVoicePreview();
-    setVoiceError("");
-    setPreviewingVoice(voiceId);
-    const selected=voices.find(item=>item.id===voiceId);
-    const finish=()=>setPreviewingVoice("");
-    if(selected?.previewUrl){
-      const audio=new Audio(selected.previewUrl);
-      voicePreviewRef.current=audio;
-      const finishAudio=()=>{if(voicePreviewRef.current===audio)voicePreviewRef.current=null;finish();};
-      audio.onended=finishAudio;
-      audio.onerror=()=>{finishAudio();setVoiceError("This voice preview could not be played.");};
-      audio.play().catch(()=>{finishAudio();setVoiceError("This voice preview could not be played.");});
-      return;
-    }
-    const chosenLanguage=OUTPUT_LANGUAGES.find(item=>item.value===language)||OUTPUT_LANGUAGES[0];
-    speak("Hi, I’m your GhostwriterMe reading voice.",{voiceId,language:chosenLanguage.value,speechLocale:chosenLanguage.speech})
-      .catch(error=>{if(error?.name!=="AbortError")setVoiceError(error.message||"This voice preview could not be played.");})
-      .finally(finish);
-  };
 
   const planMap={free:{label:"Free Plan",color:C.greenText,bg:"rgba(61,219,164,0.12)"},pro:{label:"Pro Plan",color:C.blueText,bg:C.accentSoft},student:{label:"Master Plan",color:C.magentaText,bg:C.magentaSoft},admin:{label:"Admin Access",color:C.yellowText,bg:"rgba(245,200,66,0.12)"}};
   const isAdmin=!!user.isAdmin&&!!user.allFeatures;
   const planInfo=isAdmin?planMap.admin:(planMap[user.plan]||planMap.free);
   const isPaid=isAdmin||user.plan!=="free";
-  const selectedVoice=voices.find(item=>item.id===voiceId);
   const fmtDate=x=>x?new Date(x).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}):"";
   // Whole days remaining until date x. Math.ceil so a trial ending later
   // today still reads "1 day left" rather than a discouraging "0 days".
@@ -1864,7 +1823,6 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
 
   const handleSave=()=>{
     localStorage.setItem(LANGUAGE_KEY,language);
-    saveVoiceId(voiceId);
     localStorage.setItem(AI_SHUTDOWN_KEY,String(aiShutdown));
     localStorage.setItem("gwm_notif_email",notifEmail);
     localStorage.setItem("gwm_notif_promo",notifPromo);
@@ -1919,33 +1877,6 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
               <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span>
             </div>
             <div style={{fontSize:12,color:C.muted,marginTop:8,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:7}}><GwmIcon name="globe" size={15} style={{marginTop:1}}/>Generated results and voice input follow this language.</div>
-          </div>
-        </Section>
-
-        <Section title="AI Voice">
-          <div style={{padding:"13px 14px"}}>
-            <label htmlFor="gwm-voice" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:6,textTransform:"uppercase"}}>Narration Voice</label>
-            <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:8,alignItems:"stretch"}}>
-              <div style={{position:"relative"}}>
-                <select id="gwm-voice" value={voiceId} onChange={e=>{stopVoicePreview();setVoiceId(e.target.value);saveVoiceId(e.target.value);setVoiceError("");}} style={{width:"100%",height:"100%",minHeight:44,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 32px 10px 12px",color:C.text,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
-                  <option value={DEVICE_VOICE_ID}>Device default</option>
-                  {voices.length>0&&<optgroup label="ElevenLabs AI voices">{voices.map(voice=><option key={voice.id} value={voice.id}>{voice.name}{voice.labels?.accent?` · ${voice.labels.accent}`:""}</option>)}</optgroup>}
-                </select>
-                <span style={{position:"absolute",right:9,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:C.muted}}><GwmIcon name="chevronDown" size={14}/></span>
-              </div>
-              <button type="button" onClick={previewVoice} disabled={voiceLoading||(!hasTTS&&voiceId===DEVICE_VOICE_ID)} aria-label={previewingVoice===voiceId?"Stop voice preview":"Preview selected voice"} style={{minWidth:96,borderRadius:8,border:`1px solid ${previewingVoice===voiceId?C.blue:C.border}`,background:previewingVoice===voiceId?C.accentSoft:C.surface,color:previewingVoice===voiceId?C.blueText:C.text,cursor:voiceLoading?"wait":"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                {voiceLoading?<Spin size={14} color={C.blueText}/>:<GwmIcon name={previewingVoice===voiceId?"stop":"volume"} size={15}/>} {voiceLoading?"Loading":previewingVoice===voiceId?"Stop":"Preview"}
-              </button>
-            </div>
-            <div style={{marginTop:9,padding:"9px 10px",borderRadius:8,background:C.surface,border:`1px solid ${C.border}`,display:"flex",alignItems:"flex-start",gap:8}}>
-              <GwmIcon name="volume" size={16} color={voiceId===DEVICE_VOICE_ID?C.muted:C.blueText} style={{marginTop:1,flexShrink:0}}/>
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:12.5,fontWeight:800,color:C.text}}>{voiceId===DEVICE_VOICE_ID?"Device default":selectedVoice?.name||"Saved AI voice"}</div>
-                <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:2}}>{voiceId===DEVICE_VOICE_ID?"Uses the built-in voice available on this phone or browser.":selectedVoice?.description||[selectedVoice?.labels?.gender,selectedVoice?.labels?.age,selectedVoice?.labels?.useCase].filter(Boolean).join(" · ")||"Natural AI narration powered by ElevenLabs."}</div>
-              </div>
-            </div>
-            {voiceError&&<div role="status" style={{fontSize:11.5,color:C.yellowText,lineHeight:1.5,marginTop:8}}>{voiceError} You can retry, or explicitly choose Device default.</div>}
-            <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:8}}>Your choice is saved as soon as you select it. GhostwriterMe never silently replaces a selected ElevenLabs voice with the device voice.</div>
           </div>
         </Section>
 
@@ -2535,7 +2466,9 @@ const fmtGrammarHistory=r=>[
 ].filter(Boolean).join("\n\n");
 
 const SLIDE_HISTORY_PREFIX="GWM_SLIDE_DECK_V1\n";
+const MANGA_HISTORY_PREFIX="GWM_MANGA_STUDIO_V1\n";
 const encodeSlideHistory=(deck,design)=>SLIDE_HISTORY_PREFIX+JSON.stringify({deck,design});
+const encodeMangaHistory=(pack,images)=>MANGA_HISTORY_PREFIX+JSON.stringify({pack,images});
 const legacySlideDeckFromText=(item,text)=>{
   const input=String(text||"");
   const pattern=/(?:^|\n)SLIDE\s+\d+:\s*([^\n]+)\n([\s\S]*?)(?=\n\nSLIDE\s+\d+:|$)/gi;
@@ -2558,6 +2491,12 @@ const historySlidePayload=item=>{
   const legacy=legacySlideDeckFromText(item,output);
   return legacy?{deck:legacy,design:{}}:null;
 };
+const historyMangaPayload=item=>{
+  const output=String(item?.output||"");
+  if(!output.startsWith(MANGA_HISTORY_PREFIX))return null;
+  try{const parsed=JSON.parse(output.slice(MANGA_HISTORY_PREFIX.length));if(parsed?.pack&&Array.isArray(parsed.images))return parsed;}catch{}
+  return null;
+};
 const objectAsReadableText=value=>{
   if(value==null)return"";
   if(typeof value==="string")return value;
@@ -2567,18 +2506,33 @@ const objectAsReadableText=value=>{
 };
 const historyOutputText=item=>{
   const slides=item?.mode==="slides"?historySlidePayload(item):null;
-  return slides?slideDeckAsText(slides.deck):objectAsReadableText(item?.output);
+  const manga=item?.mode==="manga"?historyMangaPayload(item):null;
+  return slides?slideDeckAsText(slides.deck):manga?mangaPackAsText(manga.pack):objectAsReadableText(item?.output);
 };
 
 function HistorySlideDeckPreview({item}){
   const payload=historySlidePayload(item);const [index,setIndex]=useState(0);
   useEffect(()=>setIndex(0),[item?.id]);
   if(!payload)return null;
-  const {deck}=payload;const design=payload.design||{};const theme=design.theme||"executive";const background=design.background||"#07111d";const font=design.font||"Cabinet Grotesk";const titleSize=Number(design.titleSize)||34;const bodySize=Number(design.bodySize)||18;const palette=slidePalette(background,theme);const current=deck.slides[Math.min(index,deck.slides.length-1)];
+  const {deck}=payload;const design=payload.design||{};const theme=design.theme||"executive";const background=design.background||"#07111d";const textColor=design.textColor||"";const font=design.font||"Cabinet Grotesk";const titleSize=Number(design.titleSize)||34;const bodySize=Number(design.bodySize)||18;const palette=slidePalette(background,theme,textColor);const current=deck.slides[Math.min(index,deck.slides.length-1)];
   return <div style={{marginBottom:14}}>
     <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Saved slide deck</div>
     <SlideFrame deck={deck} slide={current} index={index} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/>
     <div style={{display:"flex",alignItems:"center",gap:7,marginTop:9}}><button type="button" aria-label="Previous slide" disabled={index===0} onClick={()=>setIndex(value=>Math.max(0,value-1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===0?C.muted:C.text,cursor:index===0?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===0?0.55:1}}><GwmIcon name="arrowLeft" size={17}/></button><div style={{flex:1,display:"flex",gap:6,overflowX:"auto",padding:"3px 0"}}>{deck.slides.map((slide,slideIndex)=><button key={slideIndex} type="button" aria-label={`Open slide ${slideIndex+1}: ${slide.title}`} aria-current={slideIndex===index?"true":undefined} onClick={()=>setIndex(slideIndex)} style={{width:38,height:38,flex:"0 0 38px",borderRadius:8,border:`1px solid ${slideIndex===index?palette.accent:C.border}`,background:slideIndex===index?palette.accent:C.surface,color:slideIndex===index?(palette.dark?"#071018":"#ffffff"):C.muted,fontSize:11,fontWeight:900,cursor:"pointer"}}>{slideIndex+1}</button>)}</div><button type="button" aria-label="Next slide" disabled={index===deck.slides.length-1} onClick={()=>setIndex(value=>Math.min(deck.slides.length-1,value+1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===deck.slides.length-1?C.muted:C.text,cursor:index===deck.slides.length-1?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===deck.slides.length-1?0.55:1}}><GwmIcon name="chevronRight" size={17}/></button></div>
+  </div>;
+}
+
+function HistoryMangaPreview({item}){
+  const payload=historyMangaPayload(item);const [index,setIndex]=useState(0);const [fullScreen,setFullScreen]=useState(false);
+  useEffect(()=>{setIndex(0);setFullScreen(false);},[item?.id]);
+  if(!payload?.images?.length)return null;
+  const images=payload.images.filter(image=>image?.dataUrl);if(!images.length)return null;const current=images[Math.min(index,images.length-1)];
+  return <div style={{marginBottom:14}}>
+    <div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Saved manga pages</div>
+    <button type="button" onClick={()=>setFullScreen(true)} aria-label={`Open saved manga page ${index+1} full screen`} style={{display:"block",width:"100%",padding:0,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",background:"#070811",cursor:"zoom-in"}}><img src={current.dataUrl} alt={`Saved manga page ${index+1}`} style={{display:"block",width:"100%",maxHeight:"66dvh",objectFit:"contain"}}/></button>
+    <div style={{display:"flex",alignItems:"center",gap:7,marginTop:9}}><button type="button" aria-label="Previous manga page" disabled={index===0} onClick={()=>setIndex(value=>Math.max(0,value-1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:index===0?"not-allowed":"pointer",opacity:index===0?0.5:1,display:"grid",placeItems:"center"}}><GwmIcon name="arrowLeft" size={17}/></button><div style={{flex:1,textAlign:"center",fontSize:12,color:C.muted}}>Page {index+1} of {images.length}</div><button type="button" aria-label="Next manga page" disabled={index===images.length-1} onClick={()=>setIndex(value=>Math.min(images.length-1,value+1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:index===images.length-1?"not-allowed":"pointer",opacity:index===images.length-1?0.5:1,display:"grid",placeItems:"center"}}><GwmIcon name="chevronRight" size={17}/></button></div>
+    {current.warning&&<div style={{fontSize:11.5,color:C.yellowText,lineHeight:1.5,marginTop:7}}>{current.warning}</div>}
+    {fullScreen&&createPortal(<div role="dialog" aria-modal="true" aria-label={`Saved manga page ${index+1} preview`} onClick={event=>{if(event.target===event.currentTarget)setFullScreen(false);}} style={{position:"fixed",inset:0,zIndex:12050,background:"rgba(0,0,0,.95)",display:"grid",placeItems:"center",padding:"max(14px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left))"}}><img src={current.dataUrl} alt={`Full-screen saved manga page ${index+1}`} style={{maxWidth:"min(92vw,760px)",maxHeight:"94dvh",objectFit:"contain",borderRadius:10}}/><button type="button" aria-label="Close saved manga page" onClick={()=>setFullScreen(false)} style={{position:"fixed",right:"max(14px,env(safe-area-inset-right))",top:"max(14px,env(safe-area-inset-top))",width:48,height:48,borderRadius:"50%",border:"1px solid rgba(255,255,255,.3)",background:"rgba(0,0,0,.72)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer"}}><GwmIcon name="close" size={20}/></button></div>,document.body)}
   </div>;
 }
 
@@ -2597,10 +2551,11 @@ function HistoryDetailModal({item,onClose,onDelete}){
   const historyVisual=modeVisualById(item.mode);
   const outputText=historyOutputText(item);
   const hasSlides=item.mode==="slides"&&!!historySlidePayload(item);
+  const hasManga=item.mode==="manga"&&!!historyMangaPayload(item)?.images?.some(image=>image?.dataUrl);
   useEffect(()=>{const close=event=>{if(event.key==="Escape")onClose();};const previous=document.body.style.overflow;document.body.style.overflow="hidden";window.addEventListener("keydown",close);return()=>{window.removeEventListener("keydown",close);document.body.style.overflow=previous;};},[onClose]);
   const modal=(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",padding:"max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))",animation:"fadeUp 0.2s ease",fontFamily:"'Cabinet Grotesk',sans-serif"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div role="dialog" aria-modal="true" aria-label="History details" style={{width:"100%",maxWidth:hasSlides?760:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,animation:"fadeUp 0.24s ease",maxHeight:"min(860px,calc(100dvh - 24px))",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 28px 90px rgba(0,0,0,0.56)"}}>
+      <div role="dialog" aria-modal="true" aria-label="History details" style={{width:"100%",maxWidth:hasSlides||hasManga?760:520,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,animation:"fadeUp 0.24s ease",maxHeight:"min(860px,calc(100dvh - 24px))",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 28px 90px rgba(0,0,0,0.56)"}}>
         <div style={{overflowY:"auto",overscrollBehavior:"contain",WebkitOverflowScrolling:"touch",padding:"14px 16px 16px"}}>
           <div style={{width:32,height:3,borderRadius:2,background:C.border,margin:"0 auto 16px"}}/>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
@@ -2617,7 +2572,7 @@ function HistoryDetailModal({item,onClose,onDelete}){
               <div style={{fontSize:13,color:C.text,lineHeight:1.7,whiteSpace:"pre-wrap",overflowWrap:"anywhere",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>{item.input}</div>
             </div>
           )}
-          {hasSlides?<HistorySlideDeckPreview item={item}/>:<div style={{marginBottom:12}}>
+          {hasSlides?<HistorySlideDeckPreview item={item}/>:hasManga?<HistoryMangaPreview item={item}/>:<div style={{marginBottom:12}}>
             <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Generated Content</div>
             <div style={{fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap",overflowWrap:"anywhere",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>{outputText}</div>
           </div>}
@@ -3526,7 +3481,7 @@ function HumanizeMode({user}){
     let finalText,note;
     try{const r2=await callClaude(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\\n\\n"+p1.humanized,2000);const d2=JSON.parse(r2.replace(/```json|```/g,"").trim());finalText=d2.humanized||p1.humanized;note=d2.note||"";}
     catch(e){finalText=p1.humanized;note="";}
-    finalText=removeBracketedNumberCitations(finalText);
+    finalText=cleanHumanizedFormatting(removeBracketedNumberCitations(finalText));
     finalText=limitQuestionsToSource(finalText,cleanedSource);
     const finalRes={humanized:finalText,changes:p1.changes||[],note};
     setRes(finalRes);setView("output");if(user)HS.save(user.email,"humanize",{title:"Humanized: "+text.slice(0,40),input:text,output:finalText});setPhase("");
@@ -3550,7 +3505,7 @@ function HumanizeMode({user}){
       </div>
       <div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.28)",borderRadius:8,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}>
         <GwmIcon name="humanize" size={18} color={C.violet}/>
-        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Uses shorter, clearer sentences without rhetorical questions. NotebookLM-style citations such as [1,2] stay in place.</div></div>
+        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Uses shorter, clearer sentences without rhetorical questions. Numeric source markers such as [1,2] are removed from the final text.</div></div>
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div>
@@ -3582,6 +3537,23 @@ const mangaPackAsText=pack=>{
   ].filter(Boolean).join("\n\n");
 };
 
+const mangaHistoryPreview=(dataUrl,maxChars)=>new Promise(resolve=>{
+  if(typeof document==="undefined"||!dataUrl){resolve("");return;}
+  const image=new Image();
+  image.onload=()=>{try{
+    let best="";const ratio=image.naturalHeight/Math.max(1,image.naturalWidth);
+    for(const width of [320,280,240,200]){const canvas=document.createElement("canvas");canvas.width=width;canvas.height=Math.max(1,Math.round(width*ratio));const context=canvas.getContext("2d");context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(image,0,0,canvas.width,canvas.height);for(const quality of [.68,.55,.42]){const candidate=canvas.toDataURL("image/jpeg",quality);if(!best||candidate.length<best.length)best=candidate;if(candidate.length<=maxChars){resolve(candidate);return;}}}
+    resolve(best.length<=maxChars*1.15?best:"");
+  }catch{resolve("");}};
+  image.onerror=()=>resolve("");image.src=dataUrl;
+});
+
+async function mangaHistoryImages(images){
+  const ready=(images||[]).filter(image=>image?.dataUrl);if(!ready.length)return[];const maxChars=Math.max(15000,Math.floor(68000/ready.length));
+  const previews=await Promise.all(ready.map(async image=>({dataUrl:await mangaHistoryPreview(image.dataUrl,maxChars),mediaType:"image/jpeg",fallback:!!image.fallback,warning:image.warning||""})));
+  return previews.filter(image=>image.dataUrl);
+}
+
 function MangaStudioMode({user}){
   const STYLES=[
     {id:"manga",label:"Manga B&W",desc:"Crisp ink, screentone, dramatic contrast"},
@@ -3593,6 +3565,7 @@ function MangaStudioMode({user}){
   const [brief,setBrief]=useState("");const [characters,setCharacters]=useState("");const [style,setStyle]=useState("manhwa");const [mood,setMood]=useState("Tender");
   const [pageCount,setPageCount]=useState("1");const [panelCount,setPanelCount]=useState("3");const [references,setReferences]=useState([]);
   const [pack,setPack]=useState(null);const [images,setImages]=useState([]);const [loading,setLoading]=useState(false);const [pageLoading,setPageLoading]=useState(null);const [progress,setProgress]=useState("");const [error,setError]=useState("");const [preview,setPreview]=useState(null);
+  const historyItemRef=useRef(null);
   const activeStyle=STYLES.find(option=>option.id===style)||STYLES[1];
   useEffect(()=>{if(!preview)return;const onKeyDown=event=>{if(event.key==="Escape")setPreview(null);};window.addEventListener("keydown",onKeyDown);return()=>window.removeEventListener("keydown",onKeyDown);},[preview]);
 
@@ -3603,11 +3576,17 @@ function MangaStudioMode({user}){
   };
 
   const requestPage=async(page,index,continuityDataUrl=null,sourcePack=pack)=>{
-    const refs=continuityDataUrl?[continuityDataUrl,...references.slice(0,1).map(file=>file.dataUrl)]:references.map(file=>file.dataUrl);
+    const continuity=/^data:image\/(?:png|jpeg|webp);base64,/i.test(continuityDataUrl||"")?[continuityDataUrl]:[];
+    const refs=continuity.length?[...continuity,...references.slice(0,1).map(file=>file.dataUrl)]:references.map(file=>file.dataUrl);
     const response=await fetch("/api/manga-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:pagePrompt(page,index,sourcePack),references:refs})});
     const data=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(data.error||`Page ${index+1} could not be illustrated.`);
     return data.image;
+  };
+
+  const persistHistory=async(sourcePack,sourceImages)=>{
+    if(!user||!sourcePack)return;const savedImages=await mangaHistoryImages(sourceImages);const entry={title:sourcePack.title||"Manga Studio",input:brief.trim(),output:encodeMangaHistory(sourcePack,savedImages)};
+    const saved=historyItemRef.current?HS.update(user.email,"manga",historyItemRef.current,entry):HS.save(user.email,"manga",entry);historyItemRef.current=saved?.id||historyItemRef.current;
   };
 
   const generate=async()=>{
@@ -3627,7 +3606,8 @@ function MangaStudioMode({user}){
         catch(pageError){generated[index]={error:pageError.message||`Page ${index+1} could not be illustrated.`};}
         setImages([...generated]);
       }
-      if(user)HS.save(user.email,"manga",{title:normalized.title||"Manga Studio",input:brief.trim(),output:mangaPackAsText(normalized)});
+      setProgress("Saving illustrated pages to History...");
+      await persistHistory(normalized,generated);
       if(generated.every(page=>page?.error))setError(generated[0]?.error||"The storyboard was written, but the illustrated pages could not be generated.");
     }catch(generateError){setError(generateError.message||"Manga Studio could not create this story.");}
     finally{setLoading(false);setProgress("");}
@@ -3635,14 +3615,14 @@ function MangaStudioMode({user}){
 
   const regeneratePage=async index=>{
     if(!pack?.pages?.[index])return;setPageLoading(index);setError("");
-    try{const image=await requestPage(pack.pages[index],index,index>0?images[0]?.dataUrl:null);setImages(current=>{const next=[...current];next[index]=image;return next;});}
+    try{const image=await requestPage(pack.pages[index],index,index>0?images[0]?.dataUrl:null);const next=[...images];next[index]=image;setImages(next);await persistHistory(pack,next);}
     catch(pageError){setError(pageError.message||`Page ${index+1} could not be regenerated.`);}finally{setPageLoading(null);}
   };
 
-  const imageExtension=image=>image?.mediaType==="image/jpeg"?"jpg":image?.mediaType==="image/webp"?"webp":"png";
+  const imageExtension=image=>image?.mediaType==="image/jpeg"?"jpg":image?.mediaType==="image/webp"?"webp":image?.mediaType==="image/svg+xml"?"svg":"png";
   const downloadPage=(image,index)=>{if(!image?.dataUrl)return;const anchor=document.createElement("a");anchor.href=image.dataUrl;anchor.download=`ghostwriterme-${(pack?.title||"manga").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}-page-${index+1}.${imageExtension(image)}`;document.body.appendChild(anchor);anchor.click();anchor.remove();};
   const downloadAll=async()=>{const ready=images.map((image,index)=>({image,index})).filter(item=>item.image?.dataUrl);if(!ready.length)return;const JSZip=(await import("jszip")).default;const zip=new JSZip();ready.forEach(({image,index})=>zip.file(`page-${String(index+1).padStart(2,"0")}.${imageExtension(image)}`,image.dataUrl.split(",")[1],{base64:true}));downloadBlob(await zip.generateAsync({type:"blob"}),`ghostwriterme-${(pack?.title||"manga").replace(/[^a-z0-9]+/gi,"-").toLowerCase()}.zip`);};
-  const reset=()=>{setBrief("");setCharacters("");setStyle("manhwa");setMood("Tender");setPageCount("1");setPanelCount("3");setReferences([]);setPack(null);setImages([]);setError("");setProgress("");};
+  const reset=()=>{setBrief("");setCharacters("");setStyle("manhwa");setMood("Tender");setPageCount("1");setPanelCount("3");setReferences([]);setPack(null);setImages([]);setError("");setProgress("");historyItemRef.current=null;};
 
   return <div>
     <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.32)"}}><div style={{display:"flex",gap:11,alignItems:"flex-start"}}><span style={{width:42,height:42,borderRadius:13,display:"grid",placeItems:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="manga" size={23}/></span><div><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}><div style={{fontSize:14,fontWeight:900,color:C.text}}>Manga & Manhwa Studio</div><PlanBadge plan="student"/></div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>Turn an original scene into a storyboard and finished portrait comic pages with consistent characters, panel direction, and speech bubbles.</div></div></div></Card>
@@ -3663,6 +3643,7 @@ function MangaStudioMode({user}){
       {(pack.characterBible||[]).length>0&&<Card style={{marginBottom:12}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Character Bible</div><div className="studio-grid-2">{pack.characterBible.map((character,index)=><div key={index} style={{padding:"9px 10px",borderRadius:9,background:C.surface,border:`1px solid ${C.border}`}}><div style={{fontSize:13,fontWeight:900,color:C.magentaText}}>{character.name}</div><div style={{fontSize:12,color:C.text,lineHeight:1.55,marginTop:3}}>{character.appearance}</div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{character.personality}</div></div>)}</div></Card>}
       {(pack.pages||[]).map((page,index)=>{const image=images[index];return <Card key={index} style={{marginBottom:12,padding:10}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:9}}><div><div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em"}}>Page {index+1}</div><div style={{fontSize:12,color:C.muted,marginTop:2}}>{(page.panels||[]).length} panels · {activeStyle.label}</div></div><button type="button" onClick={()=>regeneratePage(index)} disabled={pageLoading!==null||loading} style={{minHeight:40,padding:"8px 10px",borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,fontFamily:"inherit",fontSize:12,fontWeight:800,cursor:pageLoading!==null?"wait":"pointer",display:"flex",gap:6,alignItems:"center"}}>{pageLoading===index?<Spin size={13} color={C.magenta}/>:<GwmIcon name="refresh" size={14}/>}Redraw</button></div>
         {image?.dataUrl?<button type="button" onClick={()=>setPreview({image,index})} aria-label={`Open page ${index+1} full screen`} style={{display:"block",width:"100%",padding:0,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",background:"#070811",cursor:"zoom-in"}}><img src={image.dataUrl} alt={`Generated ${activeStyle.label} page ${index+1}`} loading="lazy" decoding="async" style={{display:"block",width:"100%",height:"auto"}}/></button>:<div style={{aspectRatio:"2 / 3",borderRadius:12,border:`1px dashed ${image?.error?C.red:C.border}`,background:C.surface,display:"grid",placeItems:"center",padding:20,textAlign:"center",color:image?.error?C.redText:C.muted,fontSize:12.5,lineHeight:1.55}}>{image?.error||<><span><Spin size={18} color={C.magenta}/><br/>Illustrating page...</span></>}</div>}
+        {image?.warning&&<div role="status" style={{marginTop:9,padding:"8px 10px",borderRadius:8,background:"rgba(245,200,66,.08)",border:"1px solid rgba(245,200,66,.25)",color:C.yellowText,fontSize:11.5,lineHeight:1.5}}>{image.warning}</div>}
         <div style={{marginTop:10}}>{(page.panels||[]).map((panel,panelIndex)=><div key={panelIndex} style={{padding:"8px 0",borderBottom:panelIndex<page.panels.length-1?`1px solid ${C.border}`:"none"}}><div style={{fontSize:11,fontWeight:850,color:C.muted}}>Panel {panelIndex+1} · {panel.shot}</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.55,marginTop:3}}>{panel.action}</div>{panel.dialogue&&<div style={{fontSize:12.5,color:C.magentaText,lineHeight:1.55,marginTop:3}}><strong>{panel.speaker||"Dialogue"}:</strong> “{panel.dialogue}”</div>}{panel.caption&&<div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Caption: {panel.caption}</div>}</div>)}</div>
         {image?.dataUrl&&<div style={{marginTop:10}}><SecBtn onClick={()=>downloadPage(image,index)}><IconLabel name="download">Download Page {index+1}</IconLabel></SecBtn></div>}
       </Card>})}
@@ -4336,9 +4317,9 @@ const readableSlideAccent=(bg,bg2,preferred,dark)=>{
   const candidates=dark?[preferred,mixSlideColor(preferred,"#ffffff",0.2),inverse,"#7dd3fc","#f9a8d4","#fcd34d","#ffffff"]:[mixSlideColor(preferred,"#000000",0.5),mixSlideColor(inverse,"#000000",0.46),"#075985","#9d174d","#854d0e","#17202c"];
   return candidates.find(color=>Math.min(slideContrast(color,bg),slideContrast(color,bg2))>=3.2)||candidates.reduce((best,color)=>Math.min(slideContrast(color,bg),slideContrast(color,bg2))>Math.min(slideContrast(best,bg),slideContrast(best,bg2))?color:best,candidates[0]);
 };
-const slidePalette=(background,themeId)=>{
+const slidePalette=(background,themeId,textColor="")=>{
   const bg=normalizeSlideHex(background);const dark=slideLuminance(bg)<0.56;const system=SLIDE_THEMES.find(item=>item.id===themeId)||SLIDE_THEMES[0];
-  const bg2=mixSlideColor(bg,dark?"#ffffff":"#000000",dark?0.16:0.1);const text=dark?"#f8fbff":"#101824";const muted=mixSlideColor(text,bg,0.2);const accent=readableSlideAccent(bg,bg2,system.accent,dark);
+  const bg2=mixSlideColor(bg,dark?"#ffffff":"#000000",dark?0.16:0.1);const text=textColor?normalizeSlideHex(textColor):(dark?"#f8fbff":"#101824");const muted=mixSlideColor(text,bg,0.2);const accent=readableSlideAccent(bg,bg2,system.accent,dark);
   const accent2=readableSlideAccent(bg,bg2,themeId==="pitch"?"#5eead4":"#f472b6",dark);const accent3=readableSlideAccent(bg,bg2,themeId==="storytelling"?"#7dd3fc":"#fcd34d",dark);const onAccent=slideContrast(accent,"#071019")>=4.5?"#071019":"#ffffff";
   return {bg,bg2,text,muted,accent,accent2,accent3,onAccent,preview:`linear-gradient(135deg,${bg},${bg2})`,dark};
 };
@@ -4371,7 +4352,7 @@ const wrapCanvasLines=(ctx,text,maxWidth)=>{
 
 function drawSlideCanvas(deck,slide,index,options){
   const width=1600,height=900,canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d");
-  const palette=slidePalette(options.background,options.theme);const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
+  const palette=slidePalette(options.background,options.theme,options.textColor);const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
   const font=slideFontStack(options.font);const artX=1090,artY=150,artW=390,artH=570;const artColors=[palette.accent,palette.accent2,palette.accent3,palette.accent];ctx.save();ctx.strokeStyle=palette.accent;ctx.fillStyle=palette.accent;ctx.globalAlpha=0.28;
   const visual=slide.visualType||"signal";
   if(visual==="constellation"){const points=[[artX+25,artY+390],[artX+105,artY+45],[artX+225,artY+180],[artX+365,artY+30],[artX+310,artY+470],[artX+140,artY+410]];ctx.globalAlpha=0.9;ctx.lineWidth=4;ctx.strokeStyle=palette.accent;ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.stroke();ctx.strokeStyle=palette.accent2;ctx.beginPath();[points[1],points[5],points[2],points[4]].forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();points.forEach(([x,y],i)=>{ctx.fillStyle=artColors[i%3];ctx.beginPath();ctx.arc(x,y,i%2?13:9,0,Math.PI*2);ctx.fill();});}
@@ -4414,10 +4395,11 @@ function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,pres
 
 function SlideGeneratorMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("#07111d");
+  const [textColor,setTextColor]=useState("#f8fbff");
   const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
   const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [presenting,setPresenting]=useState(false);const [imageExport,setImageExport]=useState(null);const [imageSelection,setImageSelection]=useState([]);const [exporting,setExporting]=useState("");const [exportNotice,setExportNotice]=useState("");const [editingDeck,setEditingDeck]=useState(false);
-  const palette=slidePalette(background,theme);const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];
+  const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];
   const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const zenBlueprint=buildZenBlueprint(topic,resolvedSlideCount);
   const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:"Zen preview",title:topic.trim()||"One clear idea at a time",bullets:["One message per slide","Minimal words, generous space","A visual rhythm with a clear ending"],visualLabel:`${resolvedSlideCount} slides`,visualDirection:`A ${themeSystem.title.toLowerCase()} visual composed around the chosen subject.`}]};
 
@@ -4442,7 +4424,7 @@ function SlideGeneratorMode({user}){
       const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized={...result,slides:(result.slides||[]).slice(0,resolvedSlideCount)};
       if(normalized.slides.length!==resolvedSlideCount)throw new Error(`Ghosty created ${normalized.slides.length} of ${resolvedSlideCount} slides. Please generate again.`);
       setDeck(normalized);
-      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,font,titleSize,bodySize})});
+      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,textColor,font,titleSize,bodySize})});
     }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
 
@@ -4451,7 +4433,7 @@ function SlideGeneratorMode({user}){
   const exportSelectedImages=async()=>{
     if(!deck||!imageExport||!imageSelection.length)return;setExporting(imageExport);setError("");
     try{
-      await prepareSlideFont();const extension=imageExport==="image/png"?"png":"jpg";const quality=imageExport==="image/jpeg"?0.94:1;const indices=[...imageSelection].sort((a,b)=>a-b);const options={background,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const extension=imageExport==="image/png"?"png":"jpg";const quality=imageExport==="image/jpeg"?0.94:1;const indices=[...imageSelection].sort((a,b)=>a-b);const options={background,textColor,theme,font,titleSize,bodySize};
       if(indices.length===1){const index=indices[0];const blob=await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[index],index,options),imageExport,quality);downloadBlob(blob,`ghostwriterme-slide-${index+1}.${extension}`);}
       else{const JSZip=(await import("jszip")).default;const zip=new JSZip();for(const index of indices){const blob=await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[index],index,options),imageExport,quality);zip.file(`ghostwriterme-slide-${String(index+1).padStart(2,"0")}.${extension}`,blob);}downloadBlob(await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}}),`ghostwriterme-${extension}-slides.zip`);}
       setImageExport(null);setExportNotice(`${indices.length} slide${indices.length===1?"":"s"} downloaded as ${extension.toUpperCase()}.`);
@@ -4475,7 +4457,7 @@ function SlideGeneratorMode({user}){
   const exportPdf=async()=>{
     if(!deck)return;setExporting("pdf");setError("");setExportNotice("");
     try{
-      await prepareSlideFont();const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});const options={background,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});const options={background,textColor,theme,font,titleSize,bodySize};
       for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);const width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight();pdf.addImage(canvas.toDataURL("image/jpeg",0.9),"JPEG",0,0,width,height,undefined,"FAST");}
       pdf.save("ghostwriterme-slide-deck.pdf");setExportNotice(`PDF downloaded with ${deck.slides.length} slides.`);
     }catch(e){setError(e?.message||"The PDF could not be created. Please try again.");}finally{setExporting("");}
@@ -4484,7 +4466,7 @@ function SlideGeneratorMode({user}){
   const exportGoogleSlides=async()=>{
     if(!deck)return;setExporting("google-slides");setError("");setExportNotice("");
     try{
-      await prepareSlideFont();const PptxGenJS=await loadPptxGenerator();const pptx=new PptxGenJS();pptx.layout="LAYOUT_WIDE";pptx.author="GhostwriterMe";pptx.subject=deck.subtitle||deck.title;pptx.title=deck.title;const options={background,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const PptxGenJS=await loadPptxGenerator();const pptx=new PptxGenJS();pptx.layout="LAYOUT_WIDE";pptx.author="GhostwriterMe";pptx.subject=deck.subtitle||deck.title;pptx.title=deck.title;const options={background,textColor,theme,font,titleSize,bodySize};
       deck.slides.forEach((slide,index)=>{const page=pptx.addSlide();const canvas=drawSlideCanvas(deck,slide,index,options);page.addImage({data:canvas.toDataURL("image/png"),x:0,y:0,w:13.333,h:7.5});if(page.addNotes)page.addNotes(slide.speakerNotes||"");});
       await pptx.writeFile({fileName:"ghostwriterme-google-slides.pptx",compression:true});setExportNotice("Google Slides file downloaded. Upload the .pptx at slides.google.com to continue editing or presenting.");
     }catch(e){setError(e?.message||"The Google Slides file could not be created.");}finally{setExporting("");}
@@ -4509,6 +4491,7 @@ function SlideGeneratorMode({user}){
         {countResolution.overridden&&<div role="status" style={{margin:"-3px 0 13px",padding:"9px 11px",borderRadius:9,background:C.accentSoft,border:`1px solid ${C.blue}55`,color:C.blueText,fontSize:12,lineHeight:1.5,display:"flex",gap:7,alignItems:"flex-start"}}><GwmIcon name="info" size={15} style={{marginTop:1}}/><span>Your details request <strong>{resolvedSlideCount} slides</strong>, so that instruction overrides the number selector.</span></div>}
         <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>setTheme(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
         <div style={{marginBottom:13}}><label htmlFor="slide-background-color" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",display:"block",marginBottom:7}}>Background Color</label><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",alignItems:"center",gap:10,minHeight:58,padding:"9px 11px",border:`1px solid ${C.border}`,borderRadius:10,background:C.surface}}><div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}><span aria-hidden="true" style={{width:36,height:36,borderRadius:10,background:palette.preview,border:"1px solid rgba(255,255,255,0.22)",boxShadow:`0 0 20px ${palette.accent}22`,flexShrink:0}}/><span style={{minWidth:0}}><span style={{display:"block",fontSize:13,fontWeight:850,color:C.text}}>Choose any color</span><span style={{display:"block",fontSize:11.5,color:C.muted,marginTop:2}}>Ghosty builds a readable palette around {background.toUpperCase()}</span></span></div><input id="slide-background-color" aria-label="Choose any slide background color" type="color" value={background} onChange={e=>setBackground(normalizeSlideHex(e.target.value))} style={{width:48,height:42,padding:3,border:`1px solid ${C.border}`,borderRadius:9,background:C.card,cursor:"pointer"}}/></div></div>
+        <div style={{marginBottom:13}}><label htmlFor="slide-text-color" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",display:"block",marginBottom:7}}>Text Color</label><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",alignItems:"center",gap:10,minHeight:58,padding:"9px 11px",border:`1px solid ${textContrast<4.5?C.yellow:C.border}`,borderRadius:10,background:C.surface}}><div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}><span aria-hidden="true" style={{width:36,height:36,borderRadius:10,background:textColor,border:`1px solid ${C.border}`,boxShadow:`0 0 18px ${textColor}33`,flexShrink:0}}/><span style={{minWidth:0}}><span style={{display:"block",fontSize:13,fontWeight:850,color:C.text}}>Choose any text color</span><span style={{display:"block",fontSize:11.5,color:textContrast<4.5?C.yellowText:C.muted,marginTop:2}}>{textContrast<4.5?`Low contrast (${textContrast.toFixed(1)}:1) — choose a clearer color.`:`Readable contrast · ${textColor.toUpperCase()}`}</span></span></div><input id="slide-text-color" aria-label="Choose any slide text color" type="color" value={textColor} onChange={event=>setTextColor(normalizeSlideHex(event.target.value))} style={{width:48,height:42,padding:3,border:`1px solid ${C.border}`,borderRadius:9,background:C.card,cursor:"pointer"}}/></div></div>
         <div className="studio-grid-3" style={{marginBottom:10}}><FSelect label="Font" value={font} onChange={setFont} options={SLIDE_FONTS}/><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Title Size · {titleSize}</label><input aria-label="Slide title size" type="range" min="26" max="48" value={titleSize} onChange={e=>setTitleSize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Text Size · {bodySize}</label><input aria-label="Slide text size" type="range" min="14" max="28" value={bodySize} onChange={e=>setBodySize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div></div>
         <div aria-label={`${font} font preview`} style={{marginBottom:13,padding:"11px 13px",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}><div style={{fontSize:10.5,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{font} preview</div><div style={{fontFamily:slideFontStack(font),fontSize:"clamp(18px,4vw,23px)",lineHeight:1.35,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Aa Bb Cc — The quick brown fox 0123456789</div></div>
         <Card style={{marginBottom:13,padding:12}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:10}}><div><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.11em",fontWeight:850}}>Preview before generation</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:3}}>A live Zen-style visual sample and story blueprint. You can edit every slide after Ghosty writes it.</div></div><span style={{padding:"5px 8px",borderRadius:999,background:C.accentSoft,color:C.blueText,fontSize:10.5,fontWeight:900,whiteSpace:"nowrap"}}>{resolvedSlideCount} slides</span></div><SlideFrame deck={previewDeck} slide={previewDeck.slides[0]} index={0} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/><div style={{display:"flex",gap:6,overflowX:"auto",paddingTop:10}}>{zenBlueprint.map((item,index)=><span key={index} title={item.purpose} style={{flex:"0 0 auto",padding:"6px 8px",borderRadius:999,border:`1px solid ${C.border}`,background:C.surface,color:index===0?C.blueText:C.muted,fontSize:10.5,fontWeight:800}}>{index+1}. {item.label}</span>)}</div></Card>
