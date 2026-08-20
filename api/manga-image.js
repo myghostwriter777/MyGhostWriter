@@ -1,9 +1,14 @@
-import {generateImage,generateText} from "ai";
+// Vercel executes this route as CommonJS, while AI SDK 7 is ESM-only. A
+// top-level `import from "ai"` is rewritten to require("ai") by the function
+// bundler and crashes before the handler can run. Keep the SDK behind Node's
+// native dynamic import so production can actually reach the image models.
+let aiSdkPromise;
+const loadAiSdk=()=>aiSdkPromise||(aiSdkPromise=import("ai"));
 
-export const config={api:{bodyParser:{sizeLimit:"12mb"}},maxDuration:60};
+const config={api:{bodyParser:{sizeLimit:"12mb"}},maxDuration:60};
 
 const PRIMARY_MODEL="google/gemini-3.1-flash-image-preview";
-const FALLBACK_MODEL="bfl/flux-2-flex";
+const FALLBACK_MODELS=["bfl/flux-2-flex","openai/gpt-image-2"];
 const MAX_REFERENCES=3;
 const MAX_REFERENCE_BYTES=4*1024*1024;
 const MAX_TOTAL_REFERENCE_BYTES=9*1024*1024;
@@ -62,6 +67,7 @@ function localComicPage(prompt){
 }
 
 async function generateGeminiPage(prompt,references){
+  const {generateText}=await loadAiSdk();
   const content=[{type:"text",text:prompt},...references.map(reference=>({type:"image",image:reference.data,mediaType:reference.mediaType}))];
   const result=await generateText({
     model:PRIMARY_MODEL,
@@ -72,18 +78,19 @@ async function generateGeminiPage(prompt,references){
   return imagePayload((result?.files||[]).find(file=>file?.mediaType?.startsWith("image/")));
 }
 
-async function generateFallbackPage(prompt){
+async function generateFallbackPage(prompt,model){
+  const {generateImage}=await loadAiSdk();
   const result=await generateImage({
-    model:FALLBACK_MODEL,
+    model,
     prompt,
-    aspectRatio:"2:3",
+    ...(model.startsWith("openai/")?{size:"1024x1536"}:{aspectRatio:"2:3"}),
     maxRetries:1,
-    providerOptions:{gateway:{tags:["feature:manga-image","fallback:flux"]}},
+    providerOptions:{gateway:{tags:["feature:manga-image",`fallback:${model.split("/")[0]}`]}},
   });
   return imagePayload(result?.image||result?.images?.[0]);
 }
 
-export default async function handler(req,res){
+async function handler(req,res){
   res.setHeader("Access-Control-Allow-Origin","*");
   res.setHeader("Access-Control-Allow-Methods","POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers","Content-Type");
@@ -107,11 +114,17 @@ export default async function handler(req,res){
     }catch(error){
       primaryError=error;
       console.error("Manga image primary model error",errorMeta(error,PRIMARY_MODEL,references));
-      model=FALLBACK_MODEL;
-      try{image=await generateFallbackPage(artDirection);}catch(fallbackError){
-        console.error("Manga image fallback model error",errorMeta(fallbackError,FALLBACK_MODEL,references));
-        image=localComicPage(prompt);model="local/storyboard-svg";
+      for(const fallbackModel of FALLBACK_MODELS){
+        model=fallbackModel;
+        try{
+          image=await generateFallbackPage(artDirection,fallbackModel);
+          if(image)break;
+          throw Object.assign(new Error("The fallback image model returned no image file."),{statusCode:502});
+        }catch(fallbackError){
+          console.error("Manga image fallback model error",errorMeta(fallbackError,fallbackModel,references));
+        }
       }
+      if(!image){image=localComicPage(prompt);model="local/storyboard-svg";}
     }
     if(!image){image=localComicPage(prompt);model="local/storyboard-svg";}
     console.log("[manga-image] success",{model,fallback:!!image.fallback,primaryStatus:Number(primaryError?.statusCode||primaryError?.status||0)||undefined});
@@ -126,5 +139,7 @@ export default async function handler(req,res){
   }
 }
 
-export {validateReferences};
-export {localComicPage};
+module.exports=handler;
+module.exports.config=config;
+module.exports.validateReferences=validateReferences;
+module.exports.localComicPage=localComicPage;
