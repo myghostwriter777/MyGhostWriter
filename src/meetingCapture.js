@@ -29,3 +29,13 @@ export const MEETING_DISPLAY_OPTIONS={
   monitorTypeSurfaces:"include",
   windowAudio:"system",
 };
+
+// Build the transcription stream from the audio tracks returned by
+// getDisplayMedia only. Never call getUserMedia and never let a browser speech
+// recognizer choose its own default input, because that default is normally the
+// user's microphone rather than the shared meeting audio.
+export const buildRemoteMeetingAudioStream=(sharedStream,MediaStreamClass=typeof MediaStream!=="undefined"?MediaStream:null)=>{
+  const remoteTracks=sharedStream?.getAudioTracks?.()||[];
+  if(!remoteTracks.length||typeof MediaStreamClass!=="function")return null;
+  return new MediaStreamClass(remoteTracks);
+};

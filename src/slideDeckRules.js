@@ -19,15 +19,59 @@ export function resolveSlideCount(details,selected){
   return {count:requested||fallback,overridden:requested!==null};
 }
 
+const ZEN_VISUALS=["fullbleed","big-number","simple-chart","comparison","signal"];
+const ZEN_LAYOUTS=["left-third","right-third","top-third","full-bleed"];
+
+const clipWords=(value,limit)=>{
+  const words=String(value||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  return words.length<=limit?words.join(" "):`${words.slice(0,limit).join(" ")}…`;
+};
+
+export function zenHumorIndex(count){
+  const total=Math.max(1,Number(count)||1);
+  return total<3?-1:Math.min(total-2,Math.max(1,Math.round((total-1)*0.62)));
+}
+
 export function buildZenBlueprint(topic,count){
   const subject=String(topic||"").trim()||"Your presentation";
   const total=Math.max(1,Number(count)||1);
+  const humorIndex=zenHumorIndex(total);
   return Array.from({length:total},(_,index)=>{
     const progress=total===1?1:index/(total-1);
-    if(index===0)return {label:"Hook",purpose:`Open ${subject} with one memorable idea.`};
-    if(index===total-1)return {label:"Close",purpose:"End with one clear takeaway or next action."};
-    if(progress<0.34)return {label:"Context",purpose:"Give only the context the audience needs."};
-    if(progress<0.7)return {label:"Proof",purpose:"Show one example, contrast, or piece of evidence."};
-    return {label:"Meaning",purpose:"Turn the evidence into a useful implication."};
+    if(index===0)return {label:"Hook",role:"hook",purpose:`Open ${subject} with one memorable tension or promise.`,visualType:"fullbleed",layout:"right-third",isHumorBeat:false};
+    if(index===total-1)return {label:"Close",role:"close",purpose:"Resolve the story with one clear takeaway or next action.",visualType:"spotlight",layout:"left-third",isHumorBeat:false};
+    if(index===humorIndex)return {label:"Unexpected",role:"unexpected",purpose:"Wake up the audience with one surprising, business-appropriate visual analogy that reinforces the core message.",visualType:"metaphor",layout:"full-bleed",isHumorBeat:true};
+    if(progress<0.27)return {label:"Context",role:"context",purpose:"Give only the context the audience needs to understand the stakes.",visualType:"signal",layout:index%2?"left-third":"right-third",isHumorBeat:false};
+    if(progress<0.48)return {label:"Tension",role:"tension",purpose:"Make the cost, conflict, or gap concrete with one focused contrast.",visualType:"comparison",layout:index%2?"right-third":"left-third",isHumorBeat:false};
+    if(progress<0.7)return {label:"Proof",role:"proof",purpose:"Show one example, simple data point, or piece of evidence without chart junk.",visualType:index%2?"big-number":"simple-chart",layout:index%2?"left-third":"right-third",isHumorBeat:false};
+    return {label:"Meaning",role:"insight",purpose:"Turn the evidence into one useful implication and move toward resolution.",visualType:"signal",layout:index%2?"right-third":"left-third",isHumorBeat:false};
   });
+}
+
+export function normalizeZenDeck(deck,blueprint){
+  const guides=Array.isArray(blueprint)?blueprint:[];
+  return {
+    ...deck,
+    title:clipWords(deck?.title||"Slide Deck",10),
+    subtitle:clipWords(deck?.subtitle||"",18),
+    slides:(deck?.slides||[]).slice(0,guides.length||undefined).map((slide,index)=>{
+      const guide=guides[index]||{};
+      const visualType=guide.isHumorBeat?"metaphor":(ZEN_VISUALS.includes(slide?.visualType)||slide?.visualType==="spotlight"||slide?.visualType==="metaphor"?slide.visualType:guide.visualType||"signal");
+      const layout=ZEN_LAYOUTS.includes(slide?.layout)?slide.layout:guide.layout||"left-third";
+      return {
+        ...slide,
+        eyebrow:clipWords(slide?.eyebrow||guide.label||"Key idea",4),
+        title:clipWords(slide?.title||guide.purpose||"One clear idea",12),
+        supportingText:clipWords(slide?.supportingText||(slide?.bullets||[])[0]||"",22),
+        bullets:[],
+        narrativeRole:guide.role||slide?.narrativeRole||"insight",
+        isHumorBeat:!!guide.isHumorBeat,
+        visualType,
+        layout,
+        visualLabel:clipWords(slide?.visualLabel||slide?.dataValue||"",5),
+        dataValue:clipWords(slide?.dataValue||"",4),
+        dataLabel:clipWords(slide?.dataLabel||"",8),
+      };
+    }),
+  };
 }

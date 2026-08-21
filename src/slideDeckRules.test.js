@@ -1,4 +1,4 @@
-import {buildZenBlueprint,requestedSlideCount,resolveSlideCount} from "./slideDeckRules";
+import {buildZenBlueprint,normalizeZenDeck,requestedSlideCount,resolveSlideCount,zenHumorIndex} from "./slideDeckRules";
 
 describe("slide deck rules",()=>{
   test("details override the selector when a slide count is requested",()=>{
@@ -12,9 +12,22 @@ describe("slide deck rules",()=>{
   });
 
   test("builds a Zen arc with a hook and close",()=>{
-    const blueprint=buildZenBlueprint("Urban gardens",5);
-    expect(blueprint).toHaveLength(5);
+    const blueprint=buildZenBlueprint("Urban gardens",8);
+    expect(blueprint).toHaveLength(8);
     expect(blueprint[0].label).toBe("Hook");
-    expect(blueprint[4].label).toBe("Close");
+    expect(blueprint[7].label).toBe("Close");
+    expect(blueprint.filter(item=>item.isHumorBeat)).toHaveLength(1);
+    expect(blueprint[zenHumorIndex(8)].visualType).toBe("metaphor");
+  });
+
+  test("normalizes generated copy into one uncluttered idea per slide",()=>{
+    const blueprint=buildZenBlueprint("Urban gardens",3);
+    const deck=normalizeZenDeck({title:"A very long but still manageable urban garden presentation title",subtitle:"A useful subtitle",slides:blueprint.map((_,index)=>({eyebrow:"A long category label for the slide",title:"This headline contains far too many words for a calm and memorable presentation slide so it should be shortened",bullets:["One concise supporting sentence","A second bullet that should not appear"],visualType:"gallery",layout:"centered",visualLabel:"A very long visual label",dataValue:"42%",dataLabel:"Less wasted space"}))},blueprint);
+    expect(deck.slides).toHaveLength(3);
+    expect(deck.slides.every(slide=>slide.bullets.length===0)).toBe(true);
+    expect(deck.slides[0].supportingText).toBe("One concise supporting sentence");
+    expect(deck.slides[1].isHumorBeat).toBe(true);
+    expect(deck.slides[1].visualType).toBe("metaphor");
+    expect(deck.slides[0].layout).toBe("right-third");
   });
 });

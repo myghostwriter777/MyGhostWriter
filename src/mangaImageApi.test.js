@@ -21,7 +21,11 @@ describe("Manga image API",()=>{
     await handler(req,res);
     expect(res.statusCode).toBe(200);
     expect(res.body.image.dataUrl).toBe("data:image/png;base64,aGVsbG8=");
-    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({model:"google/gemini-3.1-flash-image-preview"}));
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({model:"google/gemini-3.1-flash-image"}));
+    const prompt=generateText.mock.calls[0][0].messages[0].content[0].text;
+    expect(prompt).toContain("publication-quality portrait comic page");
+    expect(prompt).toContain("Stick figures");
+    expect(prompt).toContain("polished cel shading");
     expect(generateImage).not.toHaveBeenCalled();
   });
 
@@ -34,7 +38,7 @@ describe("Manga image API",()=>{
     expect(generateImage).toHaveBeenCalledWith(expect.objectContaining({model:"bfl/flux-2-flex",aspectRatio:"2:3"}));
   });
 
-  test("tries a second cloud illustrator before using the local storyboard",async()=>{
+  test("tries a second cloud illustrator when the first fallback fails",async()=>{
     generateText.mockResolvedValue({files:[]});
     generateImage
       .mockRejectedValueOnce(Object.assign(new Error("Flux unavailable"),{statusCode:503}))
@@ -46,15 +50,14 @@ describe("Manga image API",()=>{
     expect(res.body.model).toBe("openai/gpt-image-2");
   });
 
-  test("returns a visible local storyboard when both Gateway image models fail",async()=>{
+  test("returns the renderer error instead of presenting placeholder art",async()=>{
     generateText.mockRejectedValue(Object.assign(new Error("budget exhausted"),{statusCode:402}));
     generateImage.mockRejectedValue(Object.assign(new Error("provider unavailable"),{statusCode:503}));
     const req={method:"POST",body:{prompt:'Title: Test Page\n\nExact panel plan:\nPanel 1\nShot: Close-up\nAction and expression: A character looks surprised.\nSpeech bubble (Mina): "What happened?"'}};const res=mockResponse();
     await handler(req,res);
-    expect(res.statusCode).toBe(200);
-    expect(res.body.fallback).toBe(true);
-    expect(res.body.image.mediaType).toBe("image/svg+xml");
-    expect(res.body.image.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(res.statusCode).toBe(402);
+    expect(res.body.error).toContain("allowance has run out");
+    expect(res.body.image).toBeUndefined();
     expect(generateImage).toHaveBeenCalledTimes(2);
   });
 
