@@ -30,6 +30,23 @@ export function limitQuestionsToSource(value,source){
   return String(value||"").replace(/\?/g,()=>allowed-->0?"?":".");
 }
 
+const SIMPLE_VOCABULARY_LEVELS=new Set(["A1","A2","B1"]);
+const NO_RHETORICAL_QUESTION_LEVELS=new Set(["A1","A2","B1","B2"]);
+
+// Keep CEFR requirements in one testable place so both Humanize passes receive
+// exactly the same level-specific direction.
+export function buildHumanizeLevelRules(level){
+  const normalized=String(level||"").toUpperCase();
+  const rules=[];
+  if(SIMPLE_VOCABULARY_LEVELS.has(normalized)){
+    rules.push("Use common everyday words suitable for an "+normalized+" reader. Prefer short, familiar words. Avoid jargon, idioms, abstract vocabulary, advanced synonyms, and complicated phrasal verbs. If a simpler word keeps the meaning, use it.");
+  }
+  if(NO_RHETORICAL_QUESTION_LEVELS.has(normalized)){
+    rules.push("Do not use rhetorical questions. Rewrite rhetorical framing as clear declarative sentences. Keep a genuine information-seeking question only when it is necessary to the source's meaning.");
+  }
+  return rules.join(" ");
+}
+
 // Strip markup and decorative characters that language models sometimes
 // leave in otherwise plain prose. Normal essay punctuation, mathematical
 // symbols, currencies, apostrophes, parentheses, and compound-word hyphens

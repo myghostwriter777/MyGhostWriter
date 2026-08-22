@@ -1,75 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" role="img" aria-labelledby="title desc">
-  <title id="title">Manga Studio tarot card</title>
-  <desc id="desc">An ornate midnight tarot card containing a vertical comic page, two original character silhouettes, a crescent moon, and gold ink flourishes.</desc>
+  <title id="title">Manga Studio tarot illustration</title>
+  <desc id="desc">An antique celestial comic artist desk with ink, framed story panels, moonlight, and ornate gold engraving.</desc>
   <defs>
-    <linearGradient id="night" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#080b1d"/>
-      <stop offset=".52" stop-color="#16132c"/>
-      <stop offset="1" stop-color="#071421"/>
-    </linearGradient>
-    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#f4e7ce"/>
-      <stop offset="1" stop-color="#c9b68f"/>
-    </linearGradient>
-    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#a855f7"/>
-      <stop offset="1" stop-color="#38bdf8"/>
-    </linearGradient>
-    <filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    <pattern id="grain" width="9" height="9" patternUnits="userSpaceOnUse"><circle cx="2" cy="3" r=".65" fill="#fff" opacity=".1"/><circle cx="7" cy="6" r=".45" fill="#d8bd68" opacity=".16"/></pattern>
+    <radialGradient id="bg" cx="50%" cy="34%" r="74%"><stop stop-color="#182034"/><stop offset=".48" stop-color="#0b101c"/><stop offset="1" stop-color="#03070d"/></radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f2dda0"/><stop offset=".43" stop-color="#b88b32"/><stop offset="1" stop-color="#6e4817"/></linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#251a38"/><stop offset="1" stop-color="#080d19"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <pattern id="stars" width="83" height="83" patternUnits="userSpaceOnUse"><circle cx="11" cy="17" r="1" fill="#e7cf82" opacity=".5"/><circle cx="61" cy="42" r="1.4" fill="#9bb8d1" opacity=".38"/><circle cx="37" cy="72" r=".8" fill="#fff1bd" opacity=".42"/></pattern>
   </defs>
-  <rect width="600" height="900" rx="28" fill="url(#night)"/>
-  <rect width="600" height="900" rx="28" fill="url(#grain)"/>
-  <g fill="none" stroke="#d8bd68">
-    <rect x="18" y="18" width="564" height="864" rx="23" stroke-width="5"/>
-    <rect x="31" y="31" width="538" height="838" rx="17" opacity=".58" stroke-width="2"/>
-    <path d="M55 104C120 56 179 62 226 83M545 104C480 56 421 62 374 83M55 796c65 48 124 42 171 21m319-21c-65 48-124 42-171 21" opacity=".75" stroke-width="3"/>
-    <path d="M66 76h101M433 76h101M66 824h101M433 824h101" opacity=".55"/>
+  <rect width="600" height="900" rx="28" fill="url(#bg)"/><rect width="600" height="900" rx="28" fill="url(#stars)"/>
+  <circle cx="300" cy="315" r="194" fill="none" stroke="#c89a3f" stroke-width="2" opacity=".23"/><circle cx="300" cy="315" r="156" fill="none" stroke="#c89a3f" stroke-dasharray="3 11" opacity=".28"/>
+  <g fill="none" stroke="url(#gold)"><rect x="17" y="17" width="566" height="866" rx="23" stroke-width="5"/><rect x="30" y="30" width="540" height="840" rx="17" stroke-width="1.8" opacity=".72"/><path d="M42 145C94 116 110 74 125 42M558 145c-52-29-68-71-83-103M42 755c52 29 68 71 83 103m433-103c-52 29-68 71-83 103" stroke-width="3"/><path d="M43 96c64 0 96-17 123-53M557 96c-64 0-96-17-123-53M43 804c64 0 96 17 123 53m391-53c-64 0-96 17-123 53" opacity=".6"/></g>
+  <g fill="#d9b65e"><path d="M300 39l7 18 18 7-18 7-7 18-7-18-18-7 18-7z"/><path d="M79 78l4 10 10 4-10 4-4 10-4-10-10-4 10-4zm442 0l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/></g>
+  <path d="M378 98a70 70 0 1 1-76-77 64 64 0 0 0 76 77z" fill="#d9b65e" opacity=".92" filter="url(#glow)"/>
+  <g transform="translate(102 139)">
+    <path d="M31 66L197 11l168 55-19 506-149 52L49 572z" fill="#060a12" stroke="#d9b65e" stroke-width="5"/><path d="M52 83L197 35l147 48-16 469-131 46-129-46z" fill="url(#ink)" stroke="#7c5a28" stroke-width="2"/>
+    <g stroke="#d9b65e" stroke-width="5"><path d="M68 99h258v138H68z" fill="#121a2a"/><path d="M68 254h122v132H68z" fill="#1a1627"/><path d="M205 254h121v132H205z" fill="#101c25"/><path d="M68 403h258v129H68z" fill="#171321"/></g>
+    <g fill="none" stroke="#caa34f" stroke-linecap="round"><path d="M99 214c8-53 29-81 66-83 38-3 64 26 72 83" stroke-width="6"/><ellipse cx="168" cy="148" rx="42" ry="49" stroke-width="4"/><path d="M129 143c4-46 21-66 50-61 23 4 36 22 34 58-17-14-33-19-48-18-14 1-26 8-36 21z" fill="#b88b32" opacity=".48"/><path d="M239 113h58c14 0 22 8 22 21v36c0 14-8 21-22 21h-25l-21 18 6-18h-18c-14 0-22-7-22-21v-36c0-13 8-21 22-21z" fill="#d7c28f" stroke-width="3"/><path d="M237 292c4-35 20-53 48-53 27 0 42 20 43 59M221 372c7-50 29-76 66-76 31 0 50 21 57 76M92 370c5-54 27-81 63-81 31 0 51 25 56 81M86 506c9-60 37-91 84-91 42 0 69 29 78 91m-15 0c5-52 26-79 63-79 27 0 47 20 57 61" stroke-width="5"/></g>
+    <g fill="#d9b65e" opacity=".72"><circle cx="92" cy="111" r="4"/><circle cx="307" cy="111" r="4"/><path d="M107 275l5 12 12 5-12 5-5 12-5-12-12-5 12-5zM284 426l5 12 12 5-12 5-5 12-5-12-12-5 12-5z"/></g>
   </g>
-  <g fill="#d8bd68">
-    <path d="M300 42l8 20 20 8-20 8-8 20-8-20-20-8 20-8z"/>
-    <circle cx="92" cy="123" r="5"/><circle cx="508" cy="123" r="5"/>
-    <path d="M92 101v44M70 123h44M508 101v44M486 123h44" opacity=".65"/>
-  </g>
-  <path d="M421 122a61 61 0 1 1-65-72 55 55 0 0 0 65 72z" fill="#d8bd68" opacity=".92" filter="url(#glow)"/>
-  <g transform="translate(112 142)">
-    <rect x="0" y="0" width="376" height="554" rx="14" fill="url(#page)" stroke="#e9d78f" stroke-width="6"/>
-    <rect x="15" y="15" width="346" height="524" fill="#0c1020" stroke="#1d2440" stroke-width="3"/>
-    <path d="M15 193h346M15 370h346M205 193v177" stroke="#e9d78f" stroke-width="6"/>
-    <g opacity=".95">
-      <path d="M15 15h346v178H15z" fill="#1d1536"/>
-      <circle cx="112" cy="96" r="58" fill="url(#ink)" opacity=".34"/>
-      <path d="M63 169c8-48 28-75 60-81 35-7 63 16 76 81" fill="#080b18"/>
-      <path d="M83 92c0-47 22-67 58-67 34 0 57 27 55 69-21-20-44-24-70-20-16 3-30 9-43 18z" fill="#111729" stroke="#d8bd68" stroke-width="3"/>
-      <path d="M240 55h86c18 0 28 11 28 27v44c0 18-10 27-28 27h-44l-26 24 7-24h-23c-18 0-28-9-28-27V82c0-16 10-27 28-27z" fill="#f8efd9" stroke="#0c1020" stroke-width="5"/>
-      <path d="M238 86h89M238 106h72M238 126h80" stroke="#20243a" stroke-width="7" stroke-linecap="round"/>
-    </g>
-    <g>
-      <path d="M15 193h190v177H15z" fill="#0f1c2b"/>
-      <path d="M37 348c7-62 32-97 74-103 44-6 70 31 74 103" fill="#10101a"/>
-      <ellipse cx="111" cy="256" rx="49" ry="58" fill="#d7a99e" stroke="#d8bd68" stroke-width="3"/>
-      <path d="M60 254c1-60 25-80 55-80 39 0 65 27 57 87-12-33-34-51-64-52-18 0-34 15-48 45z" fill="#241a34"/>
-      <path d="M83 271h14M126 271h14M105 299c10 7 20 7 29 0" fill="none" stroke="#14111e" stroke-width="5" stroke-linecap="round"/>
-      <path d="M205 193h156v177H205z" fill="#24162e"/>
-      <path d="M224 219l117 123M342 218L226 344" stroke="url(#ink)" stroke-width="14" opacity=".34"/>
-      <path d="M242 251h83M242 277h62M242 303h72" stroke="#f2e8d0" stroke-width="9" stroke-linecap="round"/>
-      <circle cx="326" cy="222" r="14" fill="#d8bd68"/>
-    </g>
-    <g>
-      <path d="M15 370h346v169H15z" fill="#121225"/>
-      <circle cx="189" cy="451" r="88" fill="url(#ink)" opacity=".2"/>
-      <path d="M49 515c12-75 43-111 92-111 45 0 75 30 89 111M181 515c10-70 40-105 90-105 43 0 72 34 82 105" fill="#080b15" stroke="#d8bd68" stroke-width="3"/>
-      <path d="M104 425c7-42 28-63 58-63 31 0 52 22 57 65-19-17-39-24-60-22-20 1-38 8-55 20zM235 430c6-46 27-69 59-69 34 0 53 26 55 74-17-21-39-31-65-29-18 1-34 9-49 24z" fill="#20172f"/>
-      <path d="M85 386c-34-32-60-54-72-92M318 390c26-22 41-46 43-73" stroke="url(#ink)" stroke-width="5" fill="none"/>
-    </g>
-  </g>
-  <g transform="translate(81 732)">
-    <path d="M0 0h438l-23 68H23z" fill="#d0b878" stroke="#f2e8d0" stroke-width="3"/>
-    <path d="M13 9h412l-15 49H28z" fill="#eadbb7" stroke="#332617" stroke-width="2"/>
-    <text x="219" y="43" text-anchor="middle" fill="#1b1622" font-family="Georgia, serif" font-size="33" font-weight="700" letter-spacing="4">MANGA STUDIO</text>
-  </g>
-  <g fill="#d8bd68" opacity=".9">
-    <path d="M300 842l6 14 14 6-14 6-6 14-6-14-14-6 14-6z"/>
-    <circle cx="259" cy="862" r="3"/><circle cx="341" cy="862" r="3"/>
-  </g>
+  <g transform="rotate(-15 410 615)"><path d="M414 456c38 88 44 176 21 267" fill="none" stroke="#e0c470" stroke-width="13" stroke-linecap="round"/><path d="M420 456c51 38 66 103 30 163-18-42-38-69-63-82 9-35 20-62 33-81z" fill="url(#gold)" stroke="#f2dda0" stroke-width="3"/><path d="M433 711l9 34-23 24-7-33z" fill="#d7bc70" stroke="#f2dda0" stroke-width="3"/></g>
+  <g transform="translate(90 704)"><ellipse cx="88" cy="52" rx="67" ry="25" fill="#070b12" stroke="#b88b32" stroke-width="5"/><path d="M35 52v61c0 18 106 18 106 0V52" fill="#0b101a" stroke="#b88b32" stroke-width="5"/><ellipse cx="88" cy="52" rx="52" ry="15" fill="#211735" stroke="#dec16f" stroke-width="3"/><path d="M88 62c25 22 31 52 18 90" fill="none" stroke="#a07cc7" stroke-width="5" opacity=".7"/></g>
+  <g fill="#d9b65e" opacity=".9"><path d="M300 821l6 15 15 6-15 6-6 15-6-15-15-6 15-6z"/><circle cx="252" cy="842" r="3"/><circle cx="348" cy="842" r="3"/></g>
 </svg>

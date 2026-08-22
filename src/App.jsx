@@ -9,8 +9,9 @@ import { buildRemoteMeetingAudioStream, detectMeetingCaptureProfile, MEETING_DIS
 import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
 import { speak, stopSpeak } from "./voiceApi";
-import { cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
+import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { buildZenBlueprint, normalizeZenDeck, resolveSlideCount } from "./slideDeckRules";
+import { isComingSoonForUser } from "./featureAvailability";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
@@ -182,6 +183,11 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .tarot-card-corners i:nth-child(1){left:8px;top:8px}.tarot-card-corners i:nth-child(2){right:8px;top:8px}.tarot-card-corners i:nth-child(3){right:8px;bottom:8px}.tarot-card-corners i:nth-child(4){left:8px;bottom:8px}
 .tarot-title-plate{position:absolute;z-index:6;left:10px;right:10px;bottom:8px;min-height:28px;display:flex;align-items:center;justify-content:center;padding:5px 20px;border:1px solid rgba(70,49,21,0.9);outline:1px solid rgba(230,201,101,0.66);outline-offset:-3px;background:linear-gradient(180deg,rgba(228,204,144,0.97),rgba(169,132,65,0.98));box-shadow:0 -5px 15px rgba(0,0,0,0.34),inset 0 1px rgba(255,246,211,0.58);clip-path:polygon(7px 0,calc(100% - 7px) 0,100% 50%,calc(100% - 7px) 100%,7px 100%,0 50%);color:#21180e;text-align:center;text-shadow:0 1px rgba(255,246,211,0.3);font-family:'Instrument Serif',Georgia,serif;font-size:clamp(10px,1.35vw,13px);font-weight:800;letter-spacing:0.035em;line-height:1;text-transform:uppercase;}
 .tarot-title-plate::before,.tarot-title-plate::after{content:"";width:4px;height:4px;position:absolute;top:50%;background:#302211;border:1px solid rgba(255,234,174,0.5);transform:translateY(-50%) rotate(45deg);}.tarot-title-plate::before{left:9px}.tarot-title-plate::after{right:9px}
+.tarot-coming-soon{position:absolute;z-index:7;left:-9%;right:-9%;top:54%;height:35px;display:flex;align-items:center;justify-content:center;transform:rotate(-6deg);border-top:2px solid #f4d56f;border-bottom:2px solid #8c6516;background:repeating-linear-gradient(135deg,#e8c252 0 17px,#13100a 17px 34px);box-shadow:0 6px 18px rgba(0,0,0,0.58),0 0 0 1px rgba(0,0,0,0.75);pointer-events:none;isolation:isolate;}
+.tarot-coming-soon::before{content:"";position:absolute;inset:5px 0;background:rgba(4,6,9,0.76);border-top:1px solid rgba(255,241,186,0.34);border-bottom:1px solid rgba(255,241,186,0.25);z-index:-1;}
+.tarot-coming-soon::after{content:"";position:absolute;left:13%;right:13%;top:50%;height:31px;transform:translateY(-50%) rotate(10deg);border-top:2px solid #f4d56f;border-bottom:2px solid #8c6516;background:repeating-linear-gradient(135deg,#e8c252 0 15px,#13100a 15px 30px);box-shadow:0 5px 15px rgba(0,0,0,0.48);z-index:-2;}
+.tarot-coming-soon span{min-width:112px;padding:4px 13px;border:1px solid #f6dc83;border-radius:3px;background:#090b10;color:#f7e6a6;font-size:9px;font-weight:950;letter-spacing:0.18em;line-height:1;text-align:center;text-transform:uppercase;text-shadow:0 1px 4px #000;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.04);}
+.tarot-coming-soon-back{display:inline-flex;align-items:center;gap:5px;margin-bottom:7px;padding:4px 8px;border:1px solid rgba(230,201,101,0.65);border-radius:4px;background:repeating-linear-gradient(135deg,rgba(230,194,82,0.18) 0 7px,rgba(8,8,11,0.92) 7px 14px);color:#f4d978;font-size:8px;font-weight:900;letter-spacing:0.12em;text-transform:uppercase;position:relative;z-index:2;}
 .tarot-card-back::before{content:"";position:absolute;inset:13px;border-radius:50%;background:repeating-conic-gradient(from 0deg,rgba(230,201,101,0.085) 0 1deg,transparent 1deg 15deg);mask-image:radial-gradient(circle,transparent 0 46%,black 47% 49%,transparent 50%);pointer-events:none;}
 .tarot-card-back::after{content:"";position:absolute;inset:18px;background:radial-gradient(circle at 50% 13%,rgba(230,201,101,0.9) 0 1px,transparent 1.5px),radial-gradient(circle at 14% 50%,rgba(230,201,101,0.55) 0 1px,transparent 1.5px),radial-gradient(circle at 86% 50%,rgba(230,201,101,0.55) 0 1px,transparent 1.5px);pointer-events:none;}
 .tarot-back-medallion{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;margin-bottom:9px;border:1px solid rgba(230,201,101,0.62);background:radial-gradient(circle,rgba(230,201,101,0.14),rgba(9,8,14,0.84) 68%);box-shadow:0 0 0 3px rgba(230,201,101,0.055),0 0 22px color-mix(in srgb,var(--tarot-tier) 22%,transparent);position:relative;z-index:2;}
@@ -305,6 +311,7 @@ const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
 
 const MODES = [
   { id:"reply",    icon:"reply",    label:"AI Replies", access:"free"        },
+  { id:"writing",  icon:"writing",  label:"Writing",    access:"free"        },
   { id:"email",    icon:"mail",     label:"Email",       access:"free"        },
   { id:"grammar",  icon:"grammar",  label:"Grammar",     access:"free"        },
   { id:"essay",    icon:"essay",    label:"Essay",       access:"pro+student" },
@@ -325,7 +332,7 @@ const MODES = [
 // A four-destination plan rail keeps the primary hierarchy predictable, then
 // exposes only the tools for the selected plan in the secondary row.
 const NAV_GROUPS=[
-  {id:"free",label:"Free",modeIds:["reply","email","grammar"]},
+  {id:"free",label:"Free",modeIds:["reply","writing","email","grammar"]},
   {id:"pro",label:"Pro",modeIds:["essay","presentation","interview","slides","cv","author","story"]},
   {id:"student",label:"Master",modeIds:["meeting","academic","humanize","manga"]},
   {id:"history",label:"History",modeIds:["history"]},
@@ -949,6 +956,10 @@ function PlanBadge({plan}){
   return <span style={{background:d.bg,color:d.color,fontSize:11,fontWeight:800,letterSpacing:"0.1em",padding:"2px 7px",borderRadius:4,textTransform:"uppercase",flexShrink:0}}>{d.label}</span>;
 }
 
+function ComingSoonBadge({compact=false}){
+  return <span style={{display:"inline-flex",alignItems:"center",gap:compact?2:4,minHeight:compact?16:22,padding:compact?"2px 4px":"3px 7px",border:"1px solid rgba(245,200,66,0.48)",borderRadius:4,background:"repeating-linear-gradient(135deg,rgba(245,200,66,0.14) 0 7px,rgba(8,9,12,0.72) 7px 14px)",color:C.yellowText,fontSize:compact?7:9,fontWeight:900,letterSpacing:compact?"0.04em":"0.08em",lineHeight:1,textTransform:"uppercase",flexShrink:0}}><GwmIcon name="timer" size={compact?8:11}/>{compact?"Soon":"Coming Soon"}</span>;
+}
+
 /**
  * Renders either a Google profile photo or GhostwriterMe's own ghost mark.
  *
@@ -1116,12 +1127,14 @@ const GHOSTY_ICON="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAAD
 
 const CARD_IMG={
   reply:"/tarot/reply.webp",
+  writing:"/tarot/writing.svg",
   email:"/tarot/email.webp",
   grammar:"/tarot/grammar.webp",
   essay:"/tarot/essay.webp",
   presentation:"/tarot/presentation.webp",
   interview:"/tarot/interview.webp",
   slides:"/tarot/slides.webp",
+  meeting:"/tarot/meeting.svg",
   manga:"/tarot/manga.svg",
   academic:"/tarot/academic.webp",
   cv:"/tarot/cv.webp",
@@ -1133,29 +1146,33 @@ const CARD_IMG={
 
 const TAROT_TOOLS=[
   {id:"reply",   name:"AI Replies",   tier:"Free",    desc:"Instantly generates smart, context-aware replies for any message or conversation."},
+  {id:"writing", name:"Writing Mode", tier:"Free",    desc:"Turns bullet points and short notes into one clear, complete sentence."},
   {id:"email",   name:"Email Writer", tier:"Free",    desc:"Writes polished, professional emails for any situation in seconds."},
   {id:"grammar", name:"Grammar Check",tier:"Free",    desc:"Fixes grammar, spelling, and clarity with one tap."},
   {id:"essay",   name:"Essay Writer", tier:"Pro",     desc:"Generates well-structured essays tailored to your topic and requirements."},
   {id:"presentation",name:"Presentation",tier:"Pro",  desc:"Builds timed group scripts, smooth handoffs, and helpful feedback for a friend's draft."},
   {id:"interview",name:"Interview Coach",tier:"Pro",  desc:"Turns your CV and job requirements into a tailored, spoken practice interview."},
   {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
+  {id:"meeting", name:"Meeting Assist",tier:"Master", comingSoon:true,desc:"Listens only to shared meeting audio and prepares concise, useful reply suggestions."},
   {id:"academic",name:"Academic",     tier:"Master", desc:"Provides feedback on your writing and offers research guidance."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
   {id:"humanize",name:"Humanize",     tier:"Master", desc:"Refines AI-generated text into natural, human-like writing."},
-  {id:"manga",   name:"Manga Studio", tier:"Master", desc:"Turns an original story into illustrated manga or vertical manhwa pages with consistent characters."},
+  {id:"manga",   name:"Manga Studio", tier:"Master", comingSoon:true,desc:"Turns an original story into illustrated manga or vertical manhwa pages with consistent characters."},
   {id:"story",   name:"Story Guide",  tier:"Pro",     desc:"Turns a book or movie into summaries, key ideas, story structure, character development, and themes."},
   {id:"history", name:"History",      tier:"Free",    desc:"Saves and organizes all your past creations for easy access."},
 ];
 
 const TOOL_SHOWCASES={
   reply:{kicker:"Conversation intelligence",title:"Say the right thing,",accent:"without overthinking it.",prompt:"My manager asked if I can present the project tomorrow. I need more time, but I want to sound proactive.",output:"Absolutely — I’d be happy to present. Could we move it to Thursday? That gives me time to tighten the final details and make the session genuinely useful for the team.",tone:"Confident",meta:"Ready in 4 seconds"},
+  writing:{kicker:"Sentence studio",title:"Bring the facts.",accent:"Ghosty finds the sentence.",prompt:"New community café · opens Monday · quiet study area · locally roasted coffee",output:"The new community café opens on Monday with a quiet study area and locally roasted coffee.",tone:"Natural",meta:"One focused sentence"},
   email:{kicker:"Professional communication",title:"From blank page",accent:"to ready to send.",prompt:"Follow up after an interview. Warm, professional, not pushy. Mention the product strategy conversation.",output:"Hi Maya, thank you again for the thoughtful conversation yesterday. I especially enjoyed our discussion about where the product strategy is heading, and I left even more excited about the role.",tone:"Professional",meta:"Subject line included"},
   grammar:{kicker:"Clarity engine",title:"Keep your voice.",accent:"Lose the friction.",prompt:"I wanted to let you know that the report are almost finish and I will sending it by tomorrow morning.",output:"I wanted to let you know that the report is almost finished, and I’ll send it by tomorrow morning.",tone:"Natural",meta:"4 improvements"},
   essay:{kicker:"Long-form studio",title:"Turn a thesis",accent:"into a compelling case.",prompt:"Argumentative essay on whether remote work improves productivity. B2 English, 900 words, balanced evidence.",output:"Remote work has changed from an emergency measure into a lasting model of modern employment. Its effect on productivity, however, depends less on location than on how work is designed.",tone:"Academic",meta:"Structured outline"},
   presentation:{kicker:"Presentation room",title:"Give every speaker",accent:"a moment that matters.",prompt:"Create a seven-minute launch presentation for three teammates, with clear handoffs and balanced speaking time.",output:"I split the story into three distinct roles, gave each speaker a clear purpose, and added handoff lines so the presentation feels rehearsed rather than stitched together.",tone:"Confident",meta:"3 speakers · 7 minutes"},
   interview:{kicker:"Interview rehearsal",title:"Practice the room",accent:"before you enter it.",prompt:"Use my CV and the product manager requirements to run a friendly but realistic six-question interview.",output:"Let’s begin with your onboarding redesign. What was the hardest tradeoff you made, and how did you know the final decision was working?",tone:"Professional",meta:"Spoken practice ready"},
   slides:{kicker:"Visual storytelling",title:"Build the deck",accent:"and the story behind it.",prompt:"Create an eight-slide investor deck for a sustainable fashion marketplace with an executive theme.",output:"Your deck opens with the market tension, moves through customer proof and the business model, and closes on a specific funding ask with speaker notes for every slide.",tone:"Executive",meta:"8-slide story"},
+  meeting:{kicker:"Meeting companion",title:"Hear the room.",accent:"Prepare the next move.",prompt:"Listen to the shared meeting tab, ignore my microphone, and suggest concise text replies when a decision or question appears.",output:"GhostwriterMe follows the remote conversation and prepares short reply options without joining the call or speaking for you.",tone:"Private",meta:"Admin testing in progress"},
   academic:{kicker:"Research companion",title:"Sharper reasoning.",accent:"Stronger academic writing.",prompt:"Review my introduction for argument strength, evidence gaps, and APA-style academic tone.",output:"Your central claim is clear, but the opening needs a stronger link between the cited trend and your research question. Add one recent source here, then define the scope of your argument.",tone:"Reviewer",meta:"Actionable feedback"},
   cv:{kicker:"Career story builder",title:"Make experience",accent:"read like impact.",prompt:"Product designer with 4 years of experience. Rewrite my project bullet for ATS and show measurable impact.",output:"Led the end-to-end redesign of the onboarding flow, reducing time-to-value by 38% and increasing new-user activation across mobile and web.",tone:"Executive",meta:"ATS optimized"},
   author:{kicker:"Creative writing room",title:"Find the scene",accent:"only you could write.",prompt:"A quiet sci-fi opening: a botanist on Mars discovers that one of her plants is responding to music.",output:"On the eighty-third morning, the fern leaned toward the old piano recording. Elara stopped the track. The fronds went still. She pressed play again, and the whole greenhouse seemed to listen.",tone:"Literary",meta:"Original prose"},
@@ -1165,7 +1182,7 @@ const TOOL_SHOWCASES={
   history:{kicker:"Personal writing archive",title:"Every good idea,",accent:"ready when you are.",prompt:"Find the cover letter draft I made last week and the follow-up email connected to it.",output:"Found 2 related pieces. Your cover letter was created 6 days ago; the follow-up email was created the next morning. Both are ready to reopen or copy.",tone:"Organized",meta:"Synced across devices"},
 };
 
-const TAROT_ICON={reply:"reply",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",manga:"manga",academic:"academic",cv:"cv",author:"author",humanize:"humanize",story:"story",history:"history"};
+const TAROT_ICON={reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",meeting:"meeting",manga:"manga",academic:"academic",cv:"cv",author:"author",humanize:"humanize",story:"story",history:"history"};
 
 function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
@@ -1173,9 +1190,10 @@ function TarotCard({tool}){
   const [pressed,setPressed]=React.useState(false);
   const tierColor=tool.tier==="Master"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
   const locked=tool.tier!=="Free";
+  const comingSoon=Boolean(tool.comingSoon);
   const toggle=()=>setFlipped(f=>!f);
   return(
-    <div className="tarot-card" style={{"--tarot-tier":tierColor}} onClick={toggle} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>{setHover(false);setPressed(false);}} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onTouchStart={()=>setPressed(true)} onTouchEnd={()=>setPressed(false)} onTouchCancel={()=>setPressed(false)} role="button" tabIndex={0} aria-pressed={flipped} aria-label={tool.name+", "+tool.tier+" tier. Press to "+(flipped?"hide":"reveal")+" details."} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}}}>
+    <div className="tarot-card" style={{"--tarot-tier":tierColor}} onClick={toggle} onMouseEnter={()=>setHover(true)} onMouseLeave={()=>{setHover(false);setPressed(false);}} onMouseDown={()=>setPressed(true)} onMouseUp={()=>setPressed(false)} onTouchStart={()=>setPressed(true)} onTouchEnd={()=>setPressed(false)} onTouchCancel={()=>setPressed(false)} role="button" tabIndex={0} aria-pressed={flipped} aria-label={tool.name+", "+tool.tier+" tier"+(comingSoon?", coming soon":"")+". Press to "+(flipped?"hide":"reveal")+" details."} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();}}}>
       <div className="tarot-card-shell" style={{transform:pressed?"translateY(-2px) rotateX(1deg) scale(0.975)":hover?"translateY(-8px) rotateX(3deg) rotateY(-3deg)":"translateY(0) rotateX(0) rotateY(0) scale(1)",filter:hover?"drop-shadow(0 18px 18px rgba(0,0,0,0.3))":"none"}}>
       <div className="tarot-card-flipper" style={{transform:flipped?"rotateY(180deg)":"rotateY(0deg)"}}>
         {/* FRONT — tarot illustration */}
@@ -1199,6 +1217,7 @@ function TarotCard({tool}){
           <div className="tarot-card-sheen"/>
           <div className="tarot-card-frame"/>
           <div className="tarot-card-corners" aria-hidden="true"><i/><i/><i/><i/></div>
+          {comingSoon&&<div className="tarot-coming-soon" aria-hidden="true"><span>Coming Soon</span></div>}
           <div className="tarot-title-plate">{tool.name}</div>
           {locked&&(
             <div style={{position:"absolute",top:8,right:8,zIndex:8,display:"flex",alignItems:"center",gap:4,minHeight:22,background:"rgba(0,0,0,0.82)",border:"1px solid "+tierColor+"aa",borderRadius:20,padding:"3px 7px 3px 5px",boxShadow:"0 4px 14px rgba(0,0,0,0.48),0 0 12px "+tierColor+"22",backdropFilter:"blur(6px)"}}>
@@ -1212,11 +1231,12 @@ function TarotCard({tool}){
           <div className="tarot-card-frame"/>
           <div className="tarot-card-corners" aria-hidden="true"><i/><i/><i/><i/></div>
           <div className="tarot-back-medallion"><GwmIcon name={TAROT_ICON[tool.id]||"spark"} size={22} color={TZ.goldL}/></div>
+          {comingSoon&&<div className="tarot-coming-soon-back"><GwmIcon name="timer" size={9}/>Coming Soon</div>}
           <div style={{fontSize:14,fontWeight:800,color:TZ.cream,fontFamily:"'Instrument Serif',Georgia,serif",marginBottom:2,lineHeight:1.1,position:"relative",zIndex:2}}>{tool.name}</div>
           <div className="tarot-back-rule" aria-hidden="true"><i/></div>
           <div style={{fontSize:10.3,color:"#c9b896",lineHeight:1.52,position:"relative",zIndex:2,textWrap:"balance"}}>{tool.desc}</div>
           <div style={{marginTop:9,position:"relative",zIndex:2}}><span style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.08em",color:tierColor,border:"1px solid "+tierColor+"66",background:tierColor+"0d",padding:"2px 8px",borderRadius:10,textTransform:"uppercase"}}>{tool.tier}</span></div>
-          <div style={{fontSize:8.5,color:TZ.goldL,opacity:0.52,marginTop:9,letterSpacing:"0.14em",textTransform:"uppercase",position:"relative",zIndex:2}}>tap to turn</div>
+          <div style={{fontSize:8.5,color:TZ.goldL,opacity:0.52,marginTop:9,letterSpacing:"0.14em",textTransform:"uppercase",position:"relative",zIndex:2}}>{comingSoon?"admin testing":"tap to turn"}</div>
         </div>
       </div>
       </div>
@@ -1230,6 +1250,7 @@ function TarotCard({tool}){
    because those two lists change together: new card on the deck = new
    entry here. Shape: {date, tag ("New"|"Improved"), tagColor, title, text}. */
 const LANDING_UPDATES=[
+  {date:"Aug 2026",tag:"Coming Soon",tagColor:C.yellow,title:"Meeting Assist + Manga Studio",text:"Both modes are in final reliability testing before public release. GhostwriterMe admin testers retain access while we finish polishing them."},
   {date:"Aug 2026",tag:"New",tagColor:C.blue,title:"Three new Pro studios",text:"Create group presentation scripts, rehearse tailored spoken interviews, and build export-ready slide decks in one focused workspace."},
   {date:"Jul 2026",tag:"New",tagColor:C.green,title:"Story Guide gets its tarot card",text:"Story Guide now has its own illustrated card on the deck, with full study guides for both books and movies."},
   {date:"Jul 2026",tag:"Improved",tagColor:C.blue,title:"Full content in History",text:"History details now show your complete generated content — study guides, reviews, CVs and replies — not just a short summary."},
@@ -1379,6 +1400,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
   const modalRef=useRef(null);
   const copy=TOOL_SHOWCASES[tool.id]||TOOL_SHOWCASES.reply;
   const tierColor=tool.tier==="Master"?C.magenta:tool.tier==="Pro"?C.blue:C.green;
+  const comingSoon=Boolean(tool.comingSoon);
 
   useEffect(()=>{
     const previousOverflow=document.body.style.overflow;
@@ -1444,6 +1466,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
             <div>
               <div className="tool-showcase-tagrow">
                 <span className="tool-showcase-tag" style={{color:tierColor,borderColor:tierColor+"55"}}>{tool.tier}</span>
+                {comingSoon&&<span className="tool-showcase-tag" style={{color:C.yellowText,borderColor:C.yellow+"66",background:"rgba(245,200,66,0.08)"}}>Coming Soon</span>}
                 <span className="tool-showcase-tag">Purpose-built</span>
                 <span className="tool-showcase-tag">Editable output</span>
               </div>
@@ -1451,12 +1474,16 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
               <p>{tool.desc} Give it the situation, audience, and tone you want; GhostwriterMe handles the structure and phrasing so you can focus on the idea behind the words.</p>
             </div>
             <div className="tool-showcase-actions">
-              <button className="tool-showcase-primary" onClick={start}>
-                <span>Try {tool.name}</span>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-              </button>
+              {comingSoon?(
+                <div role="status" style={{minHeight:46,borderRadius:9,border:"1px solid "+C.yellow+"66",background:"repeating-linear-gradient(135deg,rgba(245,200,66,0.16) 0 11px,rgba(7,9,13,0.94) 11px 22px)",color:C.yellowText,display:"flex",alignItems:"center",justifyContent:"center",gap:8,fontSize:12,fontWeight:900,letterSpacing:"0.08em",textTransform:"uppercase"}}><GwmIcon name="timer" size={16}/>Coming Soon · Admin Testing</div>
+              ):(
+                <button className="tool-showcase-primary" onClick={start}>
+                  <span>Try {tool.name}</span>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </button>
+              )}
               <button className="tool-showcase-secondary" onClick={onClose}>
-                <span>Keep exploring</span><span aria-hidden="true">13 cards</span>
+                <span>Keep exploring</span><span aria-hidden="true">{TAROT_TOOLS.length} cards</span>
               </button>
             </div>
           </section>
@@ -1549,14 +1576,14 @@ function LandingScreen({onGetStarted,onSignIn}){
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
     {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","Priority generation"],cta:"Start Free Trial"},
-{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Manga & Manhwa Studio","Academic Reviewer & Research","Humanize My Writing","Meeting Assist"],cta:"Start Master Trial"},  ];
+{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Manga Studio — Coming Soon","Meeting Assist — Coming Soon"],cta:"Start Master Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
     {q:"How does GhostwriterMe work?",a:"Pick a writing tool, type or speak what you need, and the AI generates a draft you can edit, copy, or refine. Every tool is built around a specific writing task so you get focused, relevant results."},
     {q:"Is my content private?",a:"Your writing is processed only to generate your results and is not sold or shared. History is stored on your own device. We recommend avoiding sensitive personal data in any AI tool."},
     {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
-    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan that adds Manga Studio, Academic, Humanize, and Meeting Assist. All paid plans start with a free trial."},
+    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan with Academic and Humanize. Manga Studio and Meeting Assist are coming soon and remain available only to admin testers while they are finalized. All paid plans start with a free trial."},
     {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
   ];
 
@@ -1600,7 +1627,7 @@ function LandingScreen({onGetStarted,onSignIn}){
             <div className="hero-copy" style={{animation:"fadeUp 0.5s ease both"}}>
               <div className="hero-kicker">
                 <span className="hero-kicker-dot"/>
-              14 AI writing tools &middot; Free to start
+              {TAROT_TOOLS.length} AI writing tools &middot; Free to start
               </div>
               <CinematicHeroVisual/>
               <h1 id="landing-title" className="hero-title">GhostwriterMe</h1>
@@ -1610,7 +1637,7 @@ function LandingScreen({onGetStarted,onSignIn}){
                 <span>For non-native speakers, students,<br/>and anyone who wants to sound better.</span>
               </div>
               {ctaButtons({})}
-              <div className="hero-trust">No credit card &middot; Works on any device &middot; Cancel anytime</div>
+              <div className="hero-trust">Works on any device &middot; Cancel anytime</div>
             </div>
             <button className="hero-scroll-cue" onClick={scrollToTools} aria-label="Explore the writing tools">
               Explore the tools
@@ -1627,13 +1654,13 @@ function LandingScreen({onGetStarted,onSignIn}){
                 <span style={{width:34,height:1,background:"linear-gradient(90deg,#c9a227,transparent)"}}/>
               </div>
               <h2 id="writing-tools-title" style={{textAlign:"center",fontSize:"clamp(28px,4vw,40px)",fontWeight:700,color:"#f2e8d0",letterSpacing:"0.01em",fontFamily:"'Instrument Serif',Georgia,serif",lineHeight:1.1}}>Explore Our Writing Tools</h2>
-              <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>Fourteen focused tools, each built for a specific kind of writing.</div>
+              <div style={{textAlign:"center",fontSize:14,color:"#b7aa8e",marginTop:10,marginBottom:28,lineHeight:1.6}}>{TAROT_TOOLS.length} focused tools, each built for a specific kind of writing.</div>
               <div className="tarot-grid" role="group" aria-label="Writing tools">
                 {TAROT_TOOLS.map((t,i)=>(
                   <div className="tarot-tool-item" key={t.id} style={{transitionDelay:(i*28)+"ms"}}>
                     <TarotCard tool={t}/>
-                    <button className="tarot-preview-button" onClick={()=>setShowcaseTool(t)} aria-label={"View the "+t.name+" experience"}>
-                      <span>View experience</span>
+                    <button className="tarot-preview-button" onClick={()=>setShowcaseTool(t)} aria-label={(t.comingSoon?"Preview the upcoming ":"View the ")+t.name+" experience"}>
+                      <span>{t.comingSoon?"Preview coming soon":"View experience"}</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
                     </button>
                   </div>
@@ -2090,9 +2117,9 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
   // whose click now leads to an immediately-charged subscription.
   const trialUsed=!!(user&&(user.trialUsed||user.trialPlan||user.plan!=="free"));
 
-  const FREE_F=["15 AI replies / day","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
+  const FREE_F=["15 AI replies / day","Writing Mode — unlimited","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
   const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Guide — books and films","Full history across all modes","Priority generation speed"];
-  const STU_F=["Everything in Pro","Manga & Manhwa Studio with illustrated pages","Original storyboards and consistent characters","Academic Essay + auto-citations (Master exclusive)","Humanize My Writing (Master exclusive)","Meeting Assist for supported meeting tabs","CEFR-matched voice output","Priority support"];
+  const STU_F=["Everything in Pro","Manga & Manhwa Studio — Coming Soon","Meeting Assist — Coming Soon","Academic Essay + auto-citations (Master exclusive)","Humanize My Writing (Master exclusive)","CEFR-matched voice output","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
   const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Master",color:C.magenta}];
@@ -2130,7 +2157,7 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.magenta:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="manga" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Manga Studio</strong>, <strong>Academic Essay</strong>, <strong>Humanize My Writing</strong>, and manually started <strong>Meeting Assist</strong>.</div></div>)}
+        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> and <strong>Humanize My Writing</strong>. <strong>Manga Studio</strong> and <strong>Meeting Assist</strong> are coming soon.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(244,114,182,0.08),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.46)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.magentaGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
           {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>MASTER PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
@@ -2538,8 +2565,8 @@ function HistoryMangaPreview({item}){
 }
 
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
-const HIST_ML={reply:"AI Reply",email:"Email",grammar:"Grammar",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",cv:"CV",author:"Author",story:"Story Guide",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",humanize:"Humanize",manga:"Manga Studio"};
-const HIST_MI={reply:"reply",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",cv:"cv",author:"author",story:"story",study:"study",meeting:"meeting",academic:"academic",humanize:"humanize",manga:"manga"};
+const HIST_ML={reply:"AI Reply",writing:"Writing",email:"Email",grammar:"Grammar",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",cv:"CV",author:"Author",story:"Story Guide",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",humanize:"Humanize",manga:"Manga Studio"};
+const HIST_MI={reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",cv:"cv",author:"author",story:"story",study:"study",meeting:"meeting",academic:"academic",humanize:"humanize",manga:"manga"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
 const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,modeVisual(m).solid]));
@@ -2703,6 +2730,33 @@ function ReplyMode({user,isPro,onUpgradeClick}){
       {replies.length>0&&(<div ref={ref} style={{marginTop:20,animation:"fadeUp 0.4s ease"}}>{replies.map((r,i)=>(<Card key={i} style={{marginTop:9}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{r.vibe}</span><span style={{fontSize:12,color:C.muted}}>Option {r.option}</span></div><div style={{fontSize:14,lineHeight:1.7,color:C.text,maxWidth:"64ch"}}>{r.text}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={r.text}/><ListenBtn text={r.text}/><SaveAsImageBtn text={r.text} title="AI Reply"/></div></Card>))}<div style={{marginTop:10}}><GenMoreBtn onClick={()=>{setMsg("");setTone("confident");setNoDesp(false);setReplies([]);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></div>)}
     </div>
   );
+}
+
+function WritingMode({user}){
+  const [notes,setNotes]=useState("");const [style,setStyle]=useState("natural");const [result,setResult]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const STYLES=[{value:"natural",label:"Natural"},{value:"professional",label:"Professional"},{value:"friendly",label:"Friendly"},{value:"formal",label:"Formal"},{value:"vivid",label:"Vivid"}];
+  const generate=async()=>{
+    if(!notes.trim())return;
+    setLoading(true);setError("");setResult("");
+    const system="You are GhostwriterMe Writing Mode. Turn the user's bullet points or short notes into exactly one complete, natural sentence. Preserve every supplied fact, do not invent details, and use the same language as the notes. Use a "+style+" style. Return only the sentence with no label, quotation marks, bullet, markdown, or explanation.";
+    try{
+      const raw=await callClaude(system,"Notes:\n"+notes.trim(),350);
+      let sentence=String(raw||"").trim().replace(/^\s*(?:sentence|result)\s*:\s*/i,"").replace(/^\s*[-•]\s*/,"").replace(/^\s*[“"]|[”"]\s*$/g,"").replace(/\s*\n+\s*/g," ").trim();
+      if(sentence&&!/[.!?。！？]$/.test(sentence))sentence+=".";
+      if(!sentence)throw new Error("No sentence was returned.");
+      setResult(sentence);
+      if(user)HS.save(user.email,"writing",{title:"Writing: "+sentence.slice(0,45),input:notes.trim(),output:sentence});
+    }catch(e){setError(e.message||"The sentence could not be written.");}finally{setLoading(false);}
+  };
+  const reset=()=>{setNotes("");setStyle("natural");setResult("");setError("");};
+  return <div>
+    <div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.18)",borderRadius:8,padding:"10px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited · turn rough notes into one focused sentence</span></div>
+    <FArea label="What should Ghosty write?" placeholder={"Add bullet points or short notes, for example:\n• Community café opens Monday\n• Quiet study area\n• Locally roasted coffee"} value={notes} onChange={event=>setNotes(event.target.value)} rows={6} hint="Ghosty keeps your facts and writes one complete sentence." voice/>
+    <FSelect label="Sentence style" value={style} onChange={setStyle} options={STYLES}/>
+    <PriBtn onClick={generate} loading={loading} disabled={!notes.trim()}><IconLabel name="writing">Write My Sentence</IconLabel></PriBtn>
+    {error&&<ErrBox msg={error}/>}
+    {result&&<Card glow glowColor={C.green} style={{marginTop:16}}><div style={{fontSize:11,color:C.greenText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Finished Sentence</div><EditableTextResult value={result} onChange={setResult} label="writing result"/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={result}/><ListenBtn text={result}/><SaveAsImageBtn text={result} title="Writing Mode"/><GenMoreBtn onClick={reset} loading={loading} label="New Sentence"/></div></Card>}
+  </div>;
 }
 
 function EmailMode({user}){
@@ -3441,7 +3495,8 @@ function HumanizeMode({user}){
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Near-native"};
   const PURPOSES=[{id:"essay",icon:"essay",label:"Essay",desc:"Academic"},{id:"email",icon:"mail",label:"Email",desc:"Professional"},{id:"report",icon:"report",label:"Report",desc:"Formal"},{id:"personal",icon:"reply",label:"Personal",desc:"Casual/Blog"}];
   const INTENSITIES=[{id:"light",label:"Light",desc:"Fix obvious AI patterns, keep structure"},{id:"moderate",label:"Moderate",desc:"Rewrite rhythm and sentence variety"},{id:"deep",label:"Deep",desc:"Full transformation at your level"}];
-  const RULES="STRICT RULES: 1. Use simple sentence structure and one main idea per sentence. Most sentences should be 8 to 18 words. 2. Never create rhetorical questions. Do not add a question that was not in the source. Turn rhetorical framing into a direct statement. 3. Keep the length close to the source. Do not pad a short idea into a longer paragraph. 4. NO em dashes. 5. No colon to introduce lists mid-sentence. 6. No not-only-but-also. 7. Never start with: Furthermore, Moreover, Additionally, In conclusion, To summarize, Notably, Evidently, Consequently, Nevertheless. 8. Never use: delve, navigate, landscape, realm, crucial, vital, foster, leverage, robust, multifaceted, comprehensive, streamline, cutting-edge, pivotal, testament, transformative, paradigm, holistic, synergy. 9. Use contractions when the purpose allows. 10. Vary rhythm without making sentences complicated. 11. Use simple connectors. 12. Preserve paragraph breaks, headings, list structure, facts, names, figures, and direct quotations. Numeric citations in square brackets have already been removed. Never add them back. 13. Match CEFR "+level+". 14. Match purpose: "+purpose+".";
+  const levelRules=buildHumanizeLevelRules(level);
+  const RULES="STRICT RULES: 1. Use simple sentence structure and one main idea per sentence. Most sentences should be 8 to 18 words. 2. Do not invent questions or use a question merely as a transition. 3. Keep the length close to the source. Do not pad a short idea into a longer paragraph. 4. NO em dashes. 5. No colon to introduce lists mid-sentence. 6. No not-only-but-also. 7. Never start with: Furthermore, Moreover, Additionally, In conclusion, To summarize, Notably, Evidently, Consequently, Nevertheless. 8. Never use: delve, navigate, landscape, realm, crucial, vital, foster, leverage, robust, multifaceted, comprehensive, streamline, cutting-edge, pivotal, testament, transformative, paradigm, holistic, synergy. 9. Use contractions when the purpose allows. 10. Vary rhythm without making sentences complicated. 11. Use simple connectors. 12. Preserve paragraph breaks, headings, list structure, facts, names, figures, and direct quotations. Numeric citations in square brackets have already been removed. Never add them back. 13. Match CEFR "+level+". 14. Match purpose: "+purpose+". 15. LEVEL-SPECIFIC FORMAT: "+(levelRules||"Use natural vocabulary and sentence patterns appropriate for this advanced level.");
   const process=async()=>{
     if(!text.trim())return;setPhase("pass1");setError("");setRes(null);
     const cleanedSource=removeBracketedNumberCitations(text);
@@ -3479,10 +3534,10 @@ function HumanizeMode({user}){
       </div>
       <div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.28)",borderRadius:8,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}>
         <GwmIcon name="humanize" size={18} color={C.violet}/>
-        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Uses shorter, clearer sentences without rhetorical questions. Numeric source markers such as [1,2] are removed from the final text.</div></div>
+        <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Uses level-matched vocabulary, clearer sentence structure, and clean plain-text formatting while preserving your meaning.</div></div>
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
-      <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div>
+      <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]} · {(["A1","A2","B1"].includes(level)?"common words and short sentences · ":"")}{["A1","A2","B1","B2"].includes(level)?"no rhetorical questions":"natural advanced phrasing"}</div></div>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={p.icon} size={18} color={purpose===p.id?C.violet:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:4}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
       <div style={{marginBottom:14}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Transformation Intensity</div>{INTENSITIES.map(iv=>(<div key={iv.id} onClick={()=>setIntensity(iv.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:intensity===iv.id?C.violetSoft:C.surface,border:`1px solid ${intensity===iv.id?C.violet:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",marginBottom:6}}><div><div style={{fontSize:13,fontWeight:700,color:intensity===iv.id?C.violet:C.text}}>{iv.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{iv.desc}</div></div><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${intensity===iv.id?C.violet:C.border}`,background:intensity===iv.id?C.violet:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{intensity===iv.id&&<div style={{width:7,height:7,borderRadius:"50%",background:"#000"}}/>}</div></div>))}</div>
       <button onClick={process} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?C.card:`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
@@ -4444,7 +4499,7 @@ function TrialModal({mode,targetPlan,onStart,onClose}){
           <div style={{width:44,height:44,borderRadius:10,background:isStudent?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name={h.icon} size={23} color="#071018"/></div>
           <div><div style={{fontSize:16,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{h.title}</div><div style={{fontSize:13,color:C.muted,marginTop:1}}>{isStudent?"Master plan exclusive":"Unlock with a free trial"}</div></div>
         </div>
-        {isStudent&&<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.24)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.magentaText,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="manga" size={17}/>Master exclusive — includes Meeting Assist, Academic, Humanize, and Manga Studio.</div>}
+        {isStudent&&<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.24)",borderRadius:7,padding:"9px 11px",marginBottom:12,fontSize:13,color:C.magentaText,lineHeight:1.5,display:"flex",gap:8}}><GwmIcon name="academic" size={17}/>Master includes Academic and Humanize. Meeting Assist and Manga Studio are coming soon.</div>}
         <div style={{background:C.surface,borderRadius:9,padding:"11px 13px",marginBottom:14}}>{h.perks.map(p=><div key={p} style={{display:"flex",gap:8,fontSize:13,color:C.text,padding:"3px 0"}}><GwmIcon name="check" size={14} color={isStudent?C.magentaText:C.greenText}/>{p}</div>)}</div>
         {!isStudent&&(<div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:12}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=><button key={b.id} onClick={()=>setBill(b.id)} style={{flex:1,padding:"6px",borderRadius:5,border:"none",background:bill===b.id?C.blue:"transparent",color:bill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>)}</div>)}
         <div style={{background:isStudent?C.magentaSoft:C.accentSoft,border:`1px solid ${isStudent?"rgba(244,114,182,0.28)":"rgba(121,186,236,0.22)"}`,borderRadius:10,padding:"13px",marginBottom:12}}>
@@ -4509,6 +4564,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   const hasAllFeatures=!!user.allFeatures;
   const isPro=hasAllFeatures||user.plan==="pro"||user.plan==="student";
   const isStudent=hasAllFeatures||user.plan==="student";
+  const comingSoon=m=>isComingSoonForUser(m,user);
 
   const locked=m=>{
     if(m.access==="free")return false;
@@ -4555,6 +4611,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   const renderModeFor=(id)=>{
     switch(id){
       case"reply":return <ReplyMode user={user} isPro={isPro} onUpgradeClick={onChangePlan}/>;
+      case"writing":return <WritingMode user={user}/>;
       case"email":return <EmailMode user={user}/>;
       case"grammar":return <GrammarMode user={user}/>;
       case"essay":return <EssayMode user={user}/>;
@@ -4628,16 +4685,26 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
               <span style={{width:30,height:30,borderRadius:9,background:currentModeVisual.soft,color:currentModeVisual.color,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={currentMode.icon} size={18}/></span>
               <span style={{fontSize:19,fontWeight:900,color:C.text,letterSpacing:"-0.01em"}}>{currentMode.label}</span>
               {currentMode.access!=="free"&&<PlanBadge plan={currentMode.access==="student"?"student":"pro"}/>}
+              {comingSoon(currentMode)&&<ComingSoonBadge/>}
             </div>
           </div>
         )}
 
-        {locked(currentMode||{})&&(
+        {comingSoon(currentMode)&&(
+          <div role="status" style={{textAlign:"center",padding:"46px 16px",animation:"fadeUp 0.3s ease"}}>
+            <div style={{width:78,height:78,borderRadius:22,margin:"0 auto 15px",display:"grid",placeItems:"center",border:"1px solid rgba(245,200,66,0.5)",background:"repeating-linear-gradient(135deg,rgba(245,200,66,0.16) 0 13px,rgba(9,11,16,0.96) 13px 26px)",color:C.yellowText,boxShadow:"0 16px 40px rgba(0,0,0,0.24)"}}><GwmIcon name={currentMode?.icon||"timer"} size={34}/></div>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><ComingSoonBadge/></div>
+            <div style={{fontSize:19,fontWeight:900,color:C.text,marginBottom:7}}>{currentMode?.label} is in final testing</div>
+            <div style={{fontSize:13,color:C.muted,lineHeight:1.65,maxWidth:370,margin:"0 auto"}}>We are polishing reliability before the public release. GhostwriterMe admin tester accounts keep full access while this mode is being verified.</div>
+          </div>
+        )}
+
+        {!comingSoon(currentMode)&&locked(currentMode||{})&&(
           <div style={{textAlign:"center",padding:"50px 16px",animation:"fadeUp 0.3s ease"}}>
             <div style={{width:64,height:64,borderRadius:20,background:currentModeVisual.soft,color:currentModeVisual.color,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}><GwmIcon name={currentMode.access==="student"?"academic":"lock"} size={31}/></div>
             <div style={{fontSize:17,fontWeight:900,color:C.text,marginBottom:6}}>{currentMode.label} is {currentMode.access==="student"?"Master-exclusive":"a Pro feature"}</div>
             <div style={{fontSize:13,color:C.muted,lineHeight:1.6,marginBottom:18,maxWidth:320,margin:"0 auto 18px"}}>
-              {isProUpgradingToStudent?"Upgrade from Pro to Master to unlock Meeting Assist, Academic, Humanize, and Manga Studio.":currentMode.access==="student"?"Unlock this and other Master-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
+              {isProUpgradingToStudent?"Upgrade from Pro to Master to unlock Academic and Humanize. Meeting Assist and Manga Studio are coming soon.":currentMode.access==="student"?"Unlock this and other Master-only tools with a free trial.":"Upgrade to unlock this and other Pro features."}
             </div>
             <div style={{maxWidth:280,margin:"0 auto"}}>
               <PriBtn onClick={()=>onUpgrade(activeMode,currentMode.access==="student"?"student":"pro")} variant={currentMode.access==="student"?"violet":"blue"}>
@@ -4650,7 +4717,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
             display:none→block toggle also replays the fadeUp CSS animation,
             so switching still feels animated. Locked modes are filtered out —
             state intentionally drops if access is lost mid-session. */}
-        {MODES.filter(m=>m.id!=="history"&&visited.has(m.id)&&!locked(m)).map(m=>(
+        {MODES.filter(m=>m.id!=="history"&&visited.has(m.id)&&!locked(m)&&!comingSoon(m)).map(m=>(
           <div key={m.id} style={{display:activeMode===m.id?"block":"none",paddingBottom:16}}>
             {renderModeFor(m.id)}
           </div>
@@ -4668,19 +4735,22 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
             {NAV_GROUPS.map(group=>{
               const groupActive=modeGroup(activeMode).id===group.id;
               const groupVisual=MODE_TIER_VISUALS[group.id];
-              return <button key={group.id} type="button" aria-pressed={groupActive} onClick={()=>changeMode(group.modeIds.includes(activeMode)?activeMode:group.modeIds[0])} style={{minHeight:36,borderRadius:9,border:`1px solid ${groupActive?groupVisual.solid:C.border}`,background:groupActive?groupVisual.soft:"transparent",color:groupActive?groupVisual.color:C.muted,fontFamily:"inherit",fontSize:10.5,fontWeight:900,letterSpacing:"0.07em",textTransform:"uppercase",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"background 0.18s,border-color 0.18s,color 0.18s"}}><span aria-hidden="true" style={{width:6,height:6,borderRadius:"50%",background:groupVisual.solid,boxShadow:groupActive?`0 0 8px ${groupVisual.solid}88`:"none"}}/>{group.label}</button>;
+               const releasedDefault=group.modeIds.find(modeId=>!isComingSoonForUser(modeId,user))||group.modeIds[0];
+               return <button key={group.id} type="button" aria-pressed={groupActive} onClick={()=>changeMode(group.modeIds.includes(activeMode)?activeMode:releasedDefault)} style={{minHeight:36,borderRadius:9,border:`1px solid ${groupActive?groupVisual.solid:C.border}`,background:groupActive?groupVisual.soft:"transparent",color:groupActive?groupVisual.color:C.muted,fontFamily:"inherit",fontSize:10.5,fontWeight:900,letterSpacing:"0.07em",textTransform:"uppercase",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5,transition:"background 0.18s,border-color 0.18s,color 0.18s"}}><span aria-hidden="true" style={{width:6,height:6,borderRadius:"50%",background:groupVisual.solid,boxShadow:groupActive?`0 0 8px ${groupVisual.solid}88`:"none"}}/>{group.label}</button>;
             })}
           </div>
           <div role="group" aria-label={`${modeGroup(activeMode).label} tools`} style={{display:"flex",justifyContent:modeGroup(activeMode).modeIds.length<=4?"center":"flex-start",overflowX:"auto",overscrollBehaviorX:"contain",scrollbarWidth:"thin",padding:"1px 0 4px"}}>
           {MODES.filter(m=>modeGroup(activeMode).modeIds.includes(m.id)).map(m=>{
             const active=activeMode===m.id;
-            const isLocked=locked(m);
+            const isSoon=comingSoon(m);
+            const isLocked=!isSoon&&locked(m);
             const tierVisual=modeVisual(m);
             return(
-              <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:68,minHeight:54,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:"6px 5px",border:"none",borderRadius:8,background:active?tierVisual.soft:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
-                <span style={{color:tierVisual.color,opacity:active?1:isLocked?0.42:0.76,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px) scale(1.06)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
-                <span style={{fontSize:10,fontWeight:active?800:500,color:active?tierVisual.color:C.muted,opacity:isLocked?0.5:1,letterSpacing:"0.01em"}}>{m.label}</span>
+              <button key={m.id} onClick={()=>changeMode(m.id)} aria-current={active?"page":undefined} aria-label={`${m.label}${isSoon?" — coming soon":isLocked?" — locked":""}`} style={{flex:"1 0 auto",minWidth:68,minHeight:54,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,padding:"6px 5px",border:"none",borderRadius:8,background:active?tierVisual.soft:"transparent",cursor:"pointer",position:"relative",fontFamily:"inherit"}}>
+                <span style={{color:tierVisual.color,opacity:active?1:isLocked?0.42:isSoon?0.58:0.76,transition:"color 0.18s, opacity 0.18s, transform 0.18s",transform:active?"translateY(-1px) scale(1.06)":"none"}}><GwmIcon name={m.icon} size={18}/></span>
+                <span style={{fontSize:10,fontWeight:active?800:500,color:active?tierVisual.color:C.muted,opacity:isLocked?0.5:isSoon?0.7:1,letterSpacing:"0.01em"}}>{m.label}</span>
                 {isLocked&&<span style={{position:"absolute",top:2,right:6,color:tierVisual.color,opacity:0.72}}><GwmIcon name="lock" size={10}/></span>}
+                {isSoon&&<span style={{position:"absolute",top:1,right:3}}><ComingSoonBadge compact/></span>}
                 {active&&<div style={{position:"absolute",bottom:0,left:"30%",right:"30%",height:2,borderRadius:1,background:tierVisual.solid,boxShadow:`0 0 10px ${tierVisual.solid}66`}}/>}
               </button>
             );

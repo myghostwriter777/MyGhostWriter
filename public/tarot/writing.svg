@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Writing Mode tarot card</title>
+  <desc id="desc">An ornate GhostwriterMe tarot card with an illuminated page, fountain pen, and green ink.</desc>
+  <defs>
+    <radialGradient id="night" cx="50%" cy="37%" r="72%">
+      <stop offset="0" stop-color="#173b37"/>
+      <stop offset=".52" stop-color="#11172b"/>
+      <stop offset="1" stop-color="#080914"/>
+    </radialGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f4dfad"/>
+      <stop offset="1" stop-color="#b88d4b"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#7ff0c5"/>
+      <stop offset="1" stop-color="#2d9a7d"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="600" height="900" rx="28" fill="url(#night)"/>
+  <rect x="18" y="18" width="564" height="864" rx="22" fill="none" stroke="#c8a85f" stroke-width="5"/>
+  <rect x="32" y="32" width="536" height="836" rx="16" fill="none" stroke="#7b6338" stroke-width="2"/>
+  <path d="M54 92h120M426 92h120M54 744h120M426 744h120" stroke="#c8a85f" stroke-width="3"/>
+  <g fill="#d7b84f">
+    <path d="M300 48l9 22 22 9-22 9-9 22-9-22-22-9 22-9z"/>
+    <circle cx="118" cy="128" r="6"/><circle cx="482" cy="128" r="6"/>
+    <path d="M92 122l4 10 10 4-10 4-4 10-4-10-10-4 10-4zM508 122l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/>
+  </g>
+  <g opacity=".7" fill="none" stroke="#4bd0a4" stroke-width="2">
+    <path d="M74 194c58-70 137-105 226-105s168 35 226 105"/>
+    <path d="M78 670c56 52 130 78 222 78s166-26 222-78"/>
+  </g>
+  <ellipse cx="302" cy="422" rx="205" ry="220" fill="#35c59a" opacity=".09" filter="url(#glow)"/>
+  <path d="M168 254c69-24 121-10 136 24 20-35 74-47 139-17l-13 339c-54-20-97-16-126 17-29-34-75-39-137-19z" fill="url(#paper)" stroke="#f1d78f" stroke-width="7"/>
+  <path d="M304 279v335" stroke="#8b673b" stroke-width="4" opacity=".7"/>
+  <g fill="none" stroke="#70502f" stroke-linecap="round" stroke-width="7" opacity=".78">
+    <path d="M195 331h75M195 365h82M195 399h61M195 477h78M195 511h58"/>
+    <path d="M334 343h78M334 377h61M334 411h84M334 489h70M334 523h82"/>
+  </g>
+  <path d="M376 270l52 34-132 202-41 22 5-46z" fill="#17263a" stroke="#d9b85d" stroke-width="7"/>
+  <path d="M376 270l52 34-15 23-52-34zM260 482l36 24-41 22z" fill="url(#ink)"/>
+  <path d="M219 565c51 27 103 28 157 3" fill="none" stroke="url(#ink)" stroke-width="10" stroke-linecap="round" filter="url(#glow)"/>
+  <g fill="#d7b84f">
+    <path d="M116 344l7 17 17 7-17 7-7 17-7-17-17-7 17-7z"/>
+    <path d="M486 438l6 15 15 6-15 6-6 15-6-15-15-6 15-6z"/>
+  </g>
+  <path d="M45 754h510v104H45z" fill="#c8a85f" opacity=".93"/>
+  <path d="M56 765h488v82H56z" fill="#171525" stroke="#5d4828" stroke-width="3"/>
+  <text x="300" y="817" fill="#f3dfaa" font-family="Georgia,serif" font-size="41" font-weight="700" text-anchor="middle" letter-spacing="4">WRITING MODE</text>
+</svg>
