@@ -141,4 +141,38 @@ describe("Studio AI API route",()=>{
     expect(schema.properties.pages.items.properties.panels.items.required).toEqual(["shot","action","speaker","dialogue","caption"]);
     expect(schema.properties.characterBible.items.required).toEqual(["name","appearance","personality"]);
   });
+
+  test("uses the requested bounded search depth and returns source URLs for Deep Research",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({stop_reason:"end_turn",content:[{type:"text",text:"Evidence-based conclusion.",citations:[{url:"https://example.edu/paper",title:"Primary study"}]}]})});
+    const req={method:"POST",body:{system:"Research carefully.",user:"Compare the evidence.",mode:"deep-research",use_search:true,search_depth:8,max_output_tokens:9000}};const res=mockResponse();
+    await handler(req,res);
+    const payload=JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.tools).toEqual([{type:"web_search_20250305",name:"web_search",max_uses:8}]);
+    expect(res.body).toEqual({output_text:"Evidence-based conclusion.",sources:[{url:"https://example.edu/paper",title:"Primary study"}]});
+  });
+
+  test("continues a paused Deep Research search instead of returning an empty result",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn()
+      .mockResolvedValueOnce({ok:true,status:200,json:async()=>({stop_reason:"pause_turn",content:[{type:"web_search_tool_result",content:[{type:"web_search_result",url:"https://example.org/report",title:"Official report"}]}]})})
+      .mockResolvedValueOnce({ok:true,status:200,json:async()=>({stop_reason:"end_turn",content:[{type:"text",text:"Completed research."}]})});
+    const req={method:"POST",body:{system:"Research carefully.",user:"Finish the comparison.",mode:"deep-research",use_search:true}};const res=mockResponse();
+    await handler(req,res);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const continuation=JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(continuation.messages.at(-1).role).toBe("assistant");
+    expect(res.body.output_text).toBe("Completed research.");
+    expect(res.body.sources).toEqual([{url:"https://example.org/report",title:"Official report"}]);
+  });
+
+  test("constrains Presentation Studio to a structured script result",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"title":"Talk"}'}]})});
+    const req={method:"POST",body:{system:"Build a presentation.",user:"Use six sections.",mode:"presentation",max_output_tokens:5000}};const res=mockResponse();
+    await handler(req,res);
+    const schema=JSON.parse(global.fetch.mock.calls[0][1].body).output_config.format.schema;
+    expect(schema.required).toEqual(["title","summary","totalMinutes","sections","handoffs"]);
+    expect(schema.properties.sections.items.required).toEqual(["speaker","role","heading","timing","script","visualCue"]);
+  });
 });

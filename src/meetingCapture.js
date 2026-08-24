@@ -17,17 +17,56 @@ export const detectMeetingCaptureProfile=(userAgent)=>{
   };
 };
 
-// Browsers ignore capture hints they do not support. Chromium uses these to
-// expose the most useful tab, window, and system-audio choices in its picker.
+// Keep this request deliberately platform-neutral. OS/vendor capture flags
+// differ between Windows, macOS, Linux, ChromeOS, and browser versions and can
+// make a valid meeting tab disappear from the picker. We request the standard
+// display tracks, then enforce the safe source after selection in
+// isBrowserTabMeetingShare: only a browser tab with its own audio is accepted.
 export const MEETING_DISPLAY_OPTIONS={
-  video:{displaySurface:"browser"},
-  audio:{suppressLocalAudioPlayback:false},
-  preferCurrentTab:false,
-  selfBrowserSurface:"exclude",
-  systemAudio:"include",
-  surfaceSwitching:"include",
-  monitorTypeSurfaces:"include",
-  windowAudio:"system",
+  video:true,
+  audio:true,
+};
+
+export const isBrowserTabMeetingShare=stream=>{
+  const surface=stream?.getVideoTracks?.()[0]?.getSettings?.().displaySurface;
+  return surface==="browser"&&Boolean(stream?.getAudioTracks?.().length);
+};
+
+const EMPTY_TRANSCRIPT_LINE=/^(?:you|mm[ -]?hmm+|hmm+|uh+h|uh[ -]?huh|um+|ah+|okay|ok|thank you|thanks for watching|subscribe|music|applause|silence|inaudible)[.!?,\s]*$/i;
+const CONTENT_FILLERS=new Set(["you","uh","um","hmm","mmhmm","okay","ok","ah"]);
+
+// Tiny Whisper models can hallucinate short filler words during silence and
+// repeat them once per recording segment. Clean those tokens before they are
+// displayed or sent to the reply model.
+export const cleanMeetingTranscriptSegment=value=>{
+  const lines=String(value||"")
+    .replace(/[[(](?:music|applause|silence|inaudible|blank[_ ]audio)[\])]/gi,"\n")
+    .split(/\r?\n/)
+    .map(line=>line.trim())
+    .filter(line=>line&&!EMPTY_TRANSCRIPT_LINE.test(line));
+  return lines.join(" ")
+    .replace(/\b(you|uh|um|hmm|mmhmm|okay|ok)\b(?:[\s,.!?;:–—-]+\1\b)+/gi," ")
+    .replace(/\s+([,.!?;:])/g,"$1")
+    .replace(/\s{2,}/g," ")
+    .trim();
+};
+
+export const isUsefulMeetingTranscript=value=>{
+  const cleaned=cleanMeetingTranscriptSegment(value);
+  const words=cleaned.toLowerCase().match(/[\p{L}\p{N}']+/gu)||[];
+  const contentWords=words.filter(word=>!CONTENT_FILLERS.has(word.replace(/'/g,"")));
+  return cleaned.length>=10&&contentWords.length>=3;
+};
+
+export const hasAudibleMeetingSpeech=(audio,rmsThreshold=0.0045,peakThreshold=0.018)=>{
+  if(!(audio instanceof Float32Array)||audio.length<800)return false;
+  let sumSquares=0;let peak=0;
+  for(const sample of audio){
+    const magnitude=Math.abs(sample);
+    sumSquares+=sample*sample;
+    if(magnitude>peak)peak=magnitude;
+  }
+  return Math.sqrt(sumSquares/audio.length)>=rmsThreshold&&peak>=peakThreshold;
 };
 
 // Build the transcription stream from the audio tracks returned by

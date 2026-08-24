@@ -5,13 +5,16 @@ import { Elements, CardElement, useStripe, useElements } from "@stripe/react-str
 import GwmIcon from "./GwmIcon";
 import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 import { HISTORY_INITIAL_VISIBLE, HISTORY_REVEAL_STEP, prepareHistoryItems } from "./historyPaging";
-import { buildRemoteMeetingAudioStream, detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
+import { buildRemoteMeetingAudioStream, cleanMeetingTranscriptSegment, detectMeetingCaptureProfile, hasAudibleMeetingSpeech, isBrowserTabMeetingShare, isUsefulMeetingTranscript, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
 import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
 import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { buildZenBlueprint, normalizeZenDeck, resolveSlideCount } from "./slideDeckRules";
 import { isComingSoonForUser } from "./featureAvailability";
+import { getTarotCardArt } from "./tarotCardAssets";
+import { clampGenerationCount } from "./generationControls";
+import { defaultSlideElementPosition, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement } from "./slideEditor";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
@@ -590,17 +593,23 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
 // token cap, file validation, and API secret.
 async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",opts={}){
   assertAIAvailable();
-  const r=await fetch("/api/openai",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({system:system+HUMAN_STYLE+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,mode:opts.mode||""}),
-  });
+  const controller=new AbortController();const timeoutMs=Math.max(15000,Number(opts.timeoutMs)||120000);const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+  let r;
+  try{r=await fetch("/api/openai",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      signal:controller.signal,
+      body:JSON.stringify({system:system+HUMAN_STYLE+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
+    });}
+  catch(error){if(error?.name==="AbortError")throw new Error("This generation took too long and was safely stopped. Please try again with fewer sections or a shorter source.");throw error;}
+  finally{clearTimeout(timeout);}
   const d=await r.json().catch(()=>({}));
   if(!r.ok){
     if(r.status===413)throw new Error("The prepared sources are still too large for one request. Remove one source or split a very long document.");
     if(r.status===429)throw new Error("The studio is busy right now. Wait a moment and try again.");
     throw new Error(d.error||("Studio API error "+r.status));
   }
+  if(opts.returnMetadata)return{text:d.output_text||"",sources:Array.isArray(d.sources)?d.sources:[]};
   return d.output_text||"";
 }
 
@@ -869,7 +878,14 @@ function FInput({label,type="text",placeholder,value,onChange,error,icoL,icoR,on
 
 function FArea({label,placeholder,value,onChange,rows=4,hint,voice}){
   const [f,setF]=useState(false);
-  return(<div style={{marginBottom:12}}>{label&&<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label>}<div style={{position:"relative"}}><textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",color:C.text,fontSize:14,lineHeight:1.7,resize:"vertical",fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}/>{voice&&<div style={{position:"absolute",bottom:7,right:7}}><MicBtn onResult={t=>onChange({target:{value:value+(value?"\\n":"")+t}})} sm/></div>}</div>{hint&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{hint}</div>}</div>);
+  const hasText=String(value||"").length>0;
+  return(<div style={{marginBottom:12}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:5}}>{label?<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase"}}>{label}</label>:<span/>}{hasText&&<button type="button" aria-label={`Clear all ${label||"text"}`} onClick={()=>onChange({target:{value:""}})} style={{border:0,background:"transparent",color:C.redText,fontFamily:"inherit",fontSize:11.5,fontWeight:800,cursor:"pointer",padding:"4px 1px",display:"inline-flex",alignItems:"center",gap:5}}><GwmIcon name="trash" size={13}/>Clear all</button>}</div><div style={{position:"relative"}}><textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",paddingRight:voice?52:13,color:C.text,fontSize:14,lineHeight:1.7,resize:"vertical",fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}/>{voice&&<div style={{position:"absolute",bottom:7,right:7}}><MicBtn onResult={t=>onChange({target:{value:value+(value?"\\n":"")+t}})} sm/></div>}</div>{hint&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{hint}</div>}</div>);
+}
+
+function FNumber({label,value,onChange,min=1,max=30,fallback=min,suffix="items",hint}){
+  const [focused,setFocused]=useState(false);const id=React.useId();
+  const commit=()=>{setFocused(false);onChange(String(clampGenerationCount(value,{min,max,fallback})));};
+  return <div style={{marginBottom:0}}><label htmlFor={id} style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}</label><div style={{position:"relative"}}><input id={id} aria-describedby={hint?`${id}-hint`:undefined} type="number" inputMode="numeric" min={min} max={max} step="1" value={value} onChange={event=>onChange(event.target.value)} onFocus={()=>setFocused(true)} onBlur={commit} style={{width:"100%",minHeight:44,background:C.surface,border:`1px solid ${focused?C.blue:C.border}`,borderRadius:8,padding:"10px 78px 10px 12px",color:C.text,fontSize:16,fontWeight:850,fontFamily:"inherit",boxShadow:focused?`0 0 0 3px ${C.blueGlow}`:"none"}}/><span style={{position:"absolute",right:11,top:"50%",transform:"translateY(-50%)",color:C.muted,fontSize:11.5,fontWeight:700,pointerEvents:"none"}}>{suffix}</span></div>{hint&&<div id={`${id}-hint`} style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:4}}>{hint}</div>}</div>;
 }
 
 function FSelect({label,value,onChange,options}){
@@ -1125,25 +1141,6 @@ const TZ={gold:"#c9a227",goldL:"#e6c965",cream:"#f2e8d0",purple:"#c084fc"};
 // live in public/ — regenerate those from the master PNG, not from this crop.
 const GHOSTY_ICON="data:image/png;base64,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";
 
-const CARD_IMG={
-  reply:"/tarot/reply.webp",
-  writing:"/tarot/writing.svg",
-  email:"/tarot/email.webp",
-  grammar:"/tarot/grammar.webp",
-  essay:"/tarot/essay.webp",
-  presentation:"/tarot/presentation.webp",
-  interview:"/tarot/interview.webp",
-  slides:"/tarot/slides.webp",
-  meeting:"/tarot/meeting.svg",
-  manga:"/tarot/manga.svg",
-  academic:"/tarot/academic.webp",
-  cv:"/tarot/cv.webp",
-  author:"/tarot/author.webp",
-  humanize:"/tarot/humanize.webp",
-  story:"/tarot/story.webp",
-  history:"/tarot/history.webp",
-};
-
 const TAROT_TOOLS=[
   {id:"reply",   name:"AI Replies",   tier:"Free",    desc:"Instantly generates smart, context-aware replies for any message or conversation."},
   {id:"writing", name:"Writing Mode", tier:"Free",    desc:"Turns bullet points and short notes into one clear, complete sentence."},
@@ -1198,21 +1195,7 @@ function TarotCard({tool}){
       <div className="tarot-card-flipper" style={{transform:flipped?"rotateY(180deg)":"rotateY(0deg)"}}>
         {/* FRONT — tarot illustration */}
         <div className="tarot-card-face tarot-card-front" style={{border:"1px solid "+tierColor+(hover?"88":"42")}}>
-          {CARD_IMG[tool.id]?(
-            <img className="tarot-card-art" src={CARD_IMG[tool.id]} alt="" aria-hidden="true" draggable="false" loading="lazy" decoding="async"/>
-          ):(
-            /* Ornamental fallback front for any card added without a
-               commissioned illustration.
-               Matches the tarot backs' gold-on-dark aesthetic; drop a base64
-               into CARD_IMG and this branch stops rendering automatically. */
-            <div style={{width:"100%",height:"100%",background:"linear-gradient(165deg,#1a1226,#0c0a14)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,position:"relative"}}>
-              <div style={{position:"absolute",inset:5,border:"1px solid "+TZ.gold,borderRadius:5,opacity:0.45,pointerEvents:"none"}}/>
-              <div style={{display:"flex",gap:7,color:TZ.goldL}}>{[0,1,2].map(i=><GwmIcon key={i} name="spark" size={10}/>)}</div>
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={TZ.goldL} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
-              <div style={{width:46,height:46,border:"1px solid "+TZ.gold+"88",borderRadius:"50%",display:"grid",placeItems:"center",boxShadow:"inset 0 0 16px rgba(230,201,101,0.08)"}}><GwmIcon name={TAROT_ICON[tool.id]||"spark"} size={24} color={TZ.goldL}/></div>
-              <div style={{display:"flex",gap:7,color:TZ.goldL}}>{[0,1,2].map(i=><GwmIcon key={i} name="spark" size={10}/>)}</div>
-            </div>
-          )}
+          <img className="tarot-card-art" src={getTarotCardArt(tool.id)} alt="" aria-hidden="true" draggable="false" loading="lazy" decoding="async"/>
           <div className="tarot-card-grain"/>
           <div className="tarot-card-sheen"/>
           <div className="tarot-card-frame"/>
@@ -2495,7 +2478,8 @@ const fmtGrammarHistory=r=>[
 
 const SLIDE_HISTORY_PREFIX="GWM_SLIDE_DECK_V1\n";
 const MANGA_HISTORY_PREFIX="GWM_MANGA_STUDIO_V1\n";
-const encodeSlideHistory=(deck,design)=>SLIDE_HISTORY_PREFIX+JSON.stringify({deck,design});
+const compactSlideDeckForHistory=deck=>({...deck,slides:(deck?.slides||[]).map(slide=>({...slide,customImages:(slide.customImages||[]).map(image=>({...image,dataUrl:image.historyDataUrl||image.dataUrl,historyDataUrl:undefined}))}))});
+const encodeSlideHistory=(deck,design)=>SLIDE_HISTORY_PREFIX+JSON.stringify({deck:compactSlideDeckForHistory(deck),design});
 const encodeMangaHistory=(pack,images)=>MANGA_HISTORY_PREFIX+JSON.stringify({pack,images});
 const legacySlideDeckFromText=(item,text)=>{
   const input=String(text||"");
@@ -2733,29 +2717,30 @@ function ReplyMode({user,isPro,onUpgradeClick}){
 }
 
 function WritingMode({user}){
-  const [notes,setNotes]=useState("");const [style,setStyle]=useState("natural");const [result,setResult]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
+  const [notes,setNotes]=useState("");const [style,setStyle]=useState("natural");const [outputType,setOutputType]=useState("sentence");const [result,setResult]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const STYLES=[{value:"natural",label:"Natural"},{value:"professional",label:"Professional"},{value:"friendly",label:"Friendly"},{value:"formal",label:"Formal"},{value:"vivid",label:"Vivid"}];
   const generate=async()=>{
     if(!notes.trim())return;
     setLoading(true);setError("");setResult("");
-    const system="You are GhostwriterMe Writing Mode. Turn the user's bullet points or short notes into exactly one complete, natural sentence. Preserve every supplied fact, do not invent details, and use the same language as the notes. Use a "+style+" style. Return only the sentence with no label, quotation marks, bullet, markdown, or explanation.";
+    const outputRule=outputType==="conclusion"?"Write one focused conclusion paragraph of 3 to 5 clear sentences. Synthesize the supplied points, restate the central takeaway without copying it word for word, add no new evidence, and do not use a rhetorical question.":"Write exactly one complete, natural sentence.";
+    const system="You are GhostwriterMe Writing Mode. "+outputRule+" Preserve every supplied fact, do not invent details, and use the same language as the notes. Use a "+style+" style. Return only the finished writing with no label, quotation marks, bullet, markdown, or explanation.";
     try{
       const raw=await callClaude(system,"Notes:\n"+notes.trim(),350);
       let sentence=String(raw||"").trim().replace(/^\s*(?:sentence|result)\s*:\s*/i,"").replace(/^\s*[-•]\s*/,"").replace(/^\s*[“"]|[”"]\s*$/g,"").replace(/\s*\n+\s*/g," ").trim();
       if(sentence&&!/[.!?。！？]$/.test(sentence))sentence+=".";
       if(!sentence)throw new Error("No sentence was returned.");
       setResult(sentence);
-      if(user)HS.save(user.email,"writing",{title:"Writing: "+sentence.slice(0,45),input:notes.trim(),output:sentence});
-    }catch(e){setError(e.message||"The sentence could not be written.");}finally{setLoading(false);}
+      if(user)HS.save(user.email,"writing",{title:(outputType==="conclusion"?"Conclusion: ":"Writing: ")+sentence.slice(0,45),input:notes.trim(),output:sentence});
+    }catch(e){setError(e.message||"The writing could not be completed.");}finally{setLoading(false);}
   };
-  const reset=()=>{setNotes("");setStyle("natural");setResult("");setError("");};
+  const reset=()=>{setNotes("");setStyle("natural");setOutputType("sentence");setResult("");setError("");};
   return <div>
-    <div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.18)",borderRadius:8,padding:"10px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited · turn rough notes into one focused sentence</span></div>
+    <div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.18)",borderRadius:8,padding:"10px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:8}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited · turn rough notes into a sentence or conclusion</span></div>
     <FArea label="What should Ghosty write?" placeholder={"Add bullet points or short notes, for example:\n• Community café opens Monday\n• Quiet study area\n• Locally roasted coffee"} value={notes} onChange={event=>setNotes(event.target.value)} rows={6} hint="Ghosty keeps your facts and writes one complete sentence." voice/>
-    <FSelect label="Sentence style" value={style} onChange={setStyle} options={STYLES}/>
-    <PriBtn onClick={generate} loading={loading} disabled={!notes.trim()}><IconLabel name="writing">Write My Sentence</IconLabel></PriBtn>
+    <div className="studio-grid-2" style={{marginBottom:12}}><FSelect label="Writing type" value={outputType} onChange={setOutputType} options={[{value:"sentence",label:"Complete sentence"},{value:"conclusion",label:"Conclusion paragraph"}]}/><FSelect label="Writing style" value={style} onChange={setStyle} options={STYLES}/></div>
+    <PriBtn onClick={generate} loading={loading} disabled={!notes.trim()}><IconLabel name="writing">{outputType==="conclusion"?"Write My Conclusion":"Write My Sentence"}</IconLabel></PriBtn>
     {error&&<ErrBox msg={error}/>}
-    {result&&<Card glow glowColor={C.green} style={{marginTop:16}}><div style={{fontSize:11,color:C.greenText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Finished Sentence</div><EditableTextResult value={result} onChange={setResult} label="writing result"/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={result}/><ListenBtn text={result}/><SaveAsImageBtn text={result} title="Writing Mode"/><GenMoreBtn onClick={reset} loading={loading} label="New Sentence"/></div></Card>}
+    {result&&<Card glow glowColor={C.green} style={{marginTop:16}}><div style={{fontSize:11,color:C.greenText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Finished {outputType==="conclusion"?"Conclusion":"Sentence"}</div><EditableTextResult value={result} onChange={setResult} label="writing result"/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={result}/><ListenBtn text={result}/><SaveAsImageBtn text={result} title="Writing Mode"/><GenMoreBtn onClick={reset} loading={loading} label={outputType==="conclusion"?"New Conclusion":"New Sentence"}/></div></Card>}
   </div>;
 }
 
@@ -3036,6 +3021,38 @@ function ResearchAssistant({user}){
   );
 }
 
+function DeepResearchMode({user}){
+  const [question,setQuestion]=useState("");const [scope,setScope]=useState("");const [depth,setDepth]=useState("6");
+  const [out,setOut]=useState("");const [sources,setSources]=useState([]);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [genId,setGenId]=useState(0);
+  const generate=async()=>{
+    if(!question.trim()){setError("Enter a research question first.");return;}
+    setLoading(true);setError("");setOut("");setSources([]);
+    const system="You are GhostwriterMe Deep Research, a rigorous academic research analyst. Search several credible current sources, preferring primary, official, academic, and institutional evidence. Compare sources rather than summarizing one page. Separate established evidence, disagreement, limitations, and your own inference. Form a detailed, evidence-based conclusion. Never invent a source or URL. Use clear headings and place the full source URLs in a final Source trail section.";
+    const prompt=`Research question: ${question.trim()}\nScope, constraints, or required angle: ${scope.trim()||"none"}\nSearch broadly enough to test competing explanations. Explain the evidence chain and finish with a direct conclusion that answers the question.`;
+    try{
+      const result=await callStudioAI(system,prompt,9000,[],user?.email,{mode:"deep-research",useSearch:true,searchDepth:Number(depth),returnMetadata:true,timeoutMs:150000});
+      const foundUrls=String(result.text||"").match(/https?:\/\/[^\s)\]}>,]+/gi)||[];
+      const merged=new Map();
+      [...(result.sources||[]),...foundUrls.map(url=>({url}))].forEach(item=>{const url=String(item?.url||"").trim();if(!/^https?:\/\//i.test(url)||merged.has(url))return;let title=String(item?.title||"").trim();if(!title){try{title=new URL(url).hostname;}catch{title="Research source";}}merged.set(url,{url,title});});
+      const sourceList=[...merged.values()];let text=String(result.text||"").trim();
+      if(sourceList.length&&!/source trail/i.test(text))text+=`\n\nSource trail\n${sourceList.map((source,index)=>`${index+1}. ${source.title}: ${source.url}`).join("\n")}`;
+      if(!text)throw new Error("The research result was empty. Please try again.");
+      setOut(text);setSources(sourceList);setGenId(value=>value+1);
+      if(user)HS.save(user.email,"academic",{title:"Deep research: "+question.trim().slice(0,38),input:question.trim(),output:text});
+    }catch(e){setError(e.message||"Deep Research could not finish.");}finally{setLoading(false);}
+  };
+  const reset=()=>{setQuestion("");setScope("");setDepth("6");setOut("");setSources([]);setError("");};
+  return <div>
+    <div style={{background:C.magentaSoft,border:`1px solid ${C.magenta}44`,borderRadius:9,padding:"11px 13px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="research" size={18} color={C.magentaText}/><div><div style={{fontSize:13,fontWeight:850,color:C.magentaText}}>Source-backed Deep Research</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.55,marginTop:2}}>Ghosty searches current sources, compares the evidence, forms a detailed conclusion, and includes the URLs it used.</div></div></div>
+    <FArea label="Research Question" placeholder="e.g. How effective are four-day work weeks across different industries?" value={question} onChange={event=>setQuestion(event.target.value)} rows={4} voice/>
+    <FArea label="Scope or Requirements (optional)" placeholder="Countries, time range, viewpoints, course requirements, or evidence you want compared..." value={scope} onChange={event=>setScope(event.target.value)} rows={3}/>
+    <div style={{marginBottom:13}}><FSelect label="Research Depth" value={depth} onChange={setDepth} options={[{value:"4",label:"Focused · up to 4 searches"},{value:"6",label:"Deep · up to 6 searches"},{value:"8",label:"Extensive · up to 8 searches"},{value:"10",label:"Maximum · up to 10 searches"}]}/></div>
+    <PriBtn onClick={generate} loading={loading} disabled={!question.trim()}><IconLabel name="research">Start Deep Research</IconLabel></PriBtn>
+    {error&&<ErrBox msg={error}/>}
+    {out&&<Card glow glowColor={C.magenta} style={{marginTop:16}}><div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:850,marginBottom:9}}>Research Report</div><EditableTextResult value={out} onChange={setOut} label="deep research report"/>{sources.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Source URLs</div><div style={{display:"grid",gap:7}}>{sources.map((source,index)=><a key={source.url} href={source.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"flex-start",gap:8,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.blueText,textDecoration:"none",fontSize:12.5,lineHeight:1.45,overflowWrap:"anywhere"}}><GwmIcon name="link" size={14} style={{marginTop:2}}/><span><strong>{index+1}. {source.title}</strong><br/><span style={{color:C.muted}}>{source.url}</span></span></a>)}</div></div>}<div style={{display:"flex",gap:7,marginTop:12,flexWrap:"wrap"}}><CopyBtn text={out}/><ListenBtn text={out}/><GenMoreBtn onClick={reset} loading={loading} label="New Research"/></div><FollowUpChat key={genId} context={out.slice(0,28000)} intro="Ask a follow-up about the evidence, conclusion, limitations, or sources." accent={C.magenta}/></Card>}
+  </div>;
+}
+
 // ============ ACADEMIC DRAFT BUILDER ============
 const CEFR_DESC={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-Intermediate",C1:"Advanced",C2:"Proficient"};
 function DraftBuilder({user}){
@@ -3091,6 +3108,7 @@ function DraftBuilder({user}){
 const ACADEMIC_TABS=[
   {id:"reviewer",icon:"reviewer",label:"Academic Reviewer",sub:"Upload or paste your essay and receive detailed feedback."},
   {id:"research", icon:"compass", label:"Research Assistant",sub:"Get help planning, structuring, and developing your work."},
+  {id:"deep", icon:"research", label:"Deep Research",sub:"Search current sources, compare evidence, and form a cited conclusion."},
   {id:"draft",    icon:"draft",   label:"Academic Draft Builder",sub:"Generate outlines, frameworks, and draft examples."},
 ];
 function AcademicMode({user}){
@@ -3141,6 +3159,7 @@ function AcademicMode({user}){
 
       {tab==="reviewer"&&<AcademicReviewer user={user}/>}
       {tab==="research"&&<ResearchAssistant user={user}/>}
+      {tab==="deep"&&<DeepResearchMode user={user}/>}
       {tab==="draft"&&<DraftBuilder user={user}/>}
     </div>
   );
@@ -3882,8 +3901,8 @@ function MeetingAssistMode({user}){
         try{
           assertAIAvailable();
           const reply=await callStudioAI(
-            "You are GhostwriterMe Meeting Assist. Based only on the meeting transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Do not claim the user said or agreed to anything. Do not invent facts. Put each option on its own line and return no preamble.",
-            `Platform: ${platform}\nUser context: ${context||"none"}\nLatest speech: ${speech}\nRecent transcript:\n${transcriptRef.current.slice(-3000)}`,
+            "You are GhostwriterMe Meeting Assist. The transcript contains only remote-participant audio and has no speaker labels. Based only on that transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Never treat the word 'you' as a speaker name. Do not claim the user said or agreed to anything. Do not invent facts. Never discuss transcript quality or ask the user to provide a transcript. If the latest speech is incomplete, return one natural clarification such as 'Could you repeat the last part?' Put each option on its own line and return no preamble.",
+            `Platform: ${platform}\nUser context: ${context||"none"}\nLatest remote-participant speech: ${speech}\nRecent remote-participant transcript:\n${transcriptRef.current.slice(-3000)}`,
             240,[],user?.email,{mode:"meeting"}
           );
           setSuggestion(reply.trim());setError("");
@@ -3895,8 +3914,10 @@ function MeetingAssistMode({user}){
   };
 
   handleTranscriptRef.current=text=>{
-    const latest=String(text||"").trim();
-    if(!latest)return;
+    const latest=cleanMeetingTranscriptSegment(text);
+    if(!isUsefulMeetingTranscript(latest)){setInterimTranscript("Listening for a clear sentence from the meeting…");return;}
+    const previousLast=transcriptRef.current.trim().split("\n").at(-1)||"";
+    if(previousLast.toLocaleLowerCase()===latest.toLocaleLowerCase()){setInterimTranscript("");return;}
     const updated=(transcriptRef.current?transcriptRef.current+"\n":"")+latest;
     transcriptRef.current=updated;setTranscript(updated);setInterimTranscript("");setSaved(false);
     requestSuggestionRef.current?.(latest);
@@ -3908,8 +3929,9 @@ function MeetingAssistMode({user}){
     try{
       assertAIAvailable();
       const audio=await audioBlobToMono16k(blob);
-      const latest=await transcribeLocalAudio(audio,updateWhisperProgress);
-      if(!latest)return{retryAfterMs:120};
+      if(!hasAudibleMeetingSpeech(audio)){setInterimTranscript("Listening for remote speech…");return{retryAfterMs:80};}
+      const latest=cleanMeetingTranscriptSegment(await transcribeLocalAudio(audio,updateWhisperProgress));
+      if(!latest){setInterimTranscript("Listening for a clear sentence from the meeting…");return{retryAfterMs:120};}
       handleTranscriptRef.current(latest);
       return{};
     }catch(e){
@@ -3945,7 +3967,9 @@ function MeetingAssistMode({user}){
         .catch(()=>({terminal:true}));
     };
     recorder.start();
-    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},4000);
+    // Longer segments reduce clipped phrases and one-word Whisper
+    // hallucinations while remaining responsive enough for live suggestions.
+    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},7000);
   };
 
   const startRemoteAudioTranscription=reason=>{
@@ -3985,10 +4009,10 @@ function MeetingAssistMode({user}){
       const speechReady=await prepareOfflineSpeech();
       if(!speechReady)return;
       const stream=await navigator.mediaDevices.getDisplayMedia(MEETING_DISPLAY_OPTIONS);
-      if(!stream.getAudioTracks().length){
-        const surface=stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
+      const surface=stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
+      if(!isBrowserTabMeetingShare(stream)){
         stream.getTracks().forEach(track=>track.stop());
-        throw new Error(surface==="browser"?"The selected tab did not provide an audio track. In Chrome or Edge, select the meeting tab and enable Share tab audio.":"The selected window or screen did not provide an audio track. Choose the meeting tab in Chrome or Edge and enable its audio.");
+        throw new Error(surface==="browser"?"The selected meeting tab did not provide audio. Enable Share tab audio and try again.":"Meeting Assist accepts only a Chrome or Edge browser tab. Choose the Google Meet, Teams, Zoom, WhatsApp, or Discord tab—not a Window or Entire Screen—and enable Share tab audio.");
       }
       displayStreamRef.current=stream;
       recordingStreamRef.current=buildRemoteMeetingAudioStream(stream);
@@ -3996,14 +4020,14 @@ function MeetingAssistMode({user}){
         stream.getTracks().forEach(track=>track.stop());
         throw new Error("The shared source did not expose meeting audio. Choose the meeting tab and enable Share tab audio.");
       }
-      setCaptureNotice("Meeting audio is connected. Your microphone is not opened, so GhostwriterMe listens only to audio from the shared meeting source.");
+      setCaptureNotice("Meeting-tab audio is connected directly. The microphone, windows, entire screen, and physical device-speaker input are excluded.");
       activeRef.current=true;setActive(true);
       processingCountRef.current=0;setProcessing(false);pendingSuggestionRef.current="";
       const ended=()=>stopSession();
       stream.getVideoTracks()[0]?.addEventListener("ended",ended,{once:true});
       stream.getAudioTracks()[0]?.addEventListener("ended",ended,{once:true});
       queueRef.current=Promise.resolve();
-      const started=startRemoteAudioTranscription("GhostwriterMe is transcribing only the shared meeting-audio track with on-device Whisper. Your microphone is not opened or mixed in.");
+      const started=startRemoteAudioTranscription("GhostwriterMe is transcribing only the selected meeting tab's digital audio track. The microphone and device-speaker input are not opened or mixed in.");
       if(!started&&activeRef.current)stopSession();
     }catch(e){
       activeRef.current=false;setActive(false);
@@ -4024,7 +4048,7 @@ function MeetingAssistMode({user}){
   return(
     <div>
       <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Remote voices in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>GhostwriterMe listens only to the meeting tab or system audio you share. Your device microphone stays off, so your own voice is excluded from capture.</div></div></div>
+        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Remote voices in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>GhostwriterMe accepts only the selected meeting tab's digital audio track. Window, Entire Screen, and microphone capture are rejected so your own voice is excluded.</div></div></div>
       </Card>
       {captureProfile.firefoxLike&&<Card style={{marginBottom:14,padding:"12px 13px",background:"rgba(245,200,66,0.07)",border:"1px solid rgba(245,200,66,0.28)"}}>
         <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="info" size={18} color={C.yellowText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.yellowText}}>Remote-only capture needs Chrome or Edge</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Zen and Firefox cannot provide a meeting tab's audio track to this web app. Open GhostwriterMe and the meeting in current desktop Chrome or Edge; the microphone fallback has been removed so your voice is never mixed in.</div></div></div>
@@ -4042,7 +4066,7 @@ function MeetingAssistMode({user}){
       <div className="studio-option-grid" style={{marginBottom:13}}>{MEETING_PLATFORMS.map(item=><button key={item} onClick={()=>setPlatform(item)} disabled={active} style={{minHeight:44,padding:"9px 10px",borderRadius:8,border:`1px solid ${platform===item?C.magenta:C.border}`,background:platform===item?C.magentaSoft:C.surface,color:platform===item?C.magentaText:C.muted,fontFamily:"inherit",fontWeight:700,cursor:active?"default":"pointer",display:"flex",alignItems:"center",gap:7}}><GwmIcon name="meeting" size={15}/>{item}</button>)}</div>
       <FArea label="Details for better replies (optional)" placeholder="Your role, meeting goal, names, or facts the assistant should know..." value={context} onChange={e=>setContext(e.target.value)} rows={3}/>
       <button type="button" role="checkbox" aria-checked={consent} onClick={()=>!active&&setConsent(!consent)} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",marginBottom:12,borderRadius:9,border:`1px solid ${consent?C.magenta:C.border}`,background:consent?C.magentaSoft:C.surface,color:consent?C.text:C.muted,textAlign:"left",fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,cursor:active?"default":"pointer"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${consent?C.magenta:C.border}`,background:consent?C.magenta:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{consent&&<GwmIcon name="check" size={12} color="#071018" strokeWidth={2.5}/>}</span><span>I have permission to capture this meeting audio and will follow the meeting platform, workplace, and local recording rules.</span></button>
-      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">{captureProfile.firefoxLike?"Open this screen in current desktop Chrome or Edge to share meeting-tab audio without the microphone.":captureProfile.mobile?"Remote-only meeting capture is not available in mobile web. Use desktop Chrome or Edge.":!canRecordAudio?"This browser cannot record the shared audio track for on-device transcription.":"This browser cannot share tab or system audio with Meeting Assist."}</IconLabel></div>}
+      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">{captureProfile.firefoxLike?"Open this screen in current desktop Chrome or Edge to share meeting-tab audio without the microphone.":captureProfile.mobile?"Remote-only meeting capture is not available in mobile web. Use desktop Chrome or Edge.":!canRecordAudio?"This browser cannot record the shared audio track for on-device transcription.":"This browser cannot share a meeting tab's audio with Meeting Assist."}</IconLabel></div>}
       {!active?<PriBtn onClick={startSession} loading={preparingSpeech} disabled={!consent||!canCapture||preparingSpeech} variant="violet"><IconLabel name="meeting">Start Remote-Only Meeting Assist</IconLabel></PriBtn>:<button onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop listening</button>}
       <button type="button" onClick={openMeetingOverlay} disabled={!canUseOverlay} title={canUseOverlay?"Open an always-on-top Ghosty panel over Google Meet, Zoom, or Teams.":"Requires current desktop Chrome or Edge."} style={{width:"100%",minHeight:42,marginTop:8,borderRadius:9,border:`1px solid ${canUseOverlay?C.magenta:C.border}`,background:canUseOverlay?C.magentaSoft:C.surface,color:canUseOverlay?C.magentaText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:850,cursor:canUseOverlay?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:7,opacity:canUseOverlay?1:0.65}}><GwmIcon name="ghost" size={16}/>{overlayWindow?"Ghosty Overlay Is Open":"Open Ghosty Answer Overlay"}</button>
       <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. In Chrome or Edge, choose the meeting tab and enable its audio. GhostwriterMe does not request microphone permission.</div>
@@ -4072,22 +4096,28 @@ const presentationAsText=result=>{
 };
 
 function PresentationMode({user}){
+  const cacheKey="gwm_presentation_result_"+String(user?.email||"guest").trim().toLowerCase();
   const [workflow,setWorkflow]=useState("create");
   const [topic,setTopic]=useState("");const [audience,setAudience]=useState("");const [details,setDetails]=useState("");
-  const [groupSize,setGroupSize]=useState(3);const [duration,setDuration]=useState("10");const [names,setNames]=useState("");
+  const [groupSize,setGroupSize]=useState("3");const [sectionCount,setSectionCount]=useState("6");const [duration,setDuration]=useState("10");const [names,setNames]=useState("");
   const [script,setScript]=useState(null);const [scriptLoading,setScriptLoading]=useState(false);const [scriptError,setScriptError]=useState("");
   const [friendScript,setFriendScript]=useState("");const [reviewFocus,setReviewFocus]=useState("clarity");const [reviewFiles,setReviewFiles]=useState([]);
   const [review,setReview]=useState(null);const [reviewLoading,setReviewLoading]=useState(false);const [reviewError,setReviewError]=useState("");
 
+  useEffect(()=>{try{const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");if(!cached?.script)return;setScript(cached.script);setTopic(cached.topic||"");setAudience(cached.audience||"");setDetails(cached.details||"");setGroupSize(String(cached.groupSize||"3"));setSectionCount(String(cached.sectionCount||"6"));setDuration(String(cached.duration||"10"));setNames(cached.names||"");}catch{}},[cacheKey]);
+
   const generate=async()=>{
     if(!topic.trim())return;
     setScriptLoading(true);setScriptError("");setScript(null);
-    const presenters=names.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).slice(0,groupSize);
-    const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return ONLY valid JSON: {"title":"","summary":"","totalMinutes":0,"sections":[{"speaker":"","role":"","heading":"","timing":"","script":"","visualCue":""}],"handoffs":[""]}. Use exactly the requested number of presenters. Every presenter must speak.';
-    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${duration} minutes. Presenter count: ${groupSize}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+groupSize+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments.`;
+    const presenterCount=clampGenerationCount(groupSize,{min:1,max:20,fallback:3});const requestedSections=clampGenerationCount(sectionCount,{min:1,max:30,fallback:6});
+    const presenters=names.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).slice(0,presenterCount);
+    const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return only the requested structured result. Use exactly the requested number of presenters and sections. Every presenter must speak.';
+    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${duration} minutes. Presenter count: ${presenterCount}. Script section count: ${requestedSections}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+presenterCount+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments. Return exactly ${requestedSections} sections.`;
     try{
-      const result=parseStudioJson(await callStudioAI(system,prompt,7000,[],user?.email));
-      setScript(result);if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${groupSize} presenters · ${duration} minutes`,output:presentationAsText(result)});
+      const result=parseStudioJson(await callStudioAI(system,prompt,5000,[],user?.email,{mode:"presentation",timeoutMs:90000}));
+      if((result.sections||[]).length!==requestedSections)throw new Error(`Ghosty created ${(result.sections||[]).length} of ${requestedSections} sections. Please generate again.`);
+      setGroupSize(String(presenterCount));setSectionCount(String(requestedSections));setScript(result);try{sessionStorage.setItem(cacheKey,JSON.stringify({script:result,topic,audience,details,groupSize:presenterCount,sectionCount:requestedSections,duration,names}));}catch{}
+      if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${presenterCount} presenters · ${requestedSections} sections · ${duration} minutes`,output:presentationAsText(result)});
     }catch(e){setScriptError(e.message||"Something went wrong.");}finally{setScriptLoading(false);}
   };
 
@@ -4109,10 +4139,7 @@ function PresentationMode({user}){
 
       {workflow==="create"&&<>
         <FArea label="Presentation Topic" placeholder="e.g. How urban gardens improve city life" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
-        <div className="studio-grid-2" style={{marginBottom:12}}>
-          <div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>People in the Group</label><div className="studio-stepper"><button type="button" aria-label="Remove one presenter" onClick={()=>setGroupSize(v=>Math.max(1,v-1))} disabled={groupSize===1} style={{height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:groupSize===1?"not-allowed":"pointer",fontSize:20}}>−</button><div style={{height:44,borderRadius:9,border:`1px solid ${C.blue}`,background:C.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",gap:7,color:C.blueText,fontSize:15,fontWeight:900}}><GwmIcon name="users" size={17}/>{groupSize}</div><button type="button" aria-label="Add one presenter" onClick={()=>setGroupSize(v=>Math.min(8,v+1))} disabled={groupSize===8} style={{height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:groupSize===8?"not-allowed":"pointer",fontSize:20}}>+</button></div></div>
-          <FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"}]}/>
-        </div>
+        <div className="studio-grid-3" style={{marginBottom:12}}><FNumber label="People in Group" value={groupSize} onChange={setGroupSize} min={1} max={20} fallback={3} suffix="people"/><FNumber label="Script Sections" value={sectionCount} onChange={setSectionCount} min={1} max={30} fallback={6} suffix="sections"/><FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"}]}/></div>
         <FInput label="Presenter Names (optional)" placeholder="Mina, Jay, Alex" value={names} onChange={e=>setNames(e.target.value)} icoL="users"/>
         <FInput label="Audience (optional)" placeholder="e.g. university class, sales team" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/>
         <FArea label="Details (optional)" placeholder="Learning goals, required sections, tone, or points that must be included..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
@@ -4123,7 +4150,7 @@ function PresentationMode({user}){
           <Card glow><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}><div><div style={{fontSize:18,fontWeight:900,color:C.text}}>{script.title}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:4}}>{script.summary}</div></div><PlanBadge plan="pro"/></div>
             <div className="studio-timeline">{(script.sections||[]).map((section,index)=><div key={index} style={{position:"relative",paddingBottom:index<script.sections.length-1?16:0}}><span className="studio-timeline-dot"/><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:5}}><span style={{fontSize:12,fontWeight:900,color:C.blueText}}>{section.speaker||`Speaker ${index+1}`}</span>{section.role&&<span style={{fontSize:11,color:C.muted}}>{section.role}</span>}{section.timing&&<span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="timer" size={12}/>{section.timing}</span>}</div><div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:5}}>{section.heading}</div><div style={{fontSize:13.5,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{section.script}</div>{section.visualCue&&<div style={{marginTop:7,padding:"7px 9px",borderRadius:7,background:C.surface,color:C.muted,fontSize:12,display:"flex",gap:6}}><GwmIcon name="slides" size={14} color={C.blueText}/>{section.visualCue}</div>}</div>)}</div>
             {script.handoffs?.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Smooth handoffs</div>{script.handoffs.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.6,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="arrowRight" size={13} color={C.blueText} style={{marginTop:3}}/>{x}</div>)}</div>}
-            <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={presentationAsText(script)}/><ListenBtn text={presentationAsText(script)}/><SaveAsImageBtn text={presentationAsText(script)} title="Presentation Script"/><GenMoreBtn loading={scriptLoading} onClick={()=>{setScript(null);setTopic("");setDetails("");setNames("");setScriptError("");}} label="New Script"/></div>
+            <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={presentationAsText(script)}/><ListenBtn text={presentationAsText(script)}/><SaveAsImageBtn text={presentationAsText(script)} title="Presentation Script"/><GenMoreBtn loading={scriptLoading} onClick={()=>{setScript(null);setTopic("");setDetails("");setNames("");setScriptError("");try{sessionStorage.removeItem(cacheKey);}catch{}}} label="New Script"/></div>
           </Card>
         </div>}
       </>}
@@ -4163,11 +4190,13 @@ function InterviewMode({user}){
   const generateInterview=async()=>{
     if(!role.trim()||!cv.length||(!requirements.length&&!details.trim()))return;
     setLoading(true);setError("");setPack(null);setFeedback(null);setAnswers([]);setPhase("setup");
+    const questionCount=clampGenerationCount(count,{min:2,max:30,fallback:6});
     const system='You are an experienced hiring manager and interview coach. Build a realistic interview from the supplied job requirements and CV. Questions must be legal, role-relevant, specific, and progressively challenging. Return ONLY valid JSON: {"title":"","opening":"","candidateSnapshot":"","focusAreas":[""],"questions":[{"question":"","category":"","difficulty":"","whyItMatters":"","idealPoints":[""],"followUp":""}],"closing":""}.';
-    const prompt=`Create a ${tone} mock interview for a ${level}-level ${role} role${company?" at "+company:""}. Include exactly ${count} main questions. Extra context: ${details||"none"}. Use the attached CV and job requirements. Do not invent achievements that are not in the CV.`;
+    const prompt=`Create a ${tone} mock interview for a ${level}-level ${role} role${company?" at "+company:""}. Include exactly ${questionCount} main questions. Extra context: ${details||"none"}. Use the attached CV and job requirements. Do not invent achievements that are not in the CV.`;
     try{
       const result=parseStudioJson(await callStudioAI(system,prompt,7000,studioFileSummary([...requirements,...cv]),user?.email));
-      setPack(result);setPhase("ready");if(user)HS.save(user.email,"interview",{title:result.title||("Interview: "+role),input:`${count} questions · ${tone} tone`,output:`${result.candidateSnapshot}\n\n${(result.questions||[]).map((q,i)=>`${i+1}. ${q.question}`).join("\n")}`});
+      if((result.questions||[]).length!==questionCount)throw new Error(`Ghosty created ${(result.questions||[]).length} of ${questionCount} questions. Please generate again.`);
+      setCount(String(questionCount));setPack(result);setPhase("ready");if(user)HS.save(user.email,"interview",{title:result.title||("Interview: "+role),input:`${questionCount} questions · ${tone} tone`,output:`${result.candidateSnapshot}\n\n${(result.questions||[]).map((q,i)=>`${i+1}. ${q.question}`).join("\n")}`});
     }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
 
@@ -4207,7 +4236,7 @@ function InterviewMode({user}){
         <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Target Role" placeholder="e.g. Product Designer" value={role} onChange={e=>setRole(e.target.value)} icoL="briefcase"/><FInput label="Company (optional)" placeholder="e.g. Acme Studio" value={company} onChange={e=>setCompany(e.target.value)} icoL="building"/></div>
         <div className="studio-upload-row"><StudioFileDrop label="Job Requirements" hint="PDF, DOCX, TXT or a clear image · max 4 MB" accept=".pdf,.docx,.txt,image/png,image/jpeg,image/webp" files={requirements} onChange={setRequirements} maxFiles={1}/><StudioFileDrop label="Your CV / Resume" hint="PDF, DOCX, TXT or a clear image · max 4 MB" accept=".pdf,.docx,.txt,image/png,image/jpeg,image/webp" files={cv} onChange={setCv} maxFiles={1} required/></div>
         <FArea label="Extra Details" placeholder="Paste job requirements here if you do not have a file, or add the interview format and concerns..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/>
-        <div className="studio-grid-3" style={{marginBottom:13}}><FSelect label="Seniority" value={level} onChange={setLevel} options={[{value:"entry",label:"Entry level"},{value:"mid",label:"Mid level"},{value:"senior",label:"Senior"},{value:"lead",label:"Lead / manager"}]}/><FSelect label="Questions" value={count} onChange={setCount} options={[{value:"4",label:"4 questions"},{value:"6",label:"6 questions"},{value:"8",label:"8 questions"},{value:"10",label:"10 questions"}]}/><FSelect label="Voice Pace" value={pace} onChange={setPace} options={[{value:"0.86",label:"Calm"},{value:"1",label:"Natural"},{value:"1.14",label:"Fast"}]}/></div>
+        <div className="studio-grid-3" style={{marginBottom:13}}><FSelect label="Seniority" value={level} onChange={setLevel} options={[{value:"entry",label:"Entry level"},{value:"mid",label:"Mid level"},{value:"senior",label:"Senior"},{value:"lead",label:"Lead / manager"}]}/><FNumber label="Questions" value={count} onChange={setCount} min={2} max={30} fallback={6} suffix="questions"/><FSelect label="Voice Pace" value={pace} onChange={setPace} options={[{value:"0.86",label:"Calm"},{value:"1",label:"Natural"},{value:"1.14",label:"Fast"}]}/></div>
         <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Interviewer Style</div><div className="studio-option-grid">{[{id:"friendly",icon:"chill",title:"Friendly",desc:"Warm and supportive"},{id:"standard",icon:"professional",title:"Professional",desc:"Realistic and balanced"},{id:"tough",icon:"target",title:"Challenging",desc:"Direct with follow-ups"}].map(x=><StudioChoice key={x.id} active={tone===x.id} onClick={()=>setTone(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
         <PriBtn onClick={generateInterview} loading={loading} disabled={!role.trim()||!cv.length||(!requirements.length&&!details.trim())}><IconLabel name="interview">Build My Interview</IconLabel></PriBtn>
         {!hasTTS&&<div style={{fontSize:12,color:C.yellowText,marginTop:7,display:"flex",gap:6}}><GwmIcon name="alert" size={14}/>Audio is not supported in this browser, but the text interview will still work.</div>}
@@ -4244,6 +4273,7 @@ const SLIDE_THEMES=[
   {id:"storytelling",icon:"story",title:"Storytelling",desc:"Cinematic scenes & human tension",accent:"#f6bd75",prompt:"cinematic full-bleed scenes, emotionally legible subjects, strong narrative pacing"},
   {id:"classroom",icon:"academic",title:"Classroom",desc:"Concrete ideas & simple diagrams",accent:"#5eead4",prompt:"one concrete learning idea at a time, simple visual analogy, clear high-retention diagram"},
   {id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Bold contrast & memorable proof",accent:"#f472b6",prompt:"high-contrast visual storytelling, one proof point per slide, strong tension-to-resolution rhythm"},
+  {id:"custom",icon:"spark",title:"Custom Theme",desc:"Build your own coherent visual world",accent:"#c084fc",prompt:"a distinctive user-defined visual system with consistent mood, imagery, palette, and composition"},
 ];
 const SLIDE_FONTS=["Cabinet Grotesk","Inter","Poppins","Open Sans","Raleway","Montserrat","Oswald","League Spartan","Libre Baskerville","Playfair Display","Source Serif 4","Fredoka","Nunito","Plus Jakarta Sans","Newsreader","Roboto","Libre Bodoni","Public Sans","Permanent Marker","Georgia"];
 const GOOGLE_SLIDE_FONTS=new Set(SLIDE_FONTS.filter(name=>!["Cabinet Grotesk","Georgia"].includes(name)));
@@ -4301,7 +4331,7 @@ const wrapCanvasLines=(ctx,text,maxWidth)=>{
 function drawSlideCanvas(deck,slide,index,options){
   const width=1600,height=900,canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d");
   const palette=slidePalette(options.background,options.theme,options.textColor);const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-  const font=slideFontStack(options.font);const layout=slide.layout||"left-third";const rightContent=layout==="right-third";const fullBleed=layout==="full-bleed";const textX=rightContent?720:96;const artX=rightContent?90:fullBleed?650:1090,artY=fullBleed?55:150,artW=fullBleed?850:390,artH=fullBleed?760:570;const artColors=[palette.accent,palette.muted,palette.accent,palette.accent];ctx.save();ctx.strokeStyle=palette.accent;ctx.fillStyle=palette.accent;ctx.globalAlpha=0.28;
+  const font=slideFontStack(options.font);const layout=slide.layout||"left-third";const rightContent=layout==="right-third";const fullBleed=layout==="full-bleed";const artX=rightContent?90:fullBleed?650:1090,artY=fullBleed?55:150,artW=fullBleed?850:390,artH=fullBleed?760:570;const artColors=[palette.accent,palette.muted,palette.accent,palette.accent];ctx.save();ctx.strokeStyle=palette.accent;ctx.fillStyle=palette.accent;ctx.globalAlpha=0.28;
   const visual=slide.visualType||"signal";
   if(visual==="fullbleed"){const radial=ctx.createRadialGradient(artX+artW*.42,artY+artH*.36,20,artX+artW*.42,artY+artH*.36,artW*.55);radial.addColorStop(0,palette.accent3);radial.addColorStop(.34,palette.accent);radial.addColorStop(1,"rgba(0,0,0,0)");ctx.globalAlpha=.72;ctx.fillStyle=radial;ctx.beginPath();ctx.ellipse(artX+artW*.5,artY+artH*.46,artW*.47,artH*.43,-.12,0,Math.PI*2);ctx.fill();ctx.globalAlpha=.74;ctx.lineWidth=5;ctx.strokeStyle=palette.accent;ctx.beginPath();ctx.ellipse(artX+artW*.54,artY+artH*.44,artW*.39,artH*.37,.2,0,Math.PI*2);ctx.stroke();}
   else if(visual==="big-number"){ctx.globalAlpha=.96;ctx.fillStyle=palette.accent;ctx.font=`950 210px ${font}`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(slide.dataValue||slide.visualLabel||String(index+1).padStart(2,"0"),artX+artW/2,artY+artH*.48);ctx.textAlign="left";ctx.textBaseline="alphabetic";}
@@ -4317,10 +4347,17 @@ function drawSlideCanvas(deck,slide,index,options){
   else if(options.theme==="pitch"){ctx.lineWidth=4;ctx.strokeStyle=palette.accent;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,184,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=palette.accent2;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,115,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=0.82;ctx.fillStyle=palette.accent3;ctx.font=`900 190px ${font}`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(index+1).padStart(2,"0"),artX+artW/2,artY+artH/2);ctx.textAlign="left";ctx.textBaseline="alphabetic";}
   else{ctx.globalAlpha=0.1;ctx.fillStyle=palette.accent;ctx.fillRect(artX,artY,artW,artH);const bars=[160,310,220,405];bars.forEach((bar,i)=>{ctx.globalAlpha=i===3?.96:.36;ctx.fillStyle=i===3?palette.accent:palette.muted;ctx.fillRect(artX+54+i*75,artY+artH-68-bar,48,bar);});}
   ctx.restore();
-  if(fullBleed){ctx.fillStyle="rgba(0,0,0,.26)";ctx.fillRect(0,0,width*.58,height);ctx.shadowColor="rgba(0,0,0,.5)";ctx.shadowBlur=24;}
-  ctx.fillStyle=palette.accent;ctx.fillRect(textX,fullBleed?505:72,84,8);ctx.font=`700 24px ${font}`;ctx.textAlign=rightContent?"right":"left";ctx.fillText(String(slide.eyebrow||deck.title||"KEY IDEA").toUpperCase(),rightContent?width-96:textX,fullBleed?560:126);
-  ctx.fillStyle=palette.text;ctx.font=`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${font}`;let y=fullBleed?655:235;const titleWidth=rightContent?780:fullBleed?760:850;const titleLines=wrapCanvasLines(ctx,slide.title,titleWidth);titleLines.slice(0,3).forEach(line=>{ctx.fillText(line,rightContent?width-96:textX,y);y+=Number(options.titleSize)*2.35;});
-  y+=24;ctx.font=`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${font}`;ctx.fillStyle=palette.muted;const supporting=slideSupportingText(slide);const supportingLines=wrapCanvasLines(ctx,supporting,rightContent?760:720);supportingLines.slice(0,3).forEach((line,lineIndex)=>ctx.fillText(line,rightContent?width-96:textX,y+lineIndex*(Number(options.bodySize)*2.05)));ctx.textAlign="left";ctx.shadowBlur=0;
+  for(const item of slide.customImages||[]){
+    const image=options.imageMap?.get(item.id);if(!image)continue;const position=normalizeSlideElementPosition(item,defaultSlideElementPosition(layout,"image"),{image:true});const box={x:position.x/100*width,y:position.y/100*height,width:position.width/100*width,height:position.height/100*height};const ratio=Math.min(box.width/image.naturalWidth,box.height/image.naturalHeight);const drawWidth=image.naturalWidth*ratio,drawHeight=image.naturalHeight*ratio,drawX=box.x+(box.width-drawWidth)/2,drawY=box.y+(box.height-drawHeight)/2;
+    ctx.save();ctx.shadowColor="rgba(0,0,0,.35)";ctx.shadowBlur=22;ctx.drawImage(image,drawX,drawY,drawWidth,drawHeight);ctx.restore();
+  }
+  if(fullBleed){ctx.fillStyle="rgba(0,0,0,.22)";ctx.fillRect(0,0,width*.56,height);ctx.shadowColor="rgba(0,0,0,.5)";ctx.shadowBlur=24;}
+  const positions=slide.elementPositions||{};const textPosition=key=>normalizeSlideElementPosition(positions[key],defaultSlideElementPosition(layout,key));const drawBlock=(value,position,{fill,fontValue,lineHeight,maxLines=3,uppercase=false}={})=>{
+    const x=position.x/100*width,boxWidth=position.width/100*width,y=position.y/100*height;ctx.fillStyle=fill;ctx.font=fontValue;ctx.textAlign=rightContent?"right":"left";ctx.textBaseline="top";const lines=wrapCanvasLines(ctx,uppercase?String(value||"").toUpperCase():value,boxWidth);lines.slice(0,maxLines).forEach((line,lineIndex)=>ctx.fillText(line,rightContent?x+boxWidth:x,y+lineIndex*lineHeight));
+  };
+  const eyebrowPosition=textPosition("eyebrow");ctx.fillStyle=palette.accent;ctx.fillRect(eyebrowPosition.x/100*width,Math.max(0,eyebrowPosition.y/100*height-28),84,8);drawBlock(slide.eyebrow||deck.title||"KEY IDEA",eyebrowPosition,{fill:palette.accent,fontValue:`700 24px ${font}`,lineHeight:30,maxLines:2,uppercase:true});
+  drawBlock(slide.title,textPosition("title"),{fill:palette.text,fontValue:`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${font}`,lineHeight:Number(options.titleSize)*2.35,maxLines:3});
+  const supporting=slideSupportingText(slide);if(supporting)drawBlock(supporting,textPosition("supportingText"),{fill:palette.muted,fontValue:`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${font}`,lineHeight:Number(options.bodySize)*2.05,maxLines:4});ctx.textAlign="left";ctx.shadowBlur=0;
   return canvas;
 }
 
@@ -4332,28 +4369,72 @@ const loadPptxGenerator=()=>new Promise((resolve,reject)=>{
   const script=document.createElement("script");script.src="/pptxgen.bundle.js";script.async=true;script.dataset.gwmPptx="true";script.addEventListener("load",ready,{once:true});script.addEventListener("error",()=>reject(new Error("Google Slides export could not load.")),{once:true});document.head.appendChild(script);
 });
 
-function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,presenting=false,onFullscreen}){
-  const layout=slide.layout||"left-third";const rightAligned=layout==="right-third";const fullBleed=layout==="full-bleed";const supportingText=slideSupportingText(slide);
-  const contentStyle={position:"relative",zIndex:2,maxWidth:fullBleed?"48%":layout==="top-third"?"72%":"56%",marginLeft:rightAligned?"42%":0,marginTop:fullBleed?"auto":0,marginBottom:fullBleed?"4%":0,textAlign:rightAligned?"right":"left",textShadow:fullBleed?"0 3px 22px rgba(0,0,0,0.48)":"none"};
-  return <div className="studio-slide-shell" style={{width:"100%",height:presenting?"100%":undefined,background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),padding:presenting?"clamp(26px,6vw,92px)":"clamp(18px,5vw,38px)",display:"flex",flexDirection:"column",justifyContent:fullBleed?"flex-end":"center",boxShadow:presenting?"none":"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease",borderRadius:presenting?0:12}}>
+const loadSlideImage=src=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("An uploaded slide image could not be loaded."));image.src=src;});
+const compactSlideImage=async(file,maxDimension,quality)=>{
+  const source=await readFileAsDataUrl(file);const image=await loadSlideImage(source);const longest=Math.max(image.naturalWidth,image.naturalHeight);const scale=Math.min(1,maxDimension/Math.max(1,longest));
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));const ctx=canvas.getContext("2d");ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  const webp=canvas.toDataURL("image/webp",quality);return webp.startsWith("data:image/webp")?webp:canvas.toDataURL("image/jpeg",quality);
+};
+const prepareSlideImage=async file=>{
+  if(!String(file?.type||"").startsWith("image/"))throw new Error("Choose a PNG, JPEG, or WebP image.");
+  if(file.size>12*1024*1024)throw new Error("Each slide image must be 12 MB or smaller.");
+  const [dataUrl,historyDataUrl]=await Promise.all([compactSlideImage(file,1600,.86),compactSlideImage(file,480,.62)]);
+  return {id:`slide-image-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,name:file.name||"Uploaded image",dataUrl,historyDataUrl};
+};
+const loadDeckSlideImages=async deck=>{
+  const map=new Map();const images=(deck?.slides||[]).flatMap(slide=>slide.customImages||[]);
+  await Promise.all(images.map(async item=>{try{map.set(item.id,await loadSlideImage(item.dataUrl));}catch{}}));return map;
+};
+
+function DraggableSlideElement({position,image=false,editing=false,selected=false,label,onSelect,onChange,onDelete,children}){
+  const elementRef=useRef(null);const actionRef=useRef(null);
+  const startAction=(mode,event)=>{
+    if(!editing)return;event.preventDefault();event.stopPropagation();onSelect?.();const shell=elementRef.current?.parentElement;if(!shell)return;
+    const bounds=shell.getBoundingClientRect();actionRef.current={mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,position:{...position},width:bounds.width,height:bounds.height};event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const moveAction=event=>{
+    const action=actionRef.current;if(!action||action.pointerId!==event.pointerId)return;event.preventDefault();const delta={dx:event.clientX-action.startX,dy:event.clientY-action.startY,canvasWidth:action.width,canvasHeight:action.height,image};
+    onChange?.(action.mode==="resize"?resizeSlideElement(action.position,delta):moveSlideElement(action.position,delta));
+  };
+  const finishAction=event=>{if(actionRef.current?.pointerId===event.pointerId)actionRef.current=null;};
+  const onKeyDown=event=>{
+    if(!editing)return;const amount=event.shiftKey?5:1;const direction={ArrowLeft:[-amount,0],ArrowRight:[amount,0],ArrowUp:[0,-amount],ArrowDown:[0,amount]}[event.key];
+    if(direction){event.preventDefault();onSelect?.();onChange?.(nudgeSlideElement(position,{dx:direction[0],dy:direction[1],image}));}
+    if(image&&(event.key==="Delete"||event.key==="Backspace")){event.preventDefault();onDelete?.();}
+  };
+  return <div ref={elementRef} role={editing?"group":undefined} tabIndex={editing?0:undefined} aria-label={editing?`${label}. Drag to move. Use arrow keys for precise movement.`:undefined} onPointerDown={event=>startAction("move",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} onKeyDown={onKeyDown} onClick={event=>{if(editing){event.stopPropagation();onSelect?.();}}} style={{position:"absolute",left:`${position.x}%`,top:`${position.y}%`,width:`${position.width}%`,...(image?{height:`${position.height}%`}:{}),zIndex:image?2:3,touchAction:"none",cursor:editing?"move":"default",outline:selected?"2px solid #79BAEC":"none",outlineOffset:3,borderRadius:image?8:4,filter:selected?"drop-shadow(0 0 8px rgba(121,186,236,.55))":"none"}}>
+    {children}
+    {editing&&selected&&<><span aria-hidden="true" style={{position:"absolute",left:0,top:-27,padding:"4px 7px",borderRadius:6,background:"#79BAEC",color:"#06101a",fontSize:9,fontWeight:900,letterSpacing:".06em",textTransform:"uppercase",whiteSpace:"nowrap",pointerEvents:"none"}}>{label}</span><button type="button" aria-label={`Resize ${label}`} onPointerDown={event=>startAction("resize",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} style={{position:"absolute",right:-17,bottom:-17,width:34,height:34,borderRadius:"50%",border:"2px solid #fff",background:"#79BAEC",color:"#06101a",display:"grid",placeItems:"center",cursor:"nwse-resize",touchAction:"none",boxShadow:"0 5px 15px rgba(0,0,0,.35)"}}><GwmIcon name="expand" size={14}/></button></>}
+  </div>;
+}
+
+function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,presenting=false,onFullscreen,editing=false,selectedElement="",onSelectElement,onUpdateElementPosition,onRemoveImage}){
+  const layout=slide.layout||"left-third";const fullBleed=layout==="full-bleed";const supportingText=slideSupportingText(slide);const positions=slide.elementPositions||{};
+  const positionFor=key=>normalizeSlideElementPosition(positions[key],defaultSlideElementPosition(layout,key));
+  const updateTextPosition=(key,value)=>onUpdateElementPosition?.(key,value,false);
+  return <div className="studio-slide-shell" onClick={()=>editing&&onSelectElement?.("")} style={{width:"100%",height:presenting?"100%":undefined,background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),boxShadow:presenting?"none":"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease",borderRadius:presenting?0:12}}>
     <div style={{position:"absolute",inset:0,background:fullBleed?"linear-gradient(90deg,rgba(0,0,0,0.34),transparent 66%)":"linear-gradient(115deg,rgba(255,255,255,0.07),transparent 34%)",pointerEvents:"none"}}/>
     <SlideArtwork theme={theme} slide={slide} index={index} palette={palette}/>
-    <div style={contentStyle}>{(slide.eyebrow||deck.title)&&<div style={{fontSize:presenting?"clamp(12px,1.35vw,22px)":10,color:palette.accent,fontWeight:850,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:presenting?"clamp(12px,2vh,24px)":10}}>{slide.eyebrow||deck.title}</div>}
-    <div style={{fontSize:presenting?`clamp(32px,${titleSize/7}vw,${titleSize*1.75}px)`:`clamp(22px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",marginBottom:presenting?"clamp(18px,3vh,34px)":12}}>{slide.title}</div>
-    {supportingText&&<div style={{color:palette.muted,fontSize:presenting?`clamp(16px,${bodySize/10}vw,${bodySize*1.55}px)`:`clamp(12px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.45,maxWidth:"36ch",marginLeft:rightAligned?"auto":0}}>{supportingText}</div>}</div>
-    {onFullscreen&&<button type="button" aria-label="Present slides in fullscreen" title="Present fullscreen" onClick={onFullscreen} style={{position:"absolute",top:12,right:12,zIndex:5,width:44,height:44,borderRadius:11,border:"1px solid rgba(255,255,255,0.22)",background:"rgba(3,8,14,0.74)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer",backdropFilter:"blur(10px)"}}><GwmIcon name="expand" size={19}/></button>}
+    {(slide.customImages||[]).map(image=>{const position=normalizeSlideElementPosition(image,defaultSlideElementPosition(layout,"image"),{image:true});const key=`image:${image.id}`;return <DraggableSlideElement key={image.id} position={position} image editing={editing} selected={selectedElement===key} label={image.name||"Slide image"} onSelect={()=>onSelectElement?.(key)} onChange={value=>onUpdateElementPosition?.(image.id,value,true)} onDelete={()=>onRemoveImage?.(image.id)}><img src={image.dataUrl} alt={image.name||"User-added slide visual"} draggable="false" style={{width:"100%",height:"100%",display:"block",objectFit:"contain",borderRadius:8,userSelect:"none",pointerEvents:"none",filter:"drop-shadow(0 12px 22px rgba(0,0,0,.3))"}}/></DraggableSlideElement>;})}
+    {(slide.eyebrow||deck.title)&&<DraggableSlideElement position={positionFor("eyebrow")} editing={editing} selected={selectedElement==="text:eyebrow"} label="Eyebrow" onSelect={()=>onSelectElement?.("text:eyebrow")} onChange={value=>updateTextPosition("eyebrow",value)}><div style={{fontSize:presenting?"clamp(12px,1.35vw,22px)":"clamp(8px,1.4vw,11px)",color:palette.accent,fontWeight:850,letterSpacing:"0.12em",textTransform:"uppercase",lineHeight:1.25,textShadow:fullBleed?"0 3px 18px rgba(0,0,0,.65)":"none"}}>{slide.eyebrow||deck.title}</div></DraggableSlideElement>}
+    <DraggableSlideElement position={positionFor("title")} editing={editing} selected={selectedElement==="text:title"} label="Title" onSelect={()=>onSelectElement?.("text:title")} onChange={value=>updateTextPosition("title",value)}><div style={{fontSize:presenting?`clamp(32px,${titleSize/7}vw,${titleSize*1.75}px)`:`clamp(20px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",textShadow:fullBleed?"0 3px 22px rgba(0,0,0,0.58)":"none"}}>{slide.title}</div></DraggableSlideElement>
+    {supportingText&&<DraggableSlideElement position={positionFor("supportingText")} editing={editing} selected={selectedElement==="text:supportingText"} label="Supporting text" onSelect={()=>onSelectElement?.("text:supportingText")} onChange={value=>updateTextPosition("supportingText",value)}><div style={{color:palette.muted,fontSize:presenting?`clamp(16px,${bodySize/10}vw,${bodySize*1.55}px)`:`clamp(11px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.45,textShadow:fullBleed?"0 2px 16px rgba(0,0,0,.72)":"none"}}>{supportingText}</div></DraggableSlideElement>}
+    {editing&&<div aria-hidden="true" style={{position:"absolute",left:10,bottom:9,zIndex:7,padding:"5px 7px",borderRadius:7,background:"rgba(3,8,14,.78)",color:"#dceeff",fontSize:9,fontWeight:800,pointerEvents:"none",backdropFilter:"blur(8px)"}}>Drag or tap an element</div>}
+    {onFullscreen&&<button type="button" aria-label="Present slides in fullscreen" title="Present fullscreen" onClick={event=>{event.stopPropagation();onFullscreen();}} style={{position:"absolute",top:12,right:12,zIndex:8,width:44,height:44,borderRadius:11,border:"1px solid rgba(255,255,255,0.22)",background:"rgba(3,8,14,0.74)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer",backdropFilter:"blur(10px)"}}><GwmIcon name="expand" size={19}/></button>}
   </div>;
 }
 
 function SlideGeneratorMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("#07111d");
+  const [customTheme,setCustomTheme]=useState("");
   const [textColor,setTextColor]=useState("#f8fbff");
   const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
   const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [presenting,setPresenting]=useState(false);const [imageExport,setImageExport]=useState(null);const [imageSelection,setImageSelection]=useState([]);const [exporting,setExporting]=useState("");const [exportNotice,setExportNotice]=useState("");const [editingDeck,setEditingDeck]=useState(false);
-  const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];
+  const [selectedElement,setSelectedElement]=useState("");const [imageUploading,setImageUploading]=useState(false);const [imageError,setImageError]=useState("");const [historyId,setHistoryId]=useState("");const slideImageInputRef=useRef(null);
+  const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];const customThemeDescription=customTheme.trim();const themeName=theme==="custom"?(customThemeDescription?`Custom · ${customThemeDescription.slice(0,70)}`:"Custom Theme"):themeSystem.title;const themePrompt=theme==="custom"?(customThemeDescription||themeSystem.prompt):themeSystem.prompt;
   const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const zenBlueprint=buildZenBlueprint(topic,resolvedSlideCount);
-  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:"Zen preview",title:topic.trim()||"One clear idea at a time",supportingText:"Minimal words. Generous space. One visual message.",visualType:"fullbleed",layout:"right-third",narrativeRole:"hook",isHumorBeat:false,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeSystem.title.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
+  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:"Zen preview",title:topic.trim()||"One clear idea at a time",supportingText:"Minimal words. Generous space. One visual message.",visualType:"fullbleed",layout:"right-third",narrativeRole:"hook",isHumorBeat:false,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
 
   useEffect(()=>{
     if(!GOOGLE_SLIDE_FONTS.has(font)||document.querySelector(`link[data-slide-font="${font}"]`))return;
@@ -4366,17 +4447,24 @@ function SlideGeneratorMode({user}){
     window.addEventListener("keydown",move);return()=>{window.removeEventListener("keydown",move);document.body.style.overflow=previousOverflow;};
   },[presenting,deck]);
 
+  useEffect(()=>setSelectedElement(""),[selectedSlide]);
+
+  useEffect(()=>{
+    if(!deck||!historyId||!user?.email)return;const timer=setTimeout(()=>{
+      HS.update(user.email,"slides",historyId,{title:deck.title||("Slides: "+topic.slice(0,42)),input:`${deck.slides.length} slides · ${themeName} · ${background}`,output:encodeSlideHistory(deck,{theme,background,textColor,font,titleSize,bodySize})});
+    },650);return()=>clearTimeout(timer);
+  },[deck,historyId,user?.email,topic,themeName,background,theme,textColor,font,titleSize,bodySize]);
+
   const generateSlides=async()=>{
     if(!topic.trim())return;
     setLoading(true);setError("");setDeck(null);setSelectedSlide(0);
-    const themeName=themeSystem.title;
     const system='You are an expert presentation designer strictly following Presentation Zen and high-engagement visual storytelling. Build a visual story, never a document divided into slides. SIMPLICITY: one main idea per slide; title at most 12 words; optional supportingText at most 22 words; absolutely no bullet lists, paragraphs, random decorative boxes, logos, footers, dates, emoji, or chart junk. VISUAL SUPERIORITY: make the visual carry the message using one meaningful full-bleed scene, one powerful vector metaphor, one large number, one clean contrast, or one simple 2D chart. Use large negative space and rule-of-thirds asymmetry. DATA: use no grid lines, 3D effects, legends, or rainbow colors; use one repeated color and one accent only; never invent a statistic. BIG FOUR: enforce strong contrast, repeat one font/palette/visual language, align every element deliberately, and keep related copy close together. STORY: create a clear beginning, tension, evidence, meaning, and resolution. For decks of at least three slides, include exactly one business-appropriate humor beat built around a surprising topic-relevant visual analogy; it must clarify the message, not become a joke slide. speakerNotes carry the explanation that does not belong on the canvas. visualDirection must specify the concrete subject, composition, lighting, empty-space placement, and why the visual reinforces the headline. Choose visualType only from fullbleed, big-number, simple-chart, comparison, signal, spotlight, metaphor. Choose layout only from left-third, right-third, top-third, full-bleed. Return only the requested structured result.';
-    const prompt=`Generate exactly ${resolvedSlideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themeSystem.prompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required story and composition blueprint exactly: ${zenBlueprint.map((item,index)=>`${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; humor=${item.isHumorBeat}; purpose=${item.purpose}`).join(" ")} Set isHumorBeat true on exactly the designated Unexpected slide and false everywhere else. Make every visualDirection specific to the topic and visibly distinct from the background. When a photographic concept would communicate best, describe a high-quality full-bleed stock-photo concept and concrete search phrase; otherwise describe a simple, powerful vector composition GhostwriterMe can render. Use a memorable opening and a decisive final slide. Do not include markdown.`;
+    const prompt=`Generate exactly ${resolvedSlideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themePrompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required story and composition blueprint exactly: ${zenBlueprint.map((item,index)=>`${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; humor=${item.isHumorBeat}; purpose=${item.purpose}`).join(" ")} Set isHumorBeat true on exactly the designated Unexpected slide and false everywhere else. Make every visualDirection specific to the topic and visibly distinct from the background. When a photographic concept would communicate best, describe a high-quality full-bleed stock-photo concept and concrete search phrase; otherwise describe a simple, powerful vector composition GhostwriterMe can render. Use a memorable opening and a decisive final slide. Do not include markdown.`;
     try{
       const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized=normalizeZenDeck(result,zenBlueprint);
       if(normalized.slides.length!==resolvedSlideCount)throw new Error(`Ghosty created ${normalized.slides.length} of ${resolvedSlideCount} slides. Please generate again.`);
       setDeck(normalized);
-      if(user)HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,textColor,font,titleSize,bodySize})});
+      if(user){const saved=HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,textColor,font,titleSize,bodySize})});setHistoryId(saved?.id||"");}
     }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
 
@@ -4385,17 +4473,18 @@ function SlideGeneratorMode({user}){
   const exportSelectedImages=async()=>{
     if(!deck||!imageExport||!imageSelection.length)return;setExporting(imageExport);setError("");
     try{
-      await prepareSlideFont();const extension=imageExport==="image/png"?"png":"jpg";const quality=imageExport==="image/jpeg"?0.94:1;const indices=[...imageSelection].sort((a,b)=>a-b);const options={background,textColor,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const extension=imageExport==="image/png"?"png":"jpg";const quality=imageExport==="image/jpeg"?0.94:1;const indices=[...imageSelection].sort((a,b)=>a-b);const options={background,textColor,theme,font,titleSize,bodySize,imageMap};
       if(indices.length===1){const index=indices[0];const blob=await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[index],index,options),imageExport,quality);downloadBlob(blob,`ghostwriterme-slide-${index+1}.${extension}`);}
       else{const JSZip=(await import("jszip")).default;const zip=new JSZip();for(const index of indices){const blob=await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[index],index,options),imageExport,quality);zip.file(`ghostwriterme-slide-${String(index+1).padStart(2,"0")}.${extension}`,blob);}downloadBlob(await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}}),`ghostwriterme-${extension}-slides.zip`);}
       setImageExport(null);setExportNotice(`${indices.length} slide${indices.length===1?"":"s"} downloaded as ${extension.toUpperCase()}.`);
     }catch(e){setError(e?.message||"The selected slides could not be exported.");}finally{setExporting("");}
   };
 
-  const exportWord=()=>{
-    if(!deck)return;const sections=deck.slides.map((slide,i)=>`<section style="page-break-after:always"><div style="color:${palette.accent};font-size:12px;font-weight:700">SLIDE ${i+1}</div><h1>${escapeHtml(slide.title)}</h1>${slideSupportingText(slide)?`<p style="font-size:18px">${escapeHtml(slideSupportingText(slide))}</p>`:""}<h3>Speaker notes</h3><p>${escapeHtml(slide.speakerNotes||"")}</p><p><em>Visual direction: ${escapeHtml(slide.visualDirection||"")}</em></p></section>`).join("");
-    const html=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title></head><body style="font-family:${escapeHtml(font)},Arial;color:#172535"><h1>${escapeHtml(deck.title)}</h1><p>${escapeHtml(deck.subtitle||"")}</p>${sections}</body></html>`;
-    downloadBlob(new Blob([html],{type:"application/msword;charset=utf-8"}),"ghostwriterme-slide-deck.doc");
+  const exportWord=async()=>{
+    if(!deck)return;setExporting("word");setError("");
+    try{await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const options={background,textColor,theme,font,titleSize,bodySize,imageMap};const sections=deck.slides.map((slide,i)=>{const preview=drawSlideCanvas(deck,slide,i,options).toDataURL("image/jpeg",.9);return `<section style="page-break-after:always;margin-bottom:36px"><div style="color:${palette.accent};font-size:12px;font-weight:700">SLIDE ${i+1}</div><h2>${escapeHtml(slide.title)}</h2><img src="${preview}" alt="Slide ${i+1}" style="display:block;width:100%;max-width:960px;height:auto"/><h3>Speaker notes</h3><p>${escapeHtml(slide.speakerNotes||"")}</p></section>`;}).join("");
+      const html=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title></head><body style="font-family:${escapeHtml(font)},Arial;color:#172535"><h1>${escapeHtml(deck.title)}</h1><p>${escapeHtml(deck.subtitle||"")}</p>${sections}</body></html>`;downloadBlob(new Blob([html],{type:"application/msword;charset=utf-8"}),"ghostwriterme-slide-deck.doc");setExportNotice("Word document downloaded with the edited slide visuals and speaker notes.");
+    }catch(e){setError(e?.message||"The Word document could not be created.");}finally{setExporting("");}
   };
 
   const exportPdfPrintFallback=()=>{
@@ -4409,7 +4498,7 @@ function SlideGeneratorMode({user}){
   const exportPdf=async()=>{
     if(!deck)return;setExporting("pdf");setError("");setExportNotice("");
     try{
-      await prepareSlideFont();const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});const options={background,textColor,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});const options={background,textColor,theme,font,titleSize,bodySize,imageMap};
       for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);const width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight();pdf.addImage(canvas.toDataURL("image/jpeg",0.9),"JPEG",0,0,width,height,undefined,"FAST");}
       pdf.save("ghostwriterme-slide-deck.pdf");setExportNotice(`PDF downloaded with ${deck.slides.length} slides.`);
     }catch(e){setError(e?.message||"The PDF could not be created. Please try again.");}finally{setExporting("");}
@@ -4418,7 +4507,7 @@ function SlideGeneratorMode({user}){
   const exportGoogleSlides=async()=>{
     if(!deck)return;setExporting("google-slides");setError("");setExportNotice("");
     try{
-      await prepareSlideFont();const PptxGenJS=await loadPptxGenerator();const pptx=new PptxGenJS();pptx.layout="LAYOUT_WIDE";pptx.author="GhostwriterMe";pptx.subject=deck.subtitle||deck.title;pptx.title=deck.title;const options={background,textColor,theme,font,titleSize,bodySize};
+      await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const PptxGenJS=await loadPptxGenerator();const pptx=new PptxGenJS();pptx.layout="LAYOUT_WIDE";pptx.author="GhostwriterMe";pptx.subject=deck.subtitle||deck.title;pptx.title=deck.title;const options={background,textColor,theme,font,titleSize,bodySize,imageMap};
       deck.slides.forEach((slide,index)=>{const page=pptx.addSlide();const canvas=drawSlideCanvas(deck,slide,index,options);page.addImage({data:canvas.toDataURL("image/png"),x:0,y:0,w:13.333,h:7.5});if(page.addNotes)page.addNotes(slide.speakerNotes||"");});
       await pptx.writeFile({fileName:"ghostwriterme-google-slides.pptx",compression:true});setExportNotice("Google Slides file downloaded. Upload the .pptx at slides.google.com to continue editing or presenting.");
     }catch(e){setError(e?.message||"The Google Slides file could not be created.");}finally{setExporting("");}
@@ -4428,17 +4517,26 @@ function SlideGeneratorMode({user}){
   const closePresentation=()=>{setPresenting(false);if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{});};
   const updateDeckField=(field,value)=>setDeck(current=>({...current,[field]:value}));
   const updateSlideField=(field,value)=>setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index===selectedSlide?{...slide,[field]:value}:slide)}));
-  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);};
+  const updateSlideElementPosition=(key,value,isImage=false)=>setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index!==selectedSlide?slide:isImage?{...slide,customImages:(slide.customImages||[]).map(image=>image.id===key?{...image,...value}:image)}:{...slide,elementPositions:{...(slide.elementPositions||{}),[key]:value}})}));
+  const removeSlideImage=id=>{setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index===selectedSlide?{...slide,customImages:(slide.customImages||[]).filter(image=>image.id!==id)}:slide)}));setSelectedElement("");};
+  const addSlideImages=async event=>{
+    const files=[...(event.target.files||[])];event.target.value="";if(!files.length||!currentSlide)return;const room=Math.max(0,5-(currentSlide.customImages||[]).length);if(!room){setImageError("This slide already has five uploaded images. Remove one before adding another.");return;}
+    setImageUploading(true);setImageError("");try{const prepared=[];for(const file of files.slice(0,room))prepared.push(await prepareSlideImage(file));const existingCount=(currentSlide.customImages||[]).length;const placed=prepared.map((image,offset)=>({...image,...normalizeSlideElementPosition({x:56-((existingCount+offset)%3)*5,y:14+((existingCount+offset)%3)*5,width:36,height:68},defaultSlideElementPosition(currentSlide.layout||"left-third","image"),{image:true})}));setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index===selectedSlide?{...slide,customImages:[...(slide.customImages||[]),...placed]}:slide)}));if(placed[0])setSelectedElement(`image:${placed[0].id}`);if(files.length>room)setImageError(`Added ${room} image${room===1?"":"s"}. Each slide can hold up to five images.`);}catch(e){setImageError(e?.message||"The image could not be added to this slide.");}finally{setImageUploading(false);}
+  };
+  const selectedImageId=selectedElement.startsWith("image:")?selectedElement.slice(6):"";const selectedTextKey=selectedElement.startsWith("text:")?selectedElement.slice(5):"";const selectedImage=(currentSlide?.customImages||[]).find(image=>image.id===selectedImageId);const selectedGeometry=selectedImage?normalizeSlideElementPosition(selectedImage,defaultSlideElementPosition(currentSlide?.layout||"left-third","image"),{image:true}):selectedTextKey?normalizeSlideElementPosition(currentSlide?.elementPositions?.[selectedTextKey],defaultSlideElementPosition(currentSlide?.layout||"left-third",selectedTextKey)):null;
+  const updateSelectedGeometry=(field,value)=>{if(!selectedGeometry)return;const next=normalizeSlideElementPosition({...selectedGeometry,[field]:Number(value)},selectedGeometry,{image:!!selectedImage});updateSlideElementPosition(selectedImage?.id||selectedTextKey,next,!!selectedImage);};
+  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setCustomTheme("");setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);setSelectedElement("");setImageError("");setHistoryId("");};
 
   return(
     <div>
       <div style={{background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:10,padding:"11px 12px",marginBottom:14,display:"flex",gap:9}}><GwmIcon name="slides" size={20} color={C.blueText}/><div><div style={{fontSize:13,fontWeight:800,color:C.blueText}}>Slide Generator</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Choose the story and visual system. Ghosty builds the deck, then exports it in the format you need.</div></div></div>
       {!deck&&<>
         <FArea label="Topic" placeholder="e.g. A launch plan for a sustainable fashion brand" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
-        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FSelect label="Number of Slides" value={slideCount} onChange={setSlideCount} options={[{value:"3",label:"3 slides"},{value:"5",label:"5 slides"},{value:"8",label:"8 slides"},{value:"10",label:"10 slides"},{value:"12",label:"12 slides"},{value:"15",label:"15 slides"},{value:"20",label:"20 slides"}]}/></div>
+        <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FNumber label="Number of Slides" value={slideCount} onChange={setSlideCount} min={1} max={30} fallback={8} suffix="slides" hint="Type any number from 1 to 30."/></div>
         <FArea label="Details (optional)" placeholder="Facts, sections, data, call to action, or anything the deck must include..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
         {countResolution.overridden&&<div role="status" style={{margin:"-3px 0 13px",padding:"9px 11px",borderRadius:9,background:C.accentSoft,border:`1px solid ${C.blue}55`,color:C.blueText,fontSize:12,lineHeight:1.5,display:"flex",gap:7,alignItems:"flex-start"}}><GwmIcon name="info" size={15} style={{marginTop:1}}/><span>Your details request <strong>{resolvedSlideCount} slides</strong>, so that instruction overrides the number selector.</span></div>}
         <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>setTheme(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
+        {theme==="custom"&&<FArea label="Describe Your Custom Theme" placeholder="e.g. Quiet Japanese editorial style, indigo and cream, ink-wash landscapes, asymmetrical layouts, generous empty space..." value={customTheme} onChange={event=>setCustomTheme(event.target.value)} rows={3} hint="Describe the mood, imagery, era, palette, texture, and composition. Ghosty will repeat this visual language across the full deck."/>}
         <Card style={{marginBottom:13,padding:13,border:`1px solid ${C.blue}66`,boxShadow:`0 0 0 2px ${C.blueGlow}`}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:9,marginBottom:11}}><span style={{width:36,height:36,borderRadius:10,display:"grid",placeItems:"center",background:C.accentSoft,color:C.blueText,flexShrink:0}}><GwmIcon name="slides" size={19}/></span><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Slide colors</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Tap either large color square to open the full color wheel.</div></div></div>
           <div className="studio-grid-2">
@@ -4454,10 +4552,17 @@ function SlideGeneratorMode({user}){
 
       {deck&&currentSlide&&<div style={{animation:"fadeUp 0.3s ease"}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:11,flexWrap:"wrap"}}><div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:900,color:C.text}}>{deck.title}</div>{deck.subtitle&&<div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{deck.subtitle}</div>}</div><div style={{display:"flex",gap:7,alignItems:"center"}}><PlanBadge plan="pro"/><button type="button" aria-pressed={editingDeck} onClick={()=>setEditingDeck(value=>!value)} style={{minHeight:44,padding:"8px 11px",borderRadius:9,border:`1px solid ${editingDeck?C.blue:C.border}`,background:editingDeck?C.accentSoft:C.surface,color:editingDeck?C.blueText:C.muted,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}><GwmIcon name={editingDeck?"check":"edit"} size={15}/>{editingDeck?"Done editing":"Edit deck"}</button></div></div>
-        <SlideFrame deck={deck} slide={currentSlide} index={selectedSlide} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize} onFullscreen={openPresentation}/>
+        <SlideFrame deck={deck} slide={currentSlide} index={selectedSlide} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize} onFullscreen={openPresentation} editing={editingDeck} selectedElement={selectedElement} onSelectElement={setSelectedElement} onUpdateElementPosition={updateSlideElementPosition} onRemoveImage={removeSlideImage}/>
         <div style={{display:"flex",gap:7,overflowX:"auto",padding:"9px 1px 12px"}}>{deck.slides.map((slide,i)=><button key={i} type="button" aria-label={`Open slide ${i+1}: ${slide.title}`} aria-current={selectedSlide===i?"true":undefined} onClick={()=>setSelectedSlide(i)} style={{flex:"0 0 94px",height:58,borderRadius:7,border:`1px solid ${selectedSlide===i?C.blue:C.border}`,background:palette.preview,color:palette.text,cursor:"pointer",padding:"7px",fontFamily:slideFontStack(font),fontSize:9,fontWeight:800,textAlign:"left",overflow:"hidden",boxShadow:selectedSlide===i?`0 0 0 2px ${C.blueGlow}`:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}><span style={{opacity:0.7,display:"block",fontSize:8,marginBottom:3,color:palette.accent}}>{i+1}</span>{slide.title}</button>)}</div>
         {editingDeck&&<Card style={{marginBottom:10,padding:13,border:`1px solid ${C.blue}55`}}>
           <div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:850,marginBottom:10}}>Edit deck and current slide</div>
+          <div style={{marginBottom:13,padding:12,borderRadius:11,border:`1px solid ${C.blue}55`,background:C.accentSoft}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:10}}><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Visual canvas</div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:3}}>Upload an image, then drag text or images directly on the slide. Use the resize handle, arrow keys, or the position controls below.</div></div><button type="button" onClick={()=>slideImageInputRef.current?.click()} disabled={imageUploading} style={{minHeight:44,padding:"9px 12px",borderRadius:9,border:`1px solid ${C.blue}`,background:C.card,color:C.blueText,fontFamily:"inherit",fontSize:12,fontWeight:900,cursor:imageUploading?"wait":"pointer",display:"inline-flex",alignItems:"center",gap:7}}>{imageUploading?<Spin size={14} color={C.blue}/>:<GwmIcon name="image" size={15}/>} {imageUploading?"Preparing image...":"Add image"}</button><input ref={slideImageInputRef} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={addSlideImages} style={{display:"none"}}/></div>
+            <div style={{display:"flex",gap:6,overflowX:"auto",padding:"2px 0 8px"}}>{[{id:"text:eyebrow",label:"Eyebrow"},{id:"text:title",label:"Title"},{id:"text:supportingText",label:"Supporting text"}].map(item=><button key={item.id} type="button" onClick={()=>setSelectedElement(item.id)} aria-pressed={selectedElement===item.id} style={{minHeight:40,flex:"0 0 auto",padding:"7px 10px",borderRadius:8,border:`1px solid ${selectedElement===item.id?C.blue:C.border}`,background:selectedElement===item.id?C.blue:C.surface,color:selectedElement===item.id?"#071019":C.muted,fontFamily:"inherit",fontSize:11.5,fontWeight:850,cursor:"pointer"}}>{item.label}</button>)}</div>
+            {(currentSlide.customImages||[]).length>0&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:7,marginTop:2}}>{currentSlide.customImages.map((image,imageIndex)=><div key={image.id} style={{display:"flex",alignItems:"center",gap:7,padding:7,borderRadius:9,border:`1px solid ${selectedElement===`image:${image.id}`?C.blue:C.border}`,background:C.surface}}><button type="button" onClick={()=>setSelectedElement(`image:${image.id}`)} style={{minWidth:0,flex:1,border:0,background:"transparent",color:C.text,fontFamily:"inherit",fontSize:11.5,fontWeight:800,textAlign:"left",cursor:"pointer",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><span style={{color:C.blueText,marginRight:5}}>{imageIndex+1}.</span>{image.name}</button><button type="button" aria-label={`Remove ${image.name}`} onClick={()=>removeSlideImage(image.id)} style={{width:38,height:38,flex:"0 0 38px",borderRadius:8,border:`1px solid ${C.red}55`,background:C.card,color:C.redText,display:"grid",placeItems:"center",cursor:"pointer"}}><GwmIcon name="trash" size={14}/></button></div>)}</div>}
+            {selectedGeometry&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(115px,1fr))",gap:9,marginTop:12,paddingTop:11,borderTop:`1px solid ${C.border}`}}>{["x","y","width",...(selectedImage?["height"]:[])].map(field=><label key={field} style={{fontSize:10.5,color:C.muted,textTransform:"uppercase",letterSpacing:".07em"}}>{field==="x"?"Left":field==="y"?"Top":field}<span style={{float:"right",color:C.blueText,fontWeight:900}}>{Math.round(selectedGeometry[field])}%</span><input type="range" min={field==="width"||field==="height"?8:0} max="100" value={selectedGeometry[field]} onChange={event=>updateSelectedGeometry(field,event.target.value)} style={{display:"block",width:"100%",height:36,accentColor:C.blue,cursor:"pointer"}}/></label>)}</div>}
+            {imageError&&<div role="status" style={{marginTop:9,fontSize:11.5,color:C.yellowText,lineHeight:1.5}}>{imageError}</div>}
+          </div>
           <div className="studio-grid-2" style={{marginBottom:10}}><FInput label="Deck title" value={deck.title||""} onChange={event=>updateDeckField("title",event.target.value)}/><FInput label="Deck subtitle" value={deck.subtitle||""} onChange={event=>updateDeckField("subtitle",event.target.value)}/></div>
           <div className="studio-grid-2" style={{marginBottom:10}}><FInput label="Slide eyebrow" value={currentSlide.eyebrow||""} onChange={event=>updateSlideField("eyebrow",event.target.value)}/><FInput label="Slide title — one idea" value={currentSlide.title||""} onChange={event=>updateSlideField("title",event.target.value)}/></div>
           <FArea label="One supporting line (optional)" value={slideSupportingText(currentSlide)} onChange={event=>updateSlideField("supportingText",event.target.value)} rows={2}/>
@@ -4465,7 +4570,7 @@ function SlideGeneratorMode({user}){
           <FArea label="Speaker notes" value={currentSlide.speakerNotes||""} onChange={event=>updateSlideField("speakerNotes",event.target.value)} rows={4}/><FArea label="Visual direction" value={currentSlide.visualDirection||""} onChange={event=>updateSlideField("visualDirection",event.target.value)} rows={3}/><div className="studio-grid-2"><FInput label="Visual label" value={currentSlide.visualLabel||""} onChange={event=>updateSlideField("visualLabel",event.target.value)}/><FInput label="Big number (optional)" value={currentSlide.dataValue||""} onChange={event=>updateSlideField("dataValue",event.target.value)}/></div>
         </Card>}
         <div className="studio-grid-2" style={{marginBottom:10}}><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Speaker notes</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{currentSlide.speakerNotes||"No notes for this slide."}</div></Card><Card style={{padding:"12px"}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Visual direction</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6}}>{currentSlide.visualDirection||"Use the selected background and keep visuals simple."}</div></Card></div>
-        <Card><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Export deck</div><div className="studio-export-row"><StudioExportButton icon="pdf" label="Download PDF" onClick={exportPdf} loading={exporting==="pdf"} disabled={!!exporting&&exporting!=="pdf"}/><StudioExportButton icon="word" label="Word" onClick={exportWord} disabled={!!exporting}/><StudioExportButton icon="slides" label="Google Slides" onClick={exportGoogleSlides} loading={exporting==="google-slides"} disabled={!!exporting&&exporting!=="google-slides"}/><StudioExportButton icon="image" label="Choose PNG slides" onClick={()=>openImageExport("image/png")} disabled={!!exporting}/><StudioExportButton icon="camera" label="Choose JPEG slides" onClick={()=>openImageExport("image/jpeg")} disabled={!!exporting}/></div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.55,marginTop:8}}>PDF downloads directly as a complete deck. PNG and JPEG let you choose one, several, or all slides. Google Slides exports a compatible .pptx file.</div>{exportNotice&&<div role="status" style={{marginTop:9,padding:"8px 10px",borderRadius:8,background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenText,fontSize:12,lineHeight:1.5}}>{exportNotice}{exportNotice.startsWith("Google Slides")&&<> <a href="https://slides.google.com" target="_blank" rel="noreferrer" style={{color:C.blueText,fontWeight:800}}>Open Google Slides</a></>}</div>}<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={slideDeckAsText(deck)}/><ListenBtn text={slideDeckAsText(deck)}/><GenMoreBtn onClick={reset} loading={loading} label="New Deck"/></div></Card>
+        <Card><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Export deck</div><div className="studio-export-row"><StudioExportButton icon="pdf" label="Download PDF" onClick={exportPdf} loading={exporting==="pdf"} disabled={!!exporting&&exporting!=="pdf"}/><StudioExportButton icon="word" label="Word" onClick={exportWord} loading={exporting==="word"} disabled={!!exporting&&exporting!=="word"}/><StudioExportButton icon="slides" label="Google Slides" onClick={exportGoogleSlides} loading={exporting==="google-slides"} disabled={!!exporting&&exporting!=="google-slides"}/><StudioExportButton icon="image" label="Choose PNG slides" onClick={()=>openImageExport("image/png")} disabled={!!exporting}/><StudioExportButton icon="camera" label="Choose JPEG slides" onClick={()=>openImageExport("image/jpeg")} disabled={!!exporting}/></div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.55,marginTop:8}}>PDF downloads directly as a complete deck. PNG and JPEG let you choose one, several, or all slides. Uploaded images and your canvas positions are included in every visual export.</div>{exportNotice&&<div role="status" style={{marginTop:9,padding:"8px 10px",borderRadius:8,background:C.greenSoft,border:`1px solid ${C.green}44`,color:C.greenText,fontSize:12,lineHeight:1.5}}>{exportNotice}{exportNotice.startsWith("Google Slides")&&<> <a href="https://slides.google.com" target="_blank" rel="noreferrer" style={{color:C.blueText,fontWeight:800}}>Open Google Slides</a></>}</div>}<div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={slideDeckAsText(deck)}/><ListenBtn text={slideDeckAsText(deck)}/><GenMoreBtn onClick={reset} loading={loading} label="New Deck"/></div></Card>
         {error&&<ErrBox msg={error}/>}
       </div>}
       {presenting&&deck&&currentSlide&&<div role="dialog" aria-modal="true" aria-label="Fullscreen slide presentation" style={{position:"fixed",inset:0,zIndex:1200,background:"#000",display:"grid",placeItems:"center"}}>

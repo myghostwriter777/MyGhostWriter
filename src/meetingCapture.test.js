@@ -1,4 +1,4 @@
-import { buildRemoteMeetingAudioStream, detectMeetingCaptureProfile, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
+import { buildRemoteMeetingAudioStream, cleanMeetingTranscriptSegment, detectMeetingCaptureProfile, hasAudibleMeetingSpeech, isBrowserTabMeetingShare, isUsefulMeetingTranscript, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
 
 describe("Meeting Assist browser compatibility",()=>{
   test("keeps Zen's Firefox engine out of remote-only capture",()=>{
@@ -15,7 +15,10 @@ describe("Meeting Assist browser compatibility",()=>{
     expect(profile.chromium).toBe(true);
     expect(profile.recommendedMode).toBe("shared");
     expect(profile.remoteAudioOnlyAvailable).toBe(true);
-    expect(MEETING_DISPLAY_OPTIONS.systemAudio).toBe("include");
+    expect(MEETING_DISPLAY_OPTIONS).toEqual({video:true,audio:true});
+    expect(MEETING_DISPLAY_OPTIONS).not.toHaveProperty("systemAudio");
+    expect(MEETING_DISPLAY_OPTIONS).not.toHaveProperty("windowAudio");
+    expect(MEETING_DISPLAY_OPTIONS).not.toHaveProperty("monitorTypeSurfaces");
   });
 
   test("does not use the Android microphone for remote-only capture",()=>{
@@ -40,5 +43,31 @@ describe("Meeting Assist browser compatibility",()=>{
   test("refuses to create a transcription stream when sharing has no audio",()=>{
     class FakeMediaStream{constructor(tracks){this.tracks=tracks;}}
     expect(buildRemoteMeetingAudioStream({getAudioTracks:()=>[]},FakeMediaStream)).toBeNull();
+  });
+
+  test("accepts only a browser-tab share with an audio track",()=>{
+    const shared=surface=>({
+      getVideoTracks:()=>[{getSettings:()=>({displaySurface:surface})}],
+      getAudioTracks:()=>[{id:"audio"}],
+    });
+    expect(isBrowserTabMeetingShare(shared("browser"))).toBe(true);
+    expect(isBrowserTabMeetingShare(shared("window"))).toBe(false);
+    expect(isBrowserTabMeetingShare(shared("monitor"))).toBe(false);
+    expect(isBrowserTabMeetingShare({...shared("browser"),getAudioTracks:()=>[]})).toBe(false);
+  });
+
+  test("removes repeated Whisper filler hallucinations before display",()=>{
+    const dirty="Hello!\nMm-hmm.\nyou\nyou\nyou\nCould you send the revised plan by Friday?";
+    expect(cleanMeetingTranscriptSegment(dirty)).toBe("Hello! Could you send the revised plan by Friday?");
+    expect(cleanMeetingTranscriptSegment("you you you you")).toBe("");
+    expect(isUsefulMeetingTranscript("you\nyou\nMm-hmm.")).toBe(false);
+    expect(isUsefulMeetingTranscript("Could you send the revised plan by Friday?")).toBe(true);
+  });
+
+  test("skips silent audio before on-device transcription",()=>{
+    expect(hasAudibleMeetingSpeech(new Float32Array(16000))).toBe(false);
+    const speech=new Float32Array(16000);
+    for(let index=0;index<speech.length;index+=1)speech[index]=Math.sin(index/8)*0.06;
+    expect(hasAudibleMeetingSpeech(speech)).toBe(true);
   });
 });

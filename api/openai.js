@@ -29,6 +29,23 @@ const objectSchema = (properties) => ({
 });
 
 const STRUCTURED_OUTPUTS = {
+  presentation: objectSchema({
+    title: text,
+    summary: text,
+    totalMinutes: { type: "number" },
+    sections: {
+      type: "array",
+      items: objectSchema({
+        speaker: text,
+        role: text,
+        heading: text,
+        timing: text,
+        script: text,
+        visualCue: text,
+      }),
+    },
+    handoffs: stringList,
+  }),
   study: objectSchema({
     title: text,
     sourceSummary: text,
@@ -230,6 +247,30 @@ function extractOutputText(data) {
     .join("");
 }
 
+function extractWebSources(responses) {
+  const sources = new Map();
+  const add = (item) => {
+    const url = typeof item?.url === "string" ? item.url.trim() : "";
+    if (!/^https?:\/\//i.test(url) || sources.has(url)) return;
+    let fallbackTitle = "Research source";
+    try {
+      fallbackTitle = new URL(url).hostname;
+    } catch {}
+    sources.set(url, {
+      url,
+      title: String(item?.title || item?.document_title || fallbackTitle).trim().slice(0, 240),
+    });
+  };
+  const visit = (item) => {
+    if (!item || typeof item !== "object") return;
+    add(item);
+    if (Array.isArray(item.citations)) item.citations.forEach(add);
+    if (Array.isArray(item.content)) item.content.forEach(visit);
+  };
+  responses.forEach((data) => (data?.content || []).forEach(visit));
+  return [...sources.values()].slice(0, 30);
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -301,8 +342,12 @@ export default async function handler(req, res) {
   // search tool lets the model ground that source without our server scraping
   // arbitrary URLs. Other Studio requests keep the existing no-tool behavior.
   if (body.use_search === true) {
+    const requestedSearchDepth = Number(body.search_depth);
+    const maxSearchUses = body.mode === "deep-research"
+      ? Math.max(4, Math.min(10, Number.isFinite(requestedSearchDepth) ? Math.floor(requestedSearchDepth) : 6))
+      : 3;
     requestBody.tools = [
-      { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+      { type: "web_search_20250305", name: "web_search", max_uses: maxSearchUses },
     ];
   }
 
@@ -329,7 +374,36 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Could not reach the Studio AI service." });
   }
 
-  const data = await response.json().catch(() => null);
+  let data = await response.json().catch(() => null);
+  const responseParts = data ? [data] : [];
+
+  // A server-side search can pause a long research turn. Continue it once with
+  // the tool state intact instead of returning an empty result and forcing the
+  // user to start over. This follows Anthropic's pause_turn continuation shape.
+  if (response.ok && body.use_search === true && data?.stop_reason === "pause_turn") {
+    const continuationBody = {
+      ...requestBody,
+      messages: [
+        ...requestBody.messages,
+        { role: "assistant", content: data.content || [] },
+      ],
+    };
+    try {
+      response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(continuationBody),
+      });
+      data = await response.json().catch(() => null);
+      if (data) responseParts.push(data);
+    } catch {
+      return res.status(502).json({ error: "The research search could not finish. Please try again." });
+    }
+  }
   if (!response.ok) {
     const status = response.status === 429 ? 429 : response.status >= 500 ? 502 : 400;
     const message = response.status === 429
@@ -338,12 +412,18 @@ export default async function handler(req, res) {
     return res.status(status).json({ error: message });
   }
 
-  const outputText = extractOutputText(data);
+  const outputText = (body.use_search === true ? responseParts : [data])
+    .map(extractOutputText)
+    .join("")
+    .trim();
   if (data?.stop_reason === "max_tokens") {
     return res.status(502).json({ error: "The Studio result was too long to finish. Try fewer questions or slides." });
   }
   if (!outputText) {
     return res.status(502).json({ error: "The Studio returned an empty result. Please try again." });
+  }
+  if (body.use_search === true) {
+    return res.status(200).json({ output_text: outputText, sources: extractWebSources(responseParts) });
   }
   return res.status(200).json({ output_text: outputText });
 }
