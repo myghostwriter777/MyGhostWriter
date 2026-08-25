@@ -1,9 +1,10 @@
-import {defaultSlideElementPosition,editableSlideSupportingText,moveSlideElement,normalizeSlideElementPosition,nudgeSlideElement,resizeSlideElement} from "./slideEditor";
+import {defaultSlideElementPosition,editableSlideSupportingText,moveSlideElement,normalizeSlideElementPosition,nudgeSlideElement,resizeSlideElement,slideTitleScale} from "./slideEditor";
 
 describe("slide editor geometry",()=>{
   test("uses layout-aware defaults",()=>{
     expect(defaultSlideElementPosition("right-third","title")).toEqual({x:48,y:25,width:46});
     expect(defaultSlideElementPosition("missing","image")).toEqual({x:58,y:16,width:34,height:64});
+    expect(defaultSlideElementPosition("left-third","supportingText").y).toBeGreaterThan(70);
   });
 
   test("normalizes images inside the canvas",()=>{
@@ -22,5 +23,11 @@ describe("slide editor geometry",()=>{
   test("preserves spaces while supporting text is being edited",()=>{
     expect(editableSlideSupportingText({supportingText:"Hello, "})).toBe("Hello, ");
     expect(editableSlideSupportingText({bullets:["Fallback line"]})).toBe("Fallback line");
+  });
+
+  test("scales long headings down without shrinking short headings",()=>{
+    expect(slideTitleScale("A clear idea")).toBe(1);
+    expect(slideTitleScale("Give only the context the audience needs to understand the stakes")).toBeLessThan(0.9);
+    expect(slideTitleScale("A very long exact heading that contains far more words than a presentation slide should normally contain but must still fit because the user explicitly requested it")).toBe(0.58);
   });
 });

@@ -14,7 +14,7 @@ import { buildZenBlueprint, normalizeZenDeck, resolveSlideCount } from "./slideD
 import { isComingSoonForUser } from "./featureAvailability";
 import { getTarotCardArt } from "./tarotCardAssets";
 import { clampGenerationCount } from "./generationControls";
-import { defaultSlideElementPosition, editableSlideSupportingText, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement } from "./slideEditor";
+import { defaultSlideElementPosition, editableSlideSupportingText, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement, slideTitleScale } from "./slideEditor";
 import { mergeSavedProfile, saveProfile } from "./profilePersistence";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
@@ -2539,14 +2539,16 @@ const historyOutputText=item=>{
 };
 
 function HistorySlideDeckPreview({item}){
-  const payload=historySlidePayload(item);const [index,setIndex]=useState(0);
-  useEffect(()=>setIndex(0),[item?.id]);
+  const payload=historySlidePayload(item);const [index,setIndex]=useState(0);const [exporting,setExporting]=useState("");const [exportError,setExportError]=useState("");const [exportNotice,setExportNotice]=useState("");
+  useEffect(()=>{setIndex(0);setExporting("");setExportError("");setExportNotice("");},[item?.id]);
   if(!payload)return null;
   const {deck}=payload;const design=payload.design||{};const theme=design.theme||"executive";const background=design.background||"#07111d";const textColor=design.textColor||"";const font=design.font||"Cabinet Grotesk";const titleSize=Number(design.titleSize)||34;const bodySize=Number(design.bodySize)||18;const palette=slidePalette(background,theme,textColor);const current=deck.slides[Math.min(index,deck.slides.length-1)];
+  const runExport=async(type,action)=>{if(exporting)return;setExporting(type);setExportError("");setExportNotice("");try{await action();setExportNotice(type==="pdf"?`PDF downloaded with ${deck.slides.length} slides.`:`All ${deck.slides.length} slides downloaded as ${type.toUpperCase()}.`);}catch(error){setExportError(error?.message||"The saved slide deck could not be exported.");}finally{setExporting("");}};
   return <div style={{marginBottom:14}}>
     <div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Saved slide deck</div>
     <SlideFrame deck={deck} slide={current} index={index} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/>
     <div style={{display:"flex",alignItems:"center",gap:7,marginTop:9}}><button type="button" aria-label="Previous slide" disabled={index===0} onClick={()=>setIndex(value=>Math.max(0,value-1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===0?C.muted:C.text,cursor:index===0?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===0?0.55:1}}><GwmIcon name="arrowLeft" size={17}/></button><div style={{flex:1,display:"flex",gap:6,overflowX:"auto",padding:"3px 0"}}>{deck.slides.map((slide,slideIndex)=><button key={slideIndex} type="button" aria-label={`Open slide ${slideIndex+1}: ${slide.title}`} aria-current={slideIndex===index?"true":undefined} onClick={()=>setIndex(slideIndex)} style={{width:38,height:38,flex:"0 0 38px",borderRadius:8,border:`1px solid ${slideIndex===index?palette.accent:C.border}`,background:slideIndex===index?palette.accent:C.surface,color:slideIndex===index?(palette.dark?"#071018":"#ffffff"):C.muted,fontSize:11,fontWeight:900,cursor:"pointer"}}>{slideIndex+1}</button>)}</div><button type="button" aria-label="Next slide" disabled={index===deck.slides.length-1} onClick={()=>setIndex(value=>Math.min(deck.slides.length-1,value+1))} style={{width:44,height:44,borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:index===deck.slides.length-1?C.muted:C.text,cursor:index===deck.slides.length-1?"not-allowed":"pointer",display:"grid",placeItems:"center",opacity:index===deck.slides.length-1?0.55:1}}><GwmIcon name="chevronRight" size={17}/></button></div>
+    <div style={{marginTop:11,padding:11,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}><div style={{fontSize:10.5,color:C.muted,textTransform:"uppercase",letterSpacing:".1em",marginBottom:8}}>Save this deck</div><div className="studio-export-row"><StudioExportButton icon="pdf" label="PDF" onClick={()=>runExport("pdf",()=>downloadSlideDeckPdf(deck,design))} loading={exporting==="pdf"} disabled={!!exporting&&exporting!=="pdf"}/><StudioExportButton icon="image" label="All PNG" onClick={()=>runExport("png",()=>downloadSlideDeckImages(deck,design,"image/png"))} loading={exporting==="png"} disabled={!!exporting&&exporting!=="png"}/><StudioExportButton icon="camera" label="All JPEG" onClick={()=>runExport("jpeg",()=>downloadSlideDeckImages(deck,design,"image/jpeg"))} loading={exporting==="jpeg"} disabled={!!exporting&&exporting!=="jpeg"}/></div>{exportNotice&&<div role="status" style={{fontSize:11.5,color:C.greenText,lineHeight:1.5,marginTop:8}}>{exportNotice}</div>}{exportError&&<div role="alert" style={{fontSize:11.5,color:C.redText,lineHeight:1.5,marginTop:8}}>{exportError}</div>}</div>
   </div>;
 }
 
@@ -4111,16 +4113,20 @@ const presentationAsText=result=>{
   return `${result.title||"Presentation Script"}\n${result.summary||""}\n\n${sections}${result.handoffs?.length?"\n\nHANDOFFS\n"+result.handoffs.join("\n"):""}`.trim();
 };
 
+const PRESENTATION_TIME_PRESETS=["5","10","15","20","30"];
+
 function PresentationMode({user}){
   const cacheKey="gwm_presentation_result_"+String(user?.email||"guest").trim().toLowerCase();
   const [workflow,setWorkflow]=useState("create");
   const [topic,setTopic]=useState("");const [audience,setAudience]=useState("");const [details,setDetails]=useState("");
-  const [groupSize,setGroupSize]=useState("3");const [sectionCount,setSectionCount]=useState("6");const [duration,setDuration]=useState("10");const [names,setNames]=useState("");
+  const [groupSize,setGroupSize]=useState("3");const [sectionCount,setSectionCount]=useState("6");const [duration,setDuration]=useState("10");const [customDuration,setCustomDuration]=useState("7");const [names,setNames]=useState("");
   const [script,setScript]=useState(null);const [scriptLoading,setScriptLoading]=useState(false);const [scriptError,setScriptError]=useState("");
   const [friendScript,setFriendScript]=useState("");const [reviewFocus,setReviewFocus]=useState("clarity");const [reviewFiles,setReviewFiles]=useState([]);
   const [review,setReview]=useState(null);const [reviewLoading,setReviewLoading]=useState(false);const [reviewError,setReviewError]=useState("");
 
-  useEffect(()=>{try{const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");if(!cached?.script)return;setScript(cached.script);setTopic(cached.topic||"");setAudience(cached.audience||"");setDetails(cached.details||"");setGroupSize(String(cached.groupSize||"3"));setSectionCount(String(cached.sectionCount||"6"));setDuration(String(cached.duration||"10"));setNames(cached.names||"");}catch{}},[cacheKey]);
+  useEffect(()=>{try{const cached=JSON.parse(sessionStorage.getItem(cacheKey)||"null");if(!cached?.script)return;setScript(cached.script);setTopic(cached.topic||"");setAudience(cached.audience||"");setDetails(cached.details||"");setGroupSize(String(cached.groupSize||"3"));setSectionCount(String(cached.sectionCount||"6"));const savedDuration=String(cached.duration||"10");if(PRESENTATION_TIME_PRESETS.includes(savedDuration))setDuration(savedDuration);else{setDuration("custom");setCustomDuration(savedDuration);}setNames(cached.names||"");}catch{}},[cacheKey]);
+
+  const totalMinutes=clampGenerationCount(duration==="custom"?customDuration:duration,{min:1,max:180,fallback:10});
 
   const generate=async()=>{
     if(!topic.trim())return;
@@ -4128,12 +4134,12 @@ function PresentationMode({user}){
     const presenterCount=clampGenerationCount(groupSize,{min:1,max:20,fallback:3});const requestedSections=clampGenerationCount(sectionCount,{min:1,max:30,fallback:6});
     const presenters=names.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).slice(0,presenterCount);
     const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return only the requested structured result. Use exactly the requested number of presenters and sections. Every presenter must speak.';
-    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${duration} minutes. Presenter count: ${presenterCount}. Script section count: ${requestedSections}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+presenterCount+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments. Return exactly ${requestedSections} sections.`;
+    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${totalMinutes} minutes. Presenter count: ${presenterCount}. Script section count: ${requestedSections}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+presenterCount+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments. Return exactly ${requestedSections} sections.`;
     try{
       const result=parseStudioJson(await callStudioAI(system,prompt,5000,[],user?.email,{mode:"presentation",timeoutMs:90000}));
       if((result.sections||[]).length!==requestedSections)throw new Error(`Ghosty created ${(result.sections||[]).length} of ${requestedSections} sections. Please generate again.`);
-      setGroupSize(String(presenterCount));setSectionCount(String(requestedSections));setScript(result);try{sessionStorage.setItem(cacheKey,JSON.stringify({script:result,topic,audience,details,groupSize:presenterCount,sectionCount:requestedSections,duration,names}));}catch{}
-      if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${presenterCount} presenters · ${requestedSections} sections · ${duration} minutes`,output:presentationAsText(result)});
+      setGroupSize(String(presenterCount));setSectionCount(String(requestedSections));if(duration==="custom")setCustomDuration(String(totalMinutes));setScript(result);try{sessionStorage.setItem(cacheKey,JSON.stringify({script:result,topic,audience,details,groupSize:presenterCount,sectionCount:requestedSections,duration:totalMinutes,names}));}catch{}
+      if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${presenterCount} presenters · ${requestedSections} sections · ${totalMinutes} minutes`,output:presentationAsText(result)});
     }catch(e){setScriptError(e.message||"Something went wrong.");}finally{setScriptLoading(false);}
   };
 
@@ -4155,14 +4161,15 @@ function PresentationMode({user}){
 
       {workflow==="create"&&<>
         <FArea label="Presentation Topic" placeholder="e.g. How urban gardens improve city life" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
-        <div className="studio-grid-3" style={{marginBottom:12}}><FNumber label="People in Group" value={groupSize} onChange={setGroupSize} min={1} max={20} fallback={3} suffix="people"/><FNumber label="Script Sections" value={sectionCount} onChange={setSectionCount} min={1} max={30} fallback={6} suffix="sections"/><FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"}]}/></div>
+        <div className="studio-grid-3" style={{marginBottom:duration==="custom"?8:12}}><FNumber label="People in Group" value={groupSize} onChange={setGroupSize} min={1} max={20} fallback={3} suffix="people"/><FNumber label="Script Sections" value={sectionCount} onChange={setSectionCount} min={1} max={30} fallback={6} suffix="sections"/><FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"},{value:"custom",label:"Write my own time"}]}/></div>
+        {duration==="custom"&&<div style={{marginBottom:12}}><FNumber label="Write Your Own Time (optional)" value={customDuration} onChange={setCustomDuration} min={1} max={180} fallback={10} suffix="minutes"/><div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:-5}}>Enter any total presentation length from 1 to 180 minutes.</div></div>}
         <FInput label="Presenter Names (optional)" placeholder="Mina, Jay, Alex" value={names} onChange={e=>setNames(e.target.value)} icoL="users"/>
         <FInput label="Audience (optional)" placeholder="e.g. university class, sales team" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/>
         <FArea label="Details (optional)" placeholder="Learning goals, required sections, tone, or points that must be included..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
         <PriBtn onClick={generate} loading={scriptLoading} disabled={!topic.trim()}><IconLabel name="presentation">Generate Group Script</IconLabel></PriBtn>
         {scriptError&&<ErrBox msg={scriptError}/>}
         {script&&<div style={{marginTop:15,animation:"fadeUp 0.3s ease"}}>
-          <div className="studio-grid-3" style={{marginBottom:10}}><StudioStat label="Presenters" value={new Set((script.sections||[]).map(x=>x.speaker)).size||groupSize}/><StudioStat label="Estimated time" value={(script.totalMinutes||duration)+" min"}/><StudioStat label="Script sections" value={(script.sections||[]).length}/></div>
+          <div className="studio-grid-3" style={{marginBottom:10}}><StudioStat label="Presenters" value={new Set((script.sections||[]).map(x=>x.speaker)).size||groupSize}/><StudioStat label="Estimated time" value={(script.totalMinutes||totalMinutes)+" min"}/><StudioStat label="Script sections" value={(script.sections||[]).length}/></div>
           <Card glow><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}><div><div style={{fontSize:18,fontWeight:900,color:C.text}}>{script.title}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:4}}>{script.summary}</div></div><PlanBadge plan="pro"/></div>
             <div className="studio-timeline">{(script.sections||[]).map((section,index)=><div key={index} style={{position:"relative",paddingBottom:index<script.sections.length-1?16:0}}><span className="studio-timeline-dot"/><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:5}}><span style={{fontSize:12,fontWeight:900,color:C.blueText}}>{section.speaker||`Speaker ${index+1}`}</span>{section.role&&<span style={{fontSize:11,color:C.muted}}>{section.role}</span>}{section.timing&&<span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="timer" size={12}/>{section.timing}</span>}</div><div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:5}}>{section.heading}</div><div style={{fontSize:13.5,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{section.script}</div>{section.visualCue&&<div style={{marginTop:7,padding:"7px 9px",borderRadius:7,background:C.surface,color:C.muted,fontSize:12,display:"flex",gap:6}}><GwmIcon name="slides" size={14} color={C.blueText}/>{section.visualCue}</div>}</div>)}</div>
             {script.handoffs?.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Smooth handoffs</div>{script.handoffs.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.6,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="arrowRight" size={13} color={C.blueText} style={{marginTop:3}}/>{x}</div>)}</div>}
@@ -4372,7 +4379,8 @@ function drawSlideCanvas(deck,slide,index,options){
     const x=position.x/100*width,boxWidth=position.width/100*width,y=position.y/100*height;ctx.fillStyle=fill;ctx.font=fontValue;ctx.textAlign=rightContent?"right":"left";ctx.textBaseline="top";const lines=wrapCanvasLines(ctx,uppercase?String(value||"").toUpperCase():value,boxWidth);lines.slice(0,maxLines).forEach((line,lineIndex)=>ctx.fillText(line,rightContent?x+boxWidth:x,y+lineIndex*lineHeight));
   };
   const eyebrowPosition=textPosition("eyebrow");ctx.fillStyle=palette.accent;ctx.fillRect(eyebrowPosition.x/100*width,Math.max(0,eyebrowPosition.y/100*height-28),84,8);drawBlock(slide.eyebrow||deck.title||"KEY IDEA",eyebrowPosition,{fill:palette.accent,fontValue:`700 24px ${font}`,lineHeight:30,maxLines:2,uppercase:true});
-  drawBlock(slide.title,textPosition("title"),{fill:palette.text,fontValue:`900 ${Math.max(48,Number(options.titleSize)*2.15)}px ${font}`,lineHeight:Number(options.titleSize)*2.35,maxLines:3});
+  const titleScale=slideTitleScale(slide.title);const canvasTitleSize=Math.max(34,Number(options.titleSize)*2.15*titleScale);
+  drawBlock(slide.title,textPosition("title"),{fill:palette.text,fontValue:`900 ${canvasTitleSize}px ${font}`,lineHeight:canvasTitleSize*1.1,maxLines:5});
   const supporting=slideSupportingText(slide);if(supporting)drawBlock(supporting,textPosition("supportingText"),{fill:palette.muted,fontValue:`500 ${Math.max(30,Number(options.bodySize)*1.75)}px ${font}`,lineHeight:Number(options.bodySize)*2.05,maxLines:4});ctx.textAlign="left";ctx.shadowBlur=0;
   return canvas;
 }
@@ -4402,6 +4410,24 @@ const loadDeckSlideImages=async deck=>{
   await Promise.all(images.map(async item=>{try{map.set(item.id,await loadSlideImage(item.dataUrl));}catch{}}));return map;
 };
 
+const slideExportOptions=async(deck,design={})=>{
+  const font=design.font||"Cabinet Grotesk";if(document.fonts?.load)await document.fonts.load(`700 32px ${slideFontStack(font)}`).catch(()=>{});
+  return {background:design.background||"#07111d",textColor:design.textColor||"",theme:design.theme||"executive",font,titleSize:Number(design.titleSize)||34,bodySize:Number(design.bodySize)||18,imageMap:await loadDeckSlideImages(deck)};
+};
+
+const downloadSlideDeckPdf=async(deck,design={})=>{
+  const options=await slideExportOptions(deck,design);const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});
+  for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);pdf.addImage(canvas.toDataURL("image/jpeg",0.9),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight(),undefined,"FAST");}
+  pdf.save("ghostwriterme-slide-deck.pdf");
+};
+
+const downloadSlideDeckImages=async(deck,design={},type="image/png")=>{
+  const options=await slideExportOptions(deck,design);const extension=type==="image/jpeg"?"jpg":"png";const quality=type==="image/jpeg"?0.94:1;
+  if(deck.slides.length===1){downloadBlob(await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[0],0,options),type,quality),`ghostwriterme-slide-1.${extension}`);return;}
+  const JSZip=(await import("jszip")).default;const zip=new JSZip();for(let index=0;index<deck.slides.length;index++){zip.file(`ghostwriterme-slide-${String(index+1).padStart(2,"0")}.${extension}`,await slideCanvasBlob(drawSlideCanvas(deck,deck.slides[index],index,options),type,quality));}
+  downloadBlob(await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}}),`ghostwriterme-${extension}-slides.zip`);
+};
+
 function DraggableSlideElement({position,image=false,editing=false,selected=false,label,onSelect,onChange,onDelete,children}){
   const elementRef=useRef(null);const actionRef=useRef(null);
   const startAction=(mode,event)=>{
@@ -4425,7 +4451,7 @@ function DraggableSlideElement({position,image=false,editing=false,selected=fals
 }
 
 function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,presenting=false,onFullscreen,editing=false,selectedElement="",onSelectElement,onUpdateElementPosition,onRemoveImage}){
-  const layout=slide.layout||"left-third";const fullBleed=layout==="full-bleed";const supportingText=slideSupportingText(slide);const positions=slide.elementPositions||{};
+  const layout=slide.layout||"left-third";const fullBleed=layout==="full-bleed";const supportingText=slideSupportingText(slide);const positions=slide.elementPositions||{};const titleScale=slideTitleScale(slide.title);const minimumTitleSize=presenting?Math.max(22,32*titleScale):Math.max(14,20*titleScale);
   const positionFor=key=>normalizeSlideElementPosition(positions[key],defaultSlideElementPosition(layout,key));
   const updateTextPosition=(key,value)=>onUpdateElementPosition?.(key,value,false);
   return <div className="studio-slide-shell" onClick={()=>editing&&onSelectElement?.("")} style={{width:"100%",height:presenting?"100%":undefined,background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),boxShadow:presenting?"none":"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease",borderRadius:presenting?0:12}}>
@@ -4433,7 +4459,7 @@ function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,pres
     <SlideArtwork theme={theme} slide={slide} index={index} palette={palette}/>
     {(slide.customImages||[]).map(image=>{const position=normalizeSlideElementPosition(image,defaultSlideElementPosition(layout,"image"),{image:true});const key=`image:${image.id}`;return <DraggableSlideElement key={image.id} position={position} image editing={editing} selected={selectedElement===key} label={image.name||"Slide image"} onSelect={()=>onSelectElement?.(key)} onChange={value=>onUpdateElementPosition?.(image.id,value,true)} onDelete={()=>onRemoveImage?.(image.id)}><img src={image.dataUrl} alt={image.name||"User-added slide visual"} draggable="false" style={{width:"100%",height:"100%",display:"block",objectFit:"contain",borderRadius:8,userSelect:"none",pointerEvents:"none",filter:"drop-shadow(0 12px 22px rgba(0,0,0,.3))"}}/></DraggableSlideElement>;})}
     {(slide.eyebrow||deck.title)&&<DraggableSlideElement position={positionFor("eyebrow")} editing={editing} selected={selectedElement==="text:eyebrow"} label="Eyebrow" onSelect={()=>onSelectElement?.("text:eyebrow")} onChange={value=>updateTextPosition("eyebrow",value)}><div style={{fontSize:presenting?"clamp(12px,1.35vw,22px)":"clamp(8px,1.4vw,11px)",color:palette.accent,fontWeight:850,letterSpacing:"0.12em",textTransform:"uppercase",lineHeight:1.25,textShadow:fullBleed?"0 3px 18px rgba(0,0,0,.65)":"none"}}>{slide.eyebrow||deck.title}</div></DraggableSlideElement>}
-    <DraggableSlideElement position={positionFor("title")} editing={editing} selected={selectedElement==="text:title"} label="Title" onSelect={()=>onSelectElement?.("text:title")} onChange={value=>updateTextPosition("title",value)}><div style={{fontSize:presenting?`clamp(32px,${titleSize/7}vw,${titleSize*1.75}px)`:`clamp(20px,${titleSize/9}vw,${titleSize}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",textShadow:fullBleed?"0 3px 22px rgba(0,0,0,0.58)":"none"}}>{slide.title}</div></DraggableSlideElement>
+    <DraggableSlideElement position={positionFor("title")} editing={editing} selected={selectedElement==="text:title"} label="Title" onSelect={()=>onSelectElement?.("text:title")} onChange={value=>updateTextPosition("title",value)}><div style={{fontSize:presenting?`clamp(${minimumTitleSize}px,${titleSize/7*titleScale}vw,${titleSize*1.75*titleScale}px)`:`clamp(${minimumTitleSize}px,${titleSize/9*titleScale}vw,${titleSize*titleScale}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",overflowWrap:"anywhere",textShadow:fullBleed?"0 3px 22px rgba(0,0,0,0.58)":"none"}}>{slide.title}</div></DraggableSlideElement>
     {supportingText&&<DraggableSlideElement position={positionFor("supportingText")} editing={editing} selected={selectedElement==="text:supportingText"} label="Supporting text" onSelect={()=>onSelectElement?.("text:supportingText")} onChange={value=>updateTextPosition("supportingText",value)}><div style={{color:palette.muted,fontSize:presenting?`clamp(16px,${bodySize/10}vw,${bodySize*1.55}px)`:`clamp(11px,${bodySize/12}vw,${bodySize}px)`,lineHeight:1.45,textShadow:fullBleed?"0 2px 16px rgba(0,0,0,.72)":"none"}}>{supportingText}</div></DraggableSlideElement>}
     {editing&&<div aria-hidden="true" style={{position:"absolute",left:10,bottom:9,zIndex:7,padding:"5px 7px",borderRadius:7,background:"rgba(3,8,14,.78)",color:"#dceeff",fontSize:9,fontWeight:800,pointerEvents:"none",backdropFilter:"blur(8px)"}}>Drag or tap an element</div>}
     {onFullscreen&&<button type="button" aria-label="Present slides in fullscreen" title="Present fullscreen" onClick={event=>{event.stopPropagation();onFullscreen();}} style={{position:"absolute",top:12,right:12,zIndex:8,width:44,height:44,borderRadius:11,border:"1px solid rgba(255,255,255,0.22)",background:"rgba(3,8,14,0.74)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer",backdropFilter:"blur(10px)"}}><GwmIcon name="expand" size={19}/></button>}
@@ -4451,7 +4477,7 @@ function SlideGeneratorMode({user}){
   const [selectedElement,setSelectedElement]=useState("");const [imageUploading,setImageUploading]=useState(false);const [imageError,setImageError]=useState("");const [historyId,setHistoryId]=useState("");const slideImageInputRef=useRef(null);
   const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];const customThemeDescription=customTheme.trim();const themeName=theme==="custom"?(customThemeDescription?`Custom · ${customThemeDescription.slice(0,70)}`:"Custom Theme"):themeSystem.title;const themePrompt=theme==="custom"?(customThemeDescription||themeSystem.prompt):themeSystem.prompt;
   const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const zenBlueprint=buildZenBlueprint(topic,resolvedSlideCount);const previewPlan=zenBlueprint[Math.min(planningSlide,zenBlueprint.length-1)]||zenBlueprint[0];const previewHeading=slideHeadings[planningSlide]||"";
-  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:`Slide ${planningSlide+1} · ${previewPlan?.label||"Zen preview"}`,title:previewHeading.trim()||(planningSlide===0?(topic.trim()||"One clear idea at a time"):(previewPlan?.purpose||"One clear idea at a time")),supportingText:"Minimal words. Generous space. One visual message.",visualType:previewPlan?.visualType||"fullbleed",layout:previewPlan?.layout||"right-third",narrativeRole:previewPlan?.role||"hook",isHumorBeat:!!previewPlan?.isHumorBeat,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
+  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:`Slide ${planningSlide+1} · ${previewPlan?.label||"Zen preview"}`,title:previewHeading.trim()||(planningSlide===0?(topic.trim()||previewPlan?.heading||"One clear idea at a time"):(previewPlan?.heading||"One clear idea at a time")),supportingText:"Minimal words. Generous space. One visual message.",visualType:previewPlan?.visualType||"fullbleed",layout:previewPlan?.layout||"right-third",narrativeRole:previewPlan?.role||"hook",isHumorBeat:!!previewPlan?.isHumorBeat,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
 
   useEffect(()=>{
     if(!GOOGLE_SLIDE_FONTS.has(font)||document.querySelector(`link[data-slide-font="${font}"]`))return;
@@ -4568,8 +4594,8 @@ function SlideGeneratorMode({user}){
           <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:10}}><div><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.11em",fontWeight:850}}>Preview and plan each slide</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:3}}>Select any slide below to preview its layout and optionally choose its exact heading or topic before generation.</div></div><span style={{padding:"5px 8px",borderRadius:999,background:C.accentSoft,color:C.blueText,fontSize:10.5,fontWeight:900,whiteSpace:"nowrap"}}>{resolvedSlideCount} slides</span></div>
           <SlideFrame deck={previewDeck} slide={previewDeck.slides[0]} index={planningSlide} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/>
           <div role="tablist" aria-label="Choose a slide to plan" style={{display:"flex",gap:6,overflowX:"auto",padding:"10px 1px 8px"}}>{zenBlueprint.map((item,index)=><button key={index} type="button" role="tab" aria-selected={planningSlide===index} title={item.purpose} onClick={()=>setPlanningSlide(index)} style={{flex:"0 0 auto",minHeight:40,padding:"7px 10px",borderRadius:999,border:`1px solid ${planningSlide===index?C.blue:C.border}`,background:planningSlide===index?C.accentSoft:C.surface,color:planningSlide===index?C.blueText:C.muted,fontFamily:"inherit",fontSize:11,fontWeight:850,cursor:"pointer",boxShadow:planningSlide===index?`0 0 0 2px ${C.blueGlow}`:"none"}}>{index+1}. {item.label}</button>)}</div>
-          <FInput label={`Slide ${planningSlide+1} heading / topic (optional)`} placeholder={`Let Ghosty choose — ${previewPlan?.purpose||"one clear idea"}`} value={slideHeadings[planningSlide]||""} onChange={event=>setSlideHeadings(current=>({...current,[planningSlide]:event.target.value}))}/>
-          <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:-5}}>If you enter a heading, Ghosty will use it exactly for this slide. Leave it blank for an automatic heading.</div>
+          <FInput label={`Slide ${planningSlide+1} heading / topic (optional)`} placeholder="Type an exact heading, or let Ghosty choose" value={slideHeadings[planningSlide]||""} onChange={event=>setSlideHeadings(current=>({...current,[planningSlide]:event.target.value}))}/>
+          <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:-5}}>Planned role: {previewPlan?.purpose||"one clear idea"} Entering a heading makes Ghosty use it exactly; leave it blank for an automatic heading.</div>
         </Card>
         <PriBtn onClick={generateSlides} loading={loading} disabled={!topic.trim()}><IconLabel name="slides">Generate Slide Deck</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}
       </>}

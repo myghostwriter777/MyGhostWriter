@@ -21,6 +21,22 @@ export function resolveSlideCount(details,selected){
 
 const ZEN_VISUALS=["fullbleed","big-number","simple-chart","comparison","signal"];
 const ZEN_LAYOUTS=["left-third","right-third","top-third","full-bleed"];
+const ZEN_LABEL_VARIANTS={
+  context:["Context","Stakes","Frame"],
+  tension:["Tension","Contrast","Friction"],
+  proof:["Proof","Evidence","Example"],
+  insight:["Meaning","Implication","Takeaway"],
+};
+
+const ZEN_PREVIEW_HEADINGS={
+  hook:"Start with the tension",
+  context:"Only the context that matters",
+  tension:"Bring the gap into focus",
+  proof:"One signal changes the picture",
+  unexpected:"See it from a surprising angle",
+  insight:"What the evidence really means",
+  close:"Make the next move clear",
+};
 
 const clipWords=(value,limit)=>{
   const words=String(value||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
@@ -36,7 +52,7 @@ export function buildZenBlueprint(topic,count){
   const subject=String(topic||"").trim()||"Your presentation";
   const total=Math.max(1,Number(count)||1);
   const humorIndex=zenHumorIndex(total);
-  return Array.from({length:total},(_,index)=>{
+  const blueprint=Array.from({length:total},(_,index)=>{
     const progress=total===1?1:index/(total-1);
     if(index===0)return {label:"Hook",role:"hook",purpose:`Open ${subject} with one memorable tension or promise.`,visualType:"fullbleed",layout:"right-third",isHumorBeat:false};
     if(index===total-1)return {label:"Close",role:"close",purpose:"Resolve the story with one clear takeaway or next action.",visualType:"spotlight",layout:"left-third",isHumorBeat:false};
@@ -45,6 +61,13 @@ export function buildZenBlueprint(topic,count){
     if(progress<0.48)return {label:"Tension",role:"tension",purpose:"Make the cost, conflict, or gap concrete with one focused contrast.",visualType:"comparison",layout:index%2?"right-third":"left-third",isHumorBeat:false};
     if(progress<0.7)return {label:"Proof",role:"proof",purpose:"Show one example, simple data point, or piece of evidence without chart junk.",visualType:index%2?"big-number":"simple-chart",layout:index%2?"left-third":"right-third",isHumorBeat:false};
     return {label:"Meaning",role:"insight",purpose:"Turn the evidence into one useful implication and move toward resolution.",visualType:"signal",layout:index%2?"right-third":"left-third",isHumorBeat:false};
+  });
+  const seen={};
+  return blueprint.map(item=>{
+    const occurrence=seen[item.role]||0;seen[item.role]=occurrence+1;
+    const variants=ZEN_LABEL_VARIANTS[item.role];
+    const label=variants?(variants[occurrence]||`${variants[variants.length-1]} ${occurrence+1}`):item.label;
+    return {...item,label,heading:ZEN_PREVIEW_HEADINGS[item.role]||"One clear idea at a time"};
   });
 }
 

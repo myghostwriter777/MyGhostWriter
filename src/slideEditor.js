@@ -4,19 +4,19 @@ const LAYOUT_DEFAULTS={
   "left-third":{
     eyebrow:{x:6,y:12,width:48},
     title:{x:6,y:25,width:52},
-    supportingText:{x:6,y:62,width:43},
+    supportingText:{x:6,y:74,width:43},
     image:{x:58,y:16,width:34,height:64},
   },
   "right-third":{
     eyebrow:{x:54,y:12,width:40},
     title:{x:48,y:25,width:46},
-    supportingText:{x:54,y:62,width:40},
+    supportingText:{x:54,y:74,width:40},
     image:{x:7,y:16,width:34,height:64},
   },
   "top-third":{
     eyebrow:{x:8,y:8,width:70},
     title:{x:8,y:18,width:76},
-    supportingText:{x:8,y:46,width:60},
+    supportingText:{x:8,y:58,width:48},
     image:{x:57,y:38,width:36,height:52},
   },
   "full-bleed":{
@@ -28,6 +28,16 @@ const LAYOUT_DEFAULTS={
 };
 
 export const editableSlideSupportingText=slide=>String(slide?.supportingText??slide?.bullets?.[0]??"");
+
+export const slideTitleScale=value=>{
+  const text=String(value||"").replace(/\s+/g," ").trim();
+  const words=text?text.split(" ").length:0;
+  if(text.length>100||words>18)return 0.58;
+  if(text.length>78||words>14)return 0.68;
+  if(text.length>55||words>10)return 0.78;
+  if(text.length>38||words>7)return 0.88;
+  return 1;
+};
 
 export const defaultSlideElementPosition=(layout,key)=>{
   const defaults=LAYOUT_DEFAULTS[layout]||LAYOUT_DEFAULTS["left-third"];

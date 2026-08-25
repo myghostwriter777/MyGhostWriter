@@ -18,6 +18,10 @@ describe("slide deck rules",()=>{
     expect(blueprint[7].label).toBe("Close");
     expect(blueprint.filter(item=>item.isHumorBeat)).toHaveLength(1);
     expect(blueprint[zenHumorIndex(8)].visualType).toBe("metaphor");
+    expect(new Set(blueprint.map(item=>item.label)).size).toBe(blueprint.length);
+    expect(blueprint.every(item=>item.heading&&item.heading.split(/\s+/).length<=8)).toBe(true);
+    const longBlueprint=buildZenBlueprint("Urban gardens",20);
+    expect(new Set(longBlueprint.map(item=>item.label)).size).toBe(longBlueprint.length);
   });
 
   test("normalizes generated copy into one uncluttered idea per slide",()=>{
