@@ -27,6 +27,8 @@ const LAYOUT_DEFAULTS={
   },
 };
 
+export const editableSlideSupportingText=slide=>String(slide?.supportingText??slide?.bullets?.[0]??"");
+
 export const defaultSlideElementPosition=(layout,key)=>{
   const defaults=LAYOUT_DEFAULTS[layout]||LAYOUT_DEFAULTS["left-third"];
   return {...(defaults[key]||defaults.image)};
@@ -66,4 +68,3 @@ export const nudgeSlideElement=(position,{dx=0,dy=0,image=false}={})=>normalizeS
   x:Number(position?.x||0)+(Number(dx)||0),
   y:Number(position?.y||0)+(Number(dy)||0),
 },position||{}, {image});
-

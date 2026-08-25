@@ -1,4 +1,4 @@
-import {defaultSlideElementPosition,moveSlideElement,normalizeSlideElementPosition,nudgeSlideElement,resizeSlideElement} from "./slideEditor";
+import {defaultSlideElementPosition,editableSlideSupportingText,moveSlideElement,normalizeSlideElementPosition,nudgeSlideElement,resizeSlideElement} from "./slideEditor";
 
 describe("slide editor geometry",()=>{
   test("uses layout-aware defaults",()=>{
@@ -17,5 +17,10 @@ describe("slide editor geometry",()=>{
 
   test("resizes images without overflowing",()=>{
     expect(resizeSlideElement({x:70,y:60,width:20,height:20},{dx:300,dy:300,canvasWidth:1000,canvasHeight:1000,image:true})).toEqual({x:50,y:50,width:50,height:50});
+  });
+
+  test("preserves spaces while supporting text is being edited",()=>{
+    expect(editableSlideSupportingText({supportingText:"Hello, "})).toBe("Hello, ");
+    expect(editableSlideSupportingText({bullets:["Fallback line"]})).toBe("Fallback line");
   });
 });

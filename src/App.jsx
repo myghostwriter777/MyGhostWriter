@@ -14,7 +14,8 @@ import { buildZenBlueprint, normalizeZenDeck, resolveSlideCount } from "./slideD
 import { isComingSoonForUser } from "./featureAvailability";
 import { getTarotCardArt } from "./tarotCardAssets";
 import { clampGenerationCount } from "./generationControls";
-import { defaultSlideElementPosition, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement } from "./slideEditor";
+import { defaultSlideElementPosition, editableSlideSupportingText, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement } from "./slideEditor";
+import { mergeSavedProfile, saveProfile } from "./profilePersistence";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
 // CRA reads env vars via process.env (NOT import.meta.env — that's Vite-only).
@@ -474,7 +475,7 @@ const TERMS_CONTENT = [
 ];
 
 const PRIVACY_CONTENT = [
-  {h:"1. Information We Collect",b:"Your name, email, and Google profile photo (if you sign in with Google). Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, meeting audio is transcribed on your device. The resulting text context—not the meeting audio—is sent to our AI provider to generate reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
+  {h:"1. Information We Collect",b:"Your name, email, Google profile photo (if you sign in with Google), and any profile picture you choose to add. Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, meeting audio is transcribed on your device. The resulting text context—not the meeting audio—is sent to our AI provider to generate reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
   {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us. Listen playback uses the speech engine built into your device or browser."},
   {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is processed locally in short segments and is not uploaded or added to History. A meeting transcript and suggestion are saved only if you press Save session."},
   {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and AI providers to generate content. Each operates under its own privacy policy."},
@@ -644,6 +645,14 @@ const textDataUrl=value=>{
 const readFileAsDataUrl=file=>new Promise((resolve,reject)=>{
   const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("read"));reader.readAsDataURL(file);
 });
+
+const prepareProfileImage=async file=>{
+  if(!String(file?.type||"").startsWith("image/"))throw new Error("Choose a PNG, JPEG, or WebP profile picture.");
+  if(file.size>8*1024*1024)throw new Error("Profile pictures must be 8 MB or smaller.");
+  const source=await readFileAsDataUrl(file);const image=await new Promise((resolve,reject)=>{const value=new Image();value.onload=()=>resolve(value);value.onerror=()=>reject(new Error("This picture could not be read."));value.src=source;});
+  const side=Math.min(image.naturalWidth,image.naturalHeight);const sourceX=(image.naturalWidth-side)/2,sourceY=(image.naturalHeight-side)/2;const canvas=document.createElement("canvas");canvas.width=512;canvas.height=512;const ctx=canvas.getContext("2d");ctx.drawImage(image,sourceX,sourceY,side,side,0,0,512,512);
+  const webp=canvas.toDataURL("image/webp",.82);return webp.startsWith("data:image/webp")?webp:canvas.toDataURL("image/jpeg",.84);
+};
 
 const compactStudyImage=async file=>{
   const source=await readFileAsDataUrl(file);
@@ -987,14 +996,14 @@ function ComingSoonBadge({compact=false}){
  *    gradient circle visible instead of a broken-image icon
  */
 function Avatar({avatar,size=34}){
-  const isUrl=typeof avatar==="string"&&avatar.startsWith("http");
+  const isUrl=typeof avatar==="string"&&(avatar.startsWith("http")||avatar.startsWith("data:image/"));
   return(
     <div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#071019",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,overflow:"hidden",position:"relative"}}>
       <GwmIcon name="ghost" size={Math.round(size*0.58)}/>
       {isUrl&&(
         <img
           src={avatar}
-          alt=""
+          alt="Profile"
           referrerPolicy="no-referrer"
           style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
           onError={e=>{e.currentTarget.style.display="none";}}
@@ -1815,6 +1824,7 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 // === SETTINGS SCREEN ===
 function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme}){
   const [displayName,setDisplayName]=useState(user.name||"");
+  const [avatar,setAvatar]=useState(user.avatar||null);const [avatarError,setAvatarError]=useState("");const [avatarLoading,setAvatarLoading]=useState(false);const avatarInputRef=useRef(null);
   const [language,setLanguage]=useState(()=>localStorage.getItem(LANGUAGE_KEY)||"en");
   const [aiShutdown,setAIShutdown]=useState(isAIShutdown);
   const [notifEmail,setNotifEmail]=useState(()=>localStorage.getItem("gwm_notif_email")!=="false");
@@ -1837,10 +1847,11 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
     localStorage.setItem(AI_SHUTDOWN_KEY,String(aiShutdown));
     localStorage.setItem("gwm_notif_email",notifEmail);
     localStorage.setItem("gwm_notif_promo",notifPromo);
-    onSave({...user,name:displayName.trim()||user.name});
+    onSave({...user,name:displayName.trim()||user.name,avatar});
     setSaved(true);
     setTimeout(()=>setSaved(false),2000);
   };
+  const handleAvatarUpload=async event=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;setAvatarLoading(true);setAvatarError("");try{setAvatar(await prepareProfileImage(file));}catch(error){setAvatarError(error?.message||"The profile picture could not be prepared.");}finally{setAvatarLoading(false);}};
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text}}>
@@ -1852,15 +1863,20 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
       <div style={{maxWidth:500,margin:"0 auto",padding:"20px 16px 60px"}}>
 
         <div style={{display:"flex",alignItems:"center",gap:14,padding:"16px",background:C.card,border:`1px solid ${C.border}`,borderRadius:12,marginBottom:22}}>
-          <Avatar avatar={user.avatar} size={50}/>
+          <Avatar avatar={avatar} size={50}/>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:800,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
+            <div style={{fontSize:15,fontWeight:800,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName.trim()||user.name}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
             <div style={{marginTop:6}}><span style={{background:planInfo.bg,color:planInfo.color,fontSize:11,fontWeight:800,padding:"2px 8px",borderRadius:4,letterSpacing:"0.08em"}}>{planInfo.label}</span></div>
           </div>
         </div>
 
         <Section title="Account">
+          <div style={{padding:"13px 14px",borderBottom:`1px solid ${C.border}`}}>
+            <label id="profile-picture-label" style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:8,textTransform:"uppercase"}}>Profile picture</label>
+            <div style={{display:"flex",alignItems:"center",gap:12}}><button type="button" aria-labelledby="profile-picture-label" onClick={()=>avatarInputRef.current?.click()} disabled={avatarLoading} style={{width:72,height:72,padding:0,borderRadius:"50%",border:`2px solid ${C.blue}88`,background:C.surface,display:"grid",placeItems:"center",cursor:avatarLoading?"wait":"pointer",overflow:"hidden",position:"relative",flexShrink:0}}><Avatar avatar={avatar} size={68}/><span aria-hidden="true" style={{position:"absolute",right:0,bottom:0,width:25,height:25,borderRadius:"50%",background:C.blue,color:"#071019",display:"grid",placeItems:"center",border:`2px solid ${C.card}`}}><GwmIcon name="camera" size={12}/></span></button><div style={{minWidth:0,flex:1}}><button type="button" onClick={()=>avatarInputRef.current?.click()} disabled={avatarLoading} style={{minHeight:40,padding:"8px 11px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.blueText,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:avatarLoading?"wait":"pointer",display:"inline-flex",alignItems:"center",gap:6}}>{avatarLoading?<Spin size={13} color={C.blue}/>:<GwmIcon name="upload" size={14}/>} {avatarLoading?"Preparing...":avatar?"Change picture":"Add picture"}</button>{avatar&&<button type="button" onClick={()=>{setAvatar(null);setAvatarError("");}} style={{minHeight:40,marginLeft:7,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.red}44`,background:"transparent",color:C.redText,fontFamily:"inherit",fontSize:12,fontWeight:800,cursor:"pointer"}}>Remove</button>}<div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:5}}>Square crop · PNG, JPEG or WebP · 8 MB maximum</div></div><input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarUpload} style={{display:"none"}}/></div>
+            {avatarError&&<div role="alert" style={{fontSize:11.5,color:C.redText,lineHeight:1.45,marginTop:7}}>{avatarError}</div>}
+          </div>
           <div style={{padding:"13px 14px",borderBottom:`1px solid ${C.border}`}}>
             <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:6,textTransform:"uppercase"}}>Display Name</label>
             <input value={displayName} onChange={e=>setDisplayName(e.target.value)} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 12px",color:C.text,fontSize:14,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=C.blue} onBlur={e=>e.target.style.borderColor=C.border}/>
@@ -4429,12 +4445,13 @@ function SlideGeneratorMode({user}){
   const [customTheme,setCustomTheme]=useState("");
   const [textColor,setTextColor]=useState("#f8fbff");
   const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
+  const [slideHeadings,setSlideHeadings]=useState({});const [planningSlide,setPlanningSlide]=useState(0);
   const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [presenting,setPresenting]=useState(false);const [imageExport,setImageExport]=useState(null);const [imageSelection,setImageSelection]=useState([]);const [exporting,setExporting]=useState("");const [exportNotice,setExportNotice]=useState("");const [editingDeck,setEditingDeck]=useState(false);
   const [selectedElement,setSelectedElement]=useState("");const [imageUploading,setImageUploading]=useState(false);const [imageError,setImageError]=useState("");const [historyId,setHistoryId]=useState("");const slideImageInputRef=useRef(null);
   const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];const customThemeDescription=customTheme.trim();const themeName=theme==="custom"?(customThemeDescription?`Custom · ${customThemeDescription.slice(0,70)}`:"Custom Theme"):themeSystem.title;const themePrompt=theme==="custom"?(customThemeDescription||themeSystem.prompt):themeSystem.prompt;
-  const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const zenBlueprint=buildZenBlueprint(topic,resolvedSlideCount);
-  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:"Zen preview",title:topic.trim()||"One clear idea at a time",supportingText:"Minimal words. Generous space. One visual message.",visualType:"fullbleed",layout:"right-third",narrativeRole:"hook",isHumorBeat:false,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
+  const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const zenBlueprint=buildZenBlueprint(topic,resolvedSlideCount);const previewPlan=zenBlueprint[Math.min(planningSlide,zenBlueprint.length-1)]||zenBlueprint[0];const previewHeading=slideHeadings[planningSlide]||"";
+  const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"A calm, image-led Zen presentation",slides:[{eyebrow:`Slide ${planningSlide+1} · ${previewPlan?.label||"Zen preview"}`,title:previewHeading.trim()||(planningSlide===0?(topic.trim()||"One clear idea at a time"):(previewPlan?.purpose||"One clear idea at a time")),supportingText:"Minimal words. Generous space. One visual message.",visualType:previewPlan?.visualType||"fullbleed",layout:previewPlan?.layout||"right-third",narrativeRole:previewPlan?.role||"hook",isHumorBeat:!!previewPlan?.isHumorBeat,visualLabel:"",dataValue:"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} visual composed around the chosen subject using the rule of thirds.`}]};
 
   useEffect(()=>{
     if(!GOOGLE_SLIDE_FONTS.has(font)||document.querySelector(`link[data-slide-font="${font}"]`))return;
@@ -4448,6 +4465,7 @@ function SlideGeneratorMode({user}){
   },[presenting,deck]);
 
   useEffect(()=>setSelectedElement(""),[selectedSlide]);
+  useEffect(()=>setPlanningSlide(index=>Math.min(index,Math.max(0,resolvedSlideCount-1))),[resolvedSlideCount]);
 
   useEffect(()=>{
     if(!deck||!historyId||!user?.email)return;const timer=setTimeout(()=>{
@@ -4459,9 +4477,9 @@ function SlideGeneratorMode({user}){
     if(!topic.trim())return;
     setLoading(true);setError("");setDeck(null);setSelectedSlide(0);
     const system='You are an expert presentation designer strictly following Presentation Zen and high-engagement visual storytelling. Build a visual story, never a document divided into slides. SIMPLICITY: one main idea per slide; title at most 12 words; optional supportingText at most 22 words; absolutely no bullet lists, paragraphs, random decorative boxes, logos, footers, dates, emoji, or chart junk. VISUAL SUPERIORITY: make the visual carry the message using one meaningful full-bleed scene, one powerful vector metaphor, one large number, one clean contrast, or one simple 2D chart. Use large negative space and rule-of-thirds asymmetry. DATA: use no grid lines, 3D effects, legends, or rainbow colors; use one repeated color and one accent only; never invent a statistic. BIG FOUR: enforce strong contrast, repeat one font/palette/visual language, align every element deliberately, and keep related copy close together. STORY: create a clear beginning, tension, evidence, meaning, and resolution. For decks of at least three slides, include exactly one business-appropriate humor beat built around a surprising topic-relevant visual analogy; it must clarify the message, not become a joke slide. speakerNotes carry the explanation that does not belong on the canvas. visualDirection must specify the concrete subject, composition, lighting, empty-space placement, and why the visual reinforces the headline. Choose visualType only from fullbleed, big-number, simple-chart, comparison, signal, spotlight, metaphor. Choose layout only from left-third, right-third, top-third, full-bleed. Return only the requested structured result.';
-    const prompt=`Generate exactly ${resolvedSlideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themePrompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required story and composition blueprint exactly: ${zenBlueprint.map((item,index)=>`${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; humor=${item.isHumorBeat}; purpose=${item.purpose}`).join(" ")} Set isHumorBeat true on exactly the designated Unexpected slide and false everywhere else. Make every visualDirection specific to the topic and visibly distinct from the background. When a photographic concept would communicate best, describe a high-quality full-bleed stock-photo concept and concrete search phrase; otherwise describe a simple, powerful vector composition GhostwriterMe can render. Use a memorable opening and a decisive final slide. Do not include markdown.`;
+    const prompt=`Generate exactly ${resolvedSlideCount} slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themePrompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required story and composition blueprint exactly: ${zenBlueprint.map((item,index)=>`${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; humor=${item.isHumorBeat}; purpose=${item.purpose}; requiredHeading=${JSON.stringify(String(slideHeadings[index]||"").trim()||"Ghosty chooses")}`).join(" ")} A user-provided requiredHeading must be used exactly as that slide's title. Set isHumorBeat true on exactly the designated Unexpected slide and false everywhere else. Make every visualDirection specific to the topic and visibly distinct from the background. When a photographic concept would communicate best, describe a high-quality full-bleed stock-photo concept and concrete search phrase; otherwise describe a simple, powerful vector composition GhostwriterMe can render. Use a memorable opening and a decisive final slide. Do not include markdown.`;
     try{
-      const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized=normalizeZenDeck(result,zenBlueprint);
+      const result=parseStudioJson(await callStudioAI(system,prompt,14000,[],user?.email,{mode:"slides"}));const normalized=normalizeZenDeck(result,zenBlueprint);normalized.slides=normalized.slides.map((slide,index)=>String(slideHeadings[index]||"").trim()?{...slide,title:String(slideHeadings[index]).trim()}:slide);
       if(normalized.slides.length!==resolvedSlideCount)throw new Error(`Ghosty created ${normalized.slides.length} of ${resolvedSlideCount} slides. Please generate again.`);
       setDeck(normalized);
       if(user){const saved=HS.save(user.email,"slides",{title:normalized.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides · ${themeName} · ${background}`,output:encodeSlideHistory(normalized,{theme,background,textColor,font,titleSize,bodySize})});setHistoryId(saved?.id||"");}
@@ -4525,7 +4543,7 @@ function SlideGeneratorMode({user}){
   };
   const selectedImageId=selectedElement.startsWith("image:")?selectedElement.slice(6):"";const selectedTextKey=selectedElement.startsWith("text:")?selectedElement.slice(5):"";const selectedImage=(currentSlide?.customImages||[]).find(image=>image.id===selectedImageId);const selectedGeometry=selectedImage?normalizeSlideElementPosition(selectedImage,defaultSlideElementPosition(currentSlide?.layout||"left-third","image"),{image:true}):selectedTextKey?normalizeSlideElementPosition(currentSlide?.elementPositions?.[selectedTextKey],defaultSlideElementPosition(currentSlide?.layout||"left-third",selectedTextKey)):null;
   const updateSelectedGeometry=(field,value)=>{if(!selectedGeometry)return;const next=normalizeSlideElementPosition({...selectedGeometry,[field]:Number(value)},selectedGeometry,{image:!!selectedImage});updateSlideElementPosition(selectedImage?.id||selectedTextKey,next,!!selectedImage);};
-  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setCustomTheme("");setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);setSelectedElement("");setImageError("");setHistoryId("");};
+  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setCustomTheme("");setSlideHeadings({});setPlanningSlide(0);setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);setSelectedElement("");setImageError("");setHistoryId("");};
 
   return(
     <div>
@@ -4546,7 +4564,13 @@ function SlideGeneratorMode({user}){
         </Card>
         <div className="studio-grid-3" style={{marginBottom:10}}><FSelect label="Font" value={font} onChange={setFont} options={SLIDE_FONTS}/><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Title Size · {titleSize}</label><input aria-label="Slide title size" type="range" min="26" max="48" value={titleSize} onChange={e=>setTitleSize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div><div><label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>Text Size · {bodySize}</label><input aria-label="Slide text size" type="range" min="14" max="28" value={bodySize} onChange={e=>setBodySize(Number(e.target.value))} style={{width:"100%",height:42,accentColor:C.blue,cursor:"pointer"}}/></div></div>
         <div aria-label={`${font} font preview`} style={{marginBottom:13,padding:"11px 13px",borderRadius:10,border:`1px solid ${C.border}`,background:C.surface,overflow:"hidden"}}><div style={{fontSize:10.5,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>{font} preview</div><div style={{fontFamily:slideFontStack(font),fontSize:"clamp(18px,4vw,23px)",lineHeight:1.35,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Aa Bb Cc — The quick brown fox 0123456789</div></div>
-        <Card style={{marginBottom:13,padding:12}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:10}}><div><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.11em",fontWeight:850}}>Preview before generation</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:3}}>A live Zen-style visual sample and story blueprint. You can edit every slide after Ghosty writes it.</div></div><span style={{padding:"5px 8px",borderRadius:999,background:C.accentSoft,color:C.blueText,fontSize:10.5,fontWeight:900,whiteSpace:"nowrap"}}>{resolvedSlideCount} slides</span></div><SlideFrame deck={previewDeck} slide={previewDeck.slides[0]} index={0} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/><div style={{display:"flex",gap:6,overflowX:"auto",paddingTop:10}}>{zenBlueprint.map((item,index)=><span key={index} title={item.purpose} style={{flex:"0 0 auto",padding:"6px 8px",borderRadius:999,border:`1px solid ${C.border}`,background:C.surface,color:index===0?C.blueText:C.muted,fontSize:10.5,fontWeight:800}}>{index+1}. {item.label}</span>)}</div></Card>
+        <Card style={{marginBottom:13,padding:12}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:10}}><div><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.11em",fontWeight:850}}>Preview and plan each slide</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:3}}>Select any slide below to preview its layout and optionally choose its exact heading or topic before generation.</div></div><span style={{padding:"5px 8px",borderRadius:999,background:C.accentSoft,color:C.blueText,fontSize:10.5,fontWeight:900,whiteSpace:"nowrap"}}>{resolvedSlideCount} slides</span></div>
+          <SlideFrame deck={previewDeck} slide={previewDeck.slides[0]} index={planningSlide} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize}/>
+          <div role="tablist" aria-label="Choose a slide to plan" style={{display:"flex",gap:6,overflowX:"auto",padding:"10px 1px 8px"}}>{zenBlueprint.map((item,index)=><button key={index} type="button" role="tab" aria-selected={planningSlide===index} title={item.purpose} onClick={()=>setPlanningSlide(index)} style={{flex:"0 0 auto",minHeight:40,padding:"7px 10px",borderRadius:999,border:`1px solid ${planningSlide===index?C.blue:C.border}`,background:planningSlide===index?C.accentSoft:C.surface,color:planningSlide===index?C.blueText:C.muted,fontFamily:"inherit",fontSize:11,fontWeight:850,cursor:"pointer",boxShadow:planningSlide===index?`0 0 0 2px ${C.blueGlow}`:"none"}}>{index+1}. {item.label}</button>)}</div>
+          <FInput label={`Slide ${planningSlide+1} heading / topic (optional)`} placeholder={`Let Ghosty choose — ${previewPlan?.purpose||"one clear idea"}`} value={slideHeadings[planningSlide]||""} onChange={event=>setSlideHeadings(current=>({...current,[planningSlide]:event.target.value}))}/>
+          <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:-5}}>If you enter a heading, Ghosty will use it exactly for this slide. Leave it blank for an automatic heading.</div>
+        </Card>
         <PriBtn onClick={generateSlides} loading={loading} disabled={!topic.trim()}><IconLabel name="slides">Generate Slide Deck</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}
       </>}
 
@@ -4564,8 +4588,9 @@ function SlideGeneratorMode({user}){
             {imageError&&<div role="status" style={{marginTop:9,fontSize:11.5,color:C.yellowText,lineHeight:1.5}}>{imageError}</div>}
           </div>
           <div className="studio-grid-2" style={{marginBottom:10}}><FInput label="Deck title" value={deck.title||""} onChange={event=>updateDeckField("title",event.target.value)}/><FInput label="Deck subtitle" value={deck.subtitle||""} onChange={event=>updateDeckField("subtitle",event.target.value)}/></div>
-          <div className="studio-grid-2" style={{marginBottom:10}}><FInput label="Slide eyebrow" value={currentSlide.eyebrow||""} onChange={event=>updateSlideField("eyebrow",event.target.value)}/><FInput label="Slide title — one idea" value={currentSlide.title||""} onChange={event=>updateSlideField("title",event.target.value)}/></div>
-          <FArea label="One supporting line (optional)" value={slideSupportingText(currentSlide)} onChange={event=>updateSlideField("supportingText",event.target.value)} rows={2}/>
+          <div className="studio-grid-2" style={{marginBottom:10}}><FInput label="Slide eyebrow" value={currentSlide.eyebrow||""} onChange={event=>updateSlideField("eyebrow",event.target.value)}/><FInput label="Slide heading / topic" value={currentSlide.title||""} onChange={event=>updateSlideField("title",event.target.value)}/></div>
+          <div style={{marginBottom:12}}><FSelect label="Slide layout" value={currentSlide.layout||"left-third"} onChange={value=>updateSlideField("layout",value)} options={[{value:"left-third",label:"Text left · visual right"},{value:"right-third",label:"Visual left · text right"},{value:"top-third",label:"Heading above · visual below"},{value:"full-bleed",label:"Full-bleed visual"}]}/></div>
+          <FArea label="One supporting line (optional)" value={editableSlideSupportingText(currentSlide)} onChange={event=>updateSlideField("supportingText",event.target.value)} rows={2}/>
           <div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,margin:"-5px 0 11px"}}>Keep the explanation in speaker notes. The slide itself should stay visual and uncluttered.</div>
           <FArea label="Speaker notes" value={currentSlide.speakerNotes||""} onChange={event=>updateSlideField("speakerNotes",event.target.value)} rows={4}/><FArea label="Visual direction" value={currentSlide.visualDirection||""} onChange={event=>updateSlideField("visualDirection",event.target.value)} rows={3}/><div className="studio-grid-2"><FInput label="Visual label" value={currentSlide.visualLabel||""} onChange={event=>updateSlideField("visualLabel",event.target.value)}/><FInput label="Big number (optional)" value={currentSlide.dataValue||""} onChange={event=>updateSlideField("dataValue",event.target.value)}/></div>
         </Card>}
@@ -5039,6 +5064,7 @@ function MainApp(){
   useEffect(()=>{
     if(user){
       localStorage.setItem(SESSION_KEY,JSON.stringify(user));
+      saveProfile(user);
     }else{
       localStorage.removeItem(SESSION_KEY);
     }
@@ -5115,6 +5141,7 @@ function MainApp(){
  const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
   const handleAuth=async u=>{
+    u=mergeSavedProfile(u);
     const sub=await checkSubscription(u.email);
     if(!sub){
       // Server unreachable (network blip / API not deployed) — restore the last
