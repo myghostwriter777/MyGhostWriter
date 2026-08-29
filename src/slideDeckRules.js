@@ -19,7 +19,7 @@ export function resolveSlideCount(details,selected){
   return {count:requested||fallback,overridden:requested!==null};
 }
 
-const ZEN_VISUALS=["fullbleed","big-number","simple-chart","comparison","signal"];
+const ZEN_VISUALS=["fullbleed","big-number","simple-chart","comparison","signal","constellation","steps","gallery"];
 const ZEN_LAYOUTS=["left-third","right-third","top-third","full-bleed"];
 const ZEN_LABEL_VARIANTS={
   context:["Context","Stakes","Frame"],
@@ -57,10 +57,10 @@ export function buildZenBlueprint(topic,count){
     if(index===0)return {label:"Hook",role:"hook",purpose:`Open ${subject} with one memorable tension or promise.`,visualType:"fullbleed",layout:"right-third",isHumorBeat:false};
     if(index===total-1)return {label:"Close",role:"close",purpose:"Resolve the story with one clear takeaway or next action.",visualType:"spotlight",layout:"left-third",isHumorBeat:false};
     if(index===humorIndex)return {label:"Unexpected",role:"unexpected",purpose:"Wake up the audience with one surprising, business-appropriate visual analogy that reinforces the core message.",visualType:"metaphor",layout:"full-bleed",isHumorBeat:true};
-    if(progress<0.27)return {label:"Context",role:"context",purpose:"Give only the context the audience needs to understand the stakes.",visualType:"signal",layout:index%2?"left-third":"right-third",isHumorBeat:false};
+    if(progress<0.27)return {label:"Context",role:"context",purpose:"Give only the context the audience needs to understand the stakes.",visualType:index%2?"gallery":"signal",layout:index%2?"left-third":"right-third",isHumorBeat:false};
     if(progress<0.48)return {label:"Tension",role:"tension",purpose:"Make the cost, conflict, or gap concrete with one focused contrast.",visualType:"comparison",layout:index%2?"right-third":"left-third",isHumorBeat:false};
-    if(progress<0.7)return {label:"Proof",role:"proof",purpose:"Show one example, simple data point, or piece of evidence without chart junk.",visualType:index%2?"big-number":"simple-chart",layout:index%2?"left-third":"right-third",isHumorBeat:false};
-    return {label:"Meaning",role:"insight",purpose:"Turn the evidence into one useful implication and move toward resolution.",visualType:"signal",layout:index%2?"right-third":"left-third",isHumorBeat:false};
+    if(progress<0.7)return {label:"Proof",role:"proof",purpose:"Show one example, simple data point, or piece of evidence without chart junk.",visualType:index%3===0?"constellation":index%2?"big-number":"simple-chart",layout:index%2?"left-third":"right-third",isHumorBeat:false};
+    return {label:"Meaning",role:"insight",purpose:"Turn the evidence into one useful implication and move toward resolution.",visualType:index%2?"steps":"signal",layout:index%2?"right-third":"left-third",isHumorBeat:false};
   });
   const seen={};
   return blueprint.map(item=>{
@@ -85,8 +85,8 @@ export function normalizeZenDeck(deck,blueprint){
         ...slide,
         eyebrow:clipWords(slide?.eyebrow||guide.label||"Key idea",4),
         title:clipWords(slide?.title||guide.purpose||"One clear idea",12),
-        supportingText:clipWords(slide?.supportingText||(slide?.bullets||[])[0]||"",22),
-        bullets:[],
+        supportingText:clipWords(slide?.supportingText||"",28),
+        bullets:(slide?.bullets||[]).map(item=>clipWords(item,16)).filter(Boolean).slice(0,3),
         narrativeRole:guide.role||slide?.narrativeRole||"insight",
         isHumorBeat:!!guide.isHumorBeat,
         visualType,
@@ -94,6 +94,7 @@ export function normalizeZenDeck(deck,blueprint){
         visualLabel:clipWords(slide?.visualLabel||slide?.dataValue||"",5),
         dataValue:clipWords(slide?.dataValue||"",4),
         dataLabel:clipWords(slide?.dataLabel||"",8),
+        sourceUrls:(slide?.sourceUrls||[]).map(value=>String(value||"").trim()).filter(value=>/^https?:\/\//i.test(value)).slice(0,3),
       };
     }),
   };

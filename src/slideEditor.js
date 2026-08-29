@@ -4,13 +4,13 @@ const LAYOUT_DEFAULTS={
   "left-third":{
     eyebrow:{x:6,y:12,width:48},
     title:{x:6,y:25,width:52},
-    supportingText:{x:6,y:74,width:43},
+    supportingText:{x:6,y:62,width:46},
     image:{x:58,y:16,width:34,height:64},
   },
   "right-third":{
     eyebrow:{x:54,y:12,width:40},
     title:{x:48,y:25,width:46},
-    supportingText:{x:54,y:74,width:40},
+    supportingText:{x:52,y:62,width:42},
     image:{x:7,y:16,width:34,height:64},
   },
   "top-third":{

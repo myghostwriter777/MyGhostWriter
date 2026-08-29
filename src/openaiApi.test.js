@@ -119,15 +119,17 @@ describe("Studio AI API route",()=>{
     expect(payload.max_tokens).toBe(12000);
   });
 
-  test("constrains slide decks to Zen copy, layout, and visual fields",async()=>{
+  test("constrains researched slide decks to detailed visual cards and sources",async()=>{
     process.env.ANTHROPIC_API_KEY="test-key";
     global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"title":"Deck"}'}]})});
     const req={method:"POST",body:{system:"Build a Zen deck.",user:"Use one idea per slide.",mode:"slides",max_output_tokens:14000}};const res=mockResponse();
     await handler(req,res);
     const payload=JSON.parse(global.fetch.mock.calls[0][1].body);const slideSchema=payload.output_config.format.schema.properties.slides.items;
     expect(slideSchema.required).toContain("supportingText");
-    expect(slideSchema.required).not.toContain("bullets");
-    expect(slideSchema.properties.visualType.enum).toEqual(["fullbleed","big-number","simple-chart","comparison","signal","spotlight","metaphor"]);
+    expect(slideSchema.required).toContain("bullets");
+    expect(slideSchema.required).toContain("sourceUrls");
+    expect(payload.output_config.format.schema.required).toContain("sources");
+    expect(slideSchema.properties.visualType.enum).toEqual(["fullbleed","big-number","simple-chart","comparison","signal","spotlight","metaphor","constellation","steps","gallery"]);
     expect(slideSchema.properties.layout.enum).toEqual(["left-third","right-third","top-third","full-bleed"]);
     expect(slideSchema.required).toContain("isHumorBeat");
   });

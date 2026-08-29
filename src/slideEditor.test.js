@@ -4,7 +4,7 @@ describe("slide editor geometry",()=>{
   test("uses layout-aware defaults",()=>{
     expect(defaultSlideElementPosition("right-third","title")).toEqual({x:48,y:25,width:46});
     expect(defaultSlideElementPosition("missing","image")).toEqual({x:58,y:16,width:34,height:64});
-    expect(defaultSlideElementPosition("left-third","supportingText").y).toBeGreaterThan(70);
+    expect(defaultSlideElementPosition("left-third","supportingText").y).toBeGreaterThan(55);
   });
 
   test("normalizes images inside the canvas",()=>{
