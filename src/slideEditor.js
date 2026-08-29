@@ -2,32 +2,52 @@ const clamp=(value,min,max)=>Math.min(max,Math.max(min,Number(value)||0));
 
 const LAYOUT_DEFAULTS={
   "left-third":{
-    eyebrow:{x:6,y:12,width:48},
-    title:{x:6,y:25,width:52},
-    supportingText:{x:6,y:62,width:46},
-    image:{x:58,y:16,width:34,height:64},
+    eyebrow:{x:5,y:13,width:51},
+    title:{x:5,y:36,width:52},
+    supportingText:{x:5,y:64,width:52},
+    image:{x:61,y:0,width:39,height:100},
   },
   "right-third":{
-    eyebrow:{x:54,y:12,width:40},
-    title:{x:48,y:25,width:46},
-    supportingText:{x:52,y:62,width:42},
-    image:{x:7,y:16,width:34,height:64},
+    eyebrow:{x:44,y:8,width:51},
+    title:{x:44,y:17,width:51},
+    supportingText:{x:44,y:39,width:51},
+    image:{x:0,y:0,width:38,height:100},
   },
   "top-third":{
-    eyebrow:{x:8,y:8,width:70},
-    title:{x:8,y:18,width:76},
-    supportingText:{x:8,y:58,width:48},
-    image:{x:57,y:38,width:36,height:52},
+    eyebrow:{x:5,y:6,width:90},
+    title:{x:5,y:14,width:90},
+    supportingText:{x:5,y:72,width:90},
+    image:{x:29,y:29,width:42,height:38},
   },
   "full-bleed":{
-    eyebrow:{x:7,y:55,width:44},
-    title:{x:7,y:64,width:50},
-    supportingText:{x:7,y:83,width:44},
-    image:{x:57,y:12,width:36,height:72},
+    eyebrow:{x:5,y:35,width:52},
+    title:{x:5,y:46,width:52},
+    supportingText:{x:5,y:76,width:52},
+    image:{x:58,y:0,width:42,height:100},
   },
 };
 
-export const editableSlideSupportingText=slide=>String(slide?.supportingText??slide?.bullets?.[0]??"");
+const EDITORIAL_DEFAULTS={
+  "hero-image":LAYOUT_DEFAULTS["left-third"],
+  "image-cards":LAYOUT_DEFAULTS["right-third"],
+  process:{
+    eyebrow:{x:5,y:6,width:90},title:{x:5,y:14,width:90},supportingText:{x:5,y:79,width:90},image:{x:29,y:28,width:42,height:43},
+  },
+  "image-detail":{
+    eyebrow:{x:66,y:4,width:29},title:{x:66,y:10,width:29},supportingText:{x:66,y:47,width:29},image:{x:5,y:27,width:57,height:62},
+  },
+  "icon-columns":{
+    eyebrow:{x:5,y:10,width:90},title:{x:5,y:19,width:90},supportingText:{x:5,y:43,width:90},image:{x:5,y:40,width:90,height:42},
+  },
+  equation:{
+    eyebrow:{x:5,y:3,width:90},title:{x:5,y:8,width:90},supportingText:{x:52,y:39,width:43},image:{x:5,y:35,width:44,height:43},
+  },
+  "takeaway-grid":{
+    eyebrow:{x:44,y:7,width:51},title:{x:44,y:15,width:51},supportingText:{x:44,y:35,width:51},image:{x:0,y:0,width:38,height:100},
+  },
+};
+
+export const editableSlideSupportingText=slide=>String(slide?.supportingText??"");
 
 export const slideTitleScale=value=>{
   const text=String(value||"").replace(/\s+/g," ").trim();
@@ -39,9 +59,15 @@ export const slideTitleScale=value=>{
   return 1;
 };
 
-export const defaultSlideElementPosition=(layout,key)=>{
-  const defaults=LAYOUT_DEFAULTS[layout]||LAYOUT_DEFAULTS["left-third"];
-  return {...(defaults[key]||defaults.image)};
+export const defaultSlideElementPosition=(layout,key,slide)=>{
+  const defaults=EDITORIAL_DEFAULTS[slide?.visualType]||LAYOUT_DEFAULTS[layout]||LAYOUT_DEFAULTS["left-third"];
+  const fallback={...(defaults[key]||defaults.image)};
+  if(key!=="supportingText"||!slide?.title)return fallback;
+  const title=defaults.title;const scale=slideTitleScale(slide.title);
+  const charactersPerLine=Math.max(12,Math.round(title.width*(scale<.7?.78:.58)));
+  const estimatedLines=Math.max(1,Math.min(5,Math.ceil(String(slide.title).length/charactersPerLine)));
+  const safeTop=title.y+estimatedLines*(8.2*scale)+4;
+  return {...fallback,y:Math.min(86,Math.max(fallback.y,safeTop))};
 };
 
 export const normalizeSlideElementPosition=(value,fallback,{image=false}={})=>{

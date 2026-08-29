@@ -19,83 +19,79 @@ export function resolveSlideCount(details,selected){
   return {count:requested||fallback,overridden:requested!==null};
 }
 
-const ZEN_VISUALS=["fullbleed","big-number","simple-chart","comparison","signal","constellation","steps","gallery"];
-const ZEN_LAYOUTS=["left-third","right-third","top-third","full-bleed"];
-const ZEN_LABEL_VARIANTS={
-  context:["Context","Stakes","Frame"],
-  tension:["Tension","Contrast","Friction"],
-  proof:["Proof","Evidence","Example"],
-  insight:["Meaning","Implication","Takeaway"],
+export const EDITORIAL_VISUALS=["hero-image","image-cards","process","image-detail","icon-columns","equation","takeaway-grid"];
+const EDITORIAL_LAYOUTS=["left-third","right-third","top-third","full-bleed"];
+const LEGACY_VISUAL_MAP={
+  fullbleed:"hero-image",
+  gallery:"image-detail",
+  comparison:"image-cards",
+  metaphor:"process",
+  constellation:"process",
+  steps:"process",
+  "big-number":"equation",
+  "simple-chart":"equation",
+  signal:"takeaway-grid",
+  spotlight:"takeaway-grid",
 };
 
-const ZEN_PREVIEW_HEADINGS={
-  hook:"Start with the tension",
-  context:"Only the context that matters",
-  tension:"Bring the gap into focus",
-  proof:"One signal changes the picture",
-  unexpected:"See it from a surprising angle",
-  insight:"What the evidence really means",
-  close:"Make the next move clear",
-};
+const EDITORIAL_SEQUENCE=[
+  {label:"Why it matters",role:"context",purpose:"Explain why the topic matters with an illustrated scene and two clear evidence cards.",visualType:"image-cards",layout:"right-third"},
+  {label:"Core process",role:"process",purpose:"Reduce the central mechanism to two or three linked stages with simple symbols.",visualType:"process",layout:"top-third"},
+  {label:"Inside the idea",role:"detail",purpose:"Use one close-up illustration and concise explanatory copy to make the idea concrete.",visualType:"image-detail",layout:"right-third"},
+  {label:"Key components",role:"components",purpose:"Organize three important details into evenly spaced icon-led columns.",visualType:"icon-columns",layout:"top-third"},
+  {label:"Evidence",role:"evidence",purpose:"Feature one equation, number, quotation, or compact proof card with a plain-language breakdown.",visualType:"equation",layout:"top-third"},
+];
 
 const clipWords=(value,limit)=>{
   const words=String(value||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);
   return words.length<=limit?words.join(" "):`${words.slice(0,limit).join(" ")}…`;
 };
 
-export function zenHumorIndex(count){
-  const total=Math.max(1,Number(count)||1);
-  return total<3?-1:Math.min(total-2,Math.max(1,Math.round((total-1)*0.62)));
-}
-
-export function buildZenBlueprint(topic,count){
+export function buildEditorialBlueprint(topic,count){
   const subject=String(topic||"").trim()||"Your presentation";
   const total=Math.max(1,Number(count)||1);
-  const humorIndex=zenHumorIndex(total);
-  const blueprint=Array.from({length:total},(_,index)=>{
-    const progress=total===1?1:index/(total-1);
-    if(index===0)return {label:"Hook",role:"hook",purpose:`Open ${subject} with one memorable tension or promise.`,visualType:"fullbleed",layout:"right-third",isHumorBeat:false};
-    if(index===total-1)return {label:"Close",role:"close",purpose:"Resolve the story with one clear takeaway or next action.",visualType:"spotlight",layout:"left-third",isHumorBeat:false};
-    if(index===humorIndex)return {label:"Unexpected",role:"unexpected",purpose:"Wake up the audience with one surprising, business-appropriate visual analogy that reinforces the core message.",visualType:"metaphor",layout:"full-bleed",isHumorBeat:true};
-    if(progress<0.27)return {label:"Context",role:"context",purpose:"Give only the context the audience needs to understand the stakes.",visualType:index%2?"gallery":"signal",layout:index%2?"left-third":"right-third",isHumorBeat:false};
-    if(progress<0.48)return {label:"Tension",role:"tension",purpose:"Make the cost, conflict, or gap concrete with one focused contrast.",visualType:"comparison",layout:index%2?"right-third":"left-third",isHumorBeat:false};
-    if(progress<0.7)return {label:"Proof",role:"proof",purpose:"Show one example, simple data point, or piece of evidence without chart junk.",visualType:index%3===0?"constellation":index%2?"big-number":"simple-chart",layout:index%2?"left-third":"right-third",isHumorBeat:false};
-    return {label:"Meaning",role:"insight",purpose:"Turn the evidence into one useful implication and move toward resolution.",visualType:index%2?"steps":"signal",layout:index%2?"right-third":"left-third",isHumorBeat:false};
+  if(total===1)return [{label:"Cover",role:"hook",purpose:`Introduce ${subject} with a memorable headline and one topic-specific illustration.`,visualType:"hero-image",layout:"left-third"}];
+  const middleCount=Math.max(0,total-2);const occurrences={};
+  const middle=Array.from({length:middleCount},(_,index)=>{
+    const template=EDITORIAL_SEQUENCE[index%EDITORIAL_SEQUENCE.length];
+    const occurrence=occurrences[template.role]||0;occurrences[template.role]=occurrence+1;
+    return {...template,label:occurrence?`${template.label} ${occurrence+1}`:template.label};
   });
-  const seen={};
-  return blueprint.map(item=>{
-    const occurrence=seen[item.role]||0;seen[item.role]=occurrence+1;
-    const variants=ZEN_LABEL_VARIANTS[item.role];
-    const label=variants?(variants[occurrence]||`${variants[variants.length-1]} ${occurrence+1}`):item.label;
-    return {...item,label,heading:ZEN_PREVIEW_HEADINGS[item.role]||"One clear idea at a time"};
-  });
+  return [
+    {label:"Cover",role:"hook",purpose:`Introduce ${subject} with a memorable headline and one topic-specific illustration.`,visualType:"hero-image",layout:"left-third"},
+    ...middle,
+    {label:"Takeaway",role:"close",purpose:"Resolve the deck with one memorable takeaway and a compact recap of the most important ideas.",visualType:"takeaway-grid",layout:"right-third"},
+  ];
 }
 
-export function normalizeZenDeck(deck,blueprint){
+export function normalizeEditorialDeck(deck,blueprint){
   const guides=Array.isArray(blueprint)?blueprint:[];
   return {
     ...deck,
-    title:clipWords(deck?.title||"Slide Deck",10),
-    subtitle:clipWords(deck?.subtitle||"",18),
+    title:clipWords(deck?.title||"Slide Deck",12),
+    subtitle:clipWords(deck?.subtitle||"",24),
     slides:(deck?.slides||[]).slice(0,guides.length||undefined).map((slide,index)=>{
       const guide=guides[index]||{};
-      const visualType=guide.isHumorBeat?"metaphor":(ZEN_VISUALS.includes(slide?.visualType)||slide?.visualType==="spotlight"||slide?.visualType==="metaphor"?slide.visualType:guide.visualType||"signal");
-      const layout=ZEN_LAYOUTS.includes(slide?.layout)?slide.layout:guide.layout||"left-third";
+      const requestedVisual=LEGACY_VISUAL_MAP[slide?.visualType]||slide?.visualType;
+      const visualType=EDITORIAL_VISUALS.includes(requestedVisual)?requestedVisual:(guide.visualType||"image-detail");
+      const layout=EDITORIAL_LAYOUTS.includes(slide?.layout)?slide.layout:(guide.layout||"left-third");
       return {
         ...slide,
-        eyebrow:clipWords(slide?.eyebrow||guide.label||"Key idea",4),
+        eyebrow:clipWords(slide?.eyebrow||guide.label||"Key idea",5),
         title:clipWords(slide?.title||guide.purpose||"One clear idea",12),
-        supportingText:clipWords(slide?.supportingText||"",28),
-        bullets:(slide?.bullets||[]).map(item=>clipWords(item,16)).filter(Boolean).slice(0,3),
-        narrativeRole:guide.role||slide?.narrativeRole||"insight",
-        isHumorBeat:!!guide.isHumorBeat,
+        supportingText:clipWords(slide?.supportingText||"",34),
+        bullets:(slide?.bullets||[]).map(item=>clipWords(item,24)).filter(Boolean).slice(0,3),
+        narrativeRole:guide.role||slide?.narrativeRole||"detail",
+        isHumorBeat:false,
         visualType,
         layout,
-        visualLabel:clipWords(slide?.visualLabel||slide?.dataValue||"",5),
-        dataValue:clipWords(slide?.dataValue||"",4),
-        dataLabel:clipWords(slide?.dataLabel||"",8),
-        sourceUrls:(slide?.sourceUrls||[]).map(value=>String(value||"").trim()).filter(value=>/^https?:\/\//i.test(value)).slice(0,3),
+        visualLabel:clipWords(slide?.visualLabel||slide?.dataValue||"",8),
+        dataValue:clipWords(slide?.dataValue||"",12),
+        dataLabel:clipWords(slide?.dataLabel||"",14),
+        sourceUrls:(slide?.sourceUrls||[]).map(value=>String(value||"").trim()).filter(value=>/^https?:\/\//i.test(value)).slice(0,4),
       };
     }),
   };
 }
+
+export const slideNeedsIllustration=slide=>["hero-image","image-cards","image-detail","takeaway-grid"].includes(slide?.visualType);

@@ -2,9 +2,11 @@ import {defaultSlideElementPosition,editableSlideSupportingText,moveSlideElement
 
 describe("slide editor geometry",()=>{
   test("uses layout-aware defaults",()=>{
-    expect(defaultSlideElementPosition("right-third","title")).toEqual({x:48,y:25,width:46});
-    expect(defaultSlideElementPosition("missing","image")).toEqual({x:58,y:16,width:34,height:64});
+    expect(defaultSlideElementPosition("right-third","title")).toEqual({x:44,y:17,width:51});
+    expect(defaultSlideElementPosition("missing","image")).toEqual({x:61,y:0,width:39,height:100});
     expect(defaultSlideElementPosition("left-third","supportingText").y).toBeGreaterThan(55);
+    expect(defaultSlideElementPosition("top-third","image",{visualType:"image-detail"})).toEqual({x:5,y:27,width:57,height:62});
+    expect(defaultSlideElementPosition("right-third","supportingText",{visualType:"image-cards",title:"A title that wraps onto several lines in the narrow text column"}).y).toBeGreaterThanOrEqual(39);
   });
 
   test("normalizes images inside the canvas",()=>{
@@ -22,7 +24,7 @@ describe("slide editor geometry",()=>{
 
   test("preserves spaces while supporting text is being edited",()=>{
     expect(editableSlideSupportingText({supportingText:"Hello, "})).toBe("Hello, ");
-    expect(editableSlideSupportingText({bullets:["Fallback line"]})).toBe("Fallback line");
+    expect(editableSlideSupportingText({bullets:["A separate key point"]})).toBe("");
   });
 
   test("scales long headings down without shrinking short headings",()=>{

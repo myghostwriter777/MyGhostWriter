@@ -108,10 +108,10 @@ const STRUCTURED_OUTPUTS = {
         visualDirection: text,
         visualType: {
           type: "string",
-          enum: ["fullbleed", "big-number", "simple-chart", "comparison", "signal", "spotlight", "metaphor", "constellation", "steps", "gallery"],
+          enum: ["hero-image", "image-cards", "process", "image-detail", "icon-columns", "equation", "takeaway-grid"],
         },
         layout: { type: "string", enum: ["left-third", "right-third", "top-third", "full-bleed"] },
-        narrativeRole: { type: "string", enum: ["hook", "context", "tension", "proof", "insight", "unexpected", "resolution", "close"] },
+        narrativeRole: { type: "string", enum: ["hook", "context", "process", "detail", "components", "evidence", "insight", "resolution", "close"] },
         isHumorBeat: { type: "boolean" },
         visualLabel: text,
         dataValue: text,

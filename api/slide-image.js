@@ -6,12 +6,12 @@ const MODELS=["bfl/flux-2-flex","openai/gpt-image-2"];
 
 function buildSlideImagePrompt({title="",direction="",theme="",layout="left-third"}={}){
   const emptySpace=layout==="right-third"?"right side":layout==="top-third"?"upper third":"left side";
-  return `Create one publication-quality widescreen presentation visual in a refined ${theme||"editorial"} art direction.
+  return `Create one publication-quality widescreen editorial illustration in a refined ${theme||"editorial"} art direction. The finish should resemble a premium educational magazine: confident hand-drawn linework, carefully painted color, dimensional lighting, rich topic-specific detail, and a clean contemporary composition. It must feel authored and illustrative, never like generic stock photography, clip art, a 3D icon pack, or an abstract placeholder.
 
 SUBJECT: ${title}
 VISUAL BRIEF: ${direction||"A topic-specific scene that communicates the core idea instantly."}
 
-Compose for a 16:9 slide with the main subject away from the ${emptySpace}, leaving calm negative space there for editable presentation text. Use a clear focal point, layered depth, controlled contrast, sophisticated lighting, and a cohesive limited palette. Make the image feel art-directed and specific rather than generic stock imagery.
+Compose for a 16:9 slide with the main subject away from the ${emptySpace}, leaving calm negative space there for editable presentation text. Use a clear focal point, layered foreground and background, controlled contrast, and a cohesive limited palette. Where appropriate, let foliage, architecture, clouds, terrain, or another scene element create an organic curved edge that can meet the slide background gracefully. Depict the concrete subject named in the brief accurately.
 
 Do not include words, letters, numbers, charts, UI, logos, watermarks, borders, slide frames, or signatures. Do not imitate a named artist or copyrighted character.`;
 }

@@ -129,7 +129,7 @@ describe("Studio AI API route",()=>{
     expect(slideSchema.required).toContain("bullets");
     expect(slideSchema.required).toContain("sourceUrls");
     expect(payload.output_config.format.schema.required).toContain("sources");
-    expect(slideSchema.properties.visualType.enum).toEqual(["fullbleed","big-number","simple-chart","comparison","signal","spotlight","metaphor","constellation","steps","gallery"]);
+    expect(slideSchema.properties.visualType.enum).toEqual(["hero-image","image-cards","process","image-detail","icon-columns","equation","takeaway-grid"]);
     expect(slideSchema.properties.layout.enum).toEqual(["left-third","right-third","top-third","full-bleed"]);
     expect(slideSchema.required).toContain("isHumorBeat");
   });
