@@ -10,6 +10,7 @@ import { audioBlobToMono16k } from "./localAudio";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
 import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
+import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
 import { buildEditorialBlueprint, normalizeEditorialDeck, resolveSlideCount, slideNeedsIllustration } from "./slideDeckRules";
 import { isComingSoonForUser } from "./featureAvailability";
 import { getTarotCardArt } from "./tarotCardAssets";
@@ -593,8 +594,16 @@ async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=nu
     if(r.status===529)throw new Error("Our AI provider is a little overloaded right now. Please try again in a moment.");
     const err=await r.json().catch(()=>({}));throw new Error(err?.error?.message||"API error "+r.status);
   }
-  const d=await r.json();
-  return d.content?.map(b=>b.text||"").join("")||"";
+  const d=await r.json();const text=d.content?.map(b=>b.text||"").join("")||"";
+  return opts.returnMetadata?{text,stopReason:d.stop_reason||""}:text;
+}
+
+async function callHumanizePass(system,user,maxTokens){
+  const response=await callClaude(system,user,maxTokens,null,null,{returnMetadata:true});
+  if(response.stopReason==="max_tokens"){
+    const error=new Error("The rewrite ended before it was complete.");error.code="HUMANIZE_RESPONSE_INCOMPLETE";throw error;
+  }
+  return parseHumanizeResponse(response.text);
 }
 
 // The three Pro studio tools use OpenAI's Responses API through a dedicated
@@ -3550,14 +3559,26 @@ function HumanizeMode({user}){
     if(!text.trim())return;setPhase("pass1");setError("");setRes(null);
     const cleanedSource=removeBracketedNumberCitations(text);
     const iMap={light:"Fix 3 to 5 obvious AI patterns. Keep original structure.",moderate:"Rewrite most sentences. Break up long ones. Same meaning but feels human.",deep:"Fully rewrite. Sound like a real "+LD[level]+" English speaker. Unrecognizable as AI."};
-    const p1sys="You are an expert at making AI-written text sound like a real human wrote it.\\n\\n"+RULES+"\\n\\nReturn ONLY valid JSON with no markdown fences:\\n{\"humanized\":\"the rewritten text\",\"changes\":[{\"what\":\"short label\",\"why\":\"why this sounds more human\"}]}";
+    const p1sys="You are an expert at making AI-written text sound like a real human wrote it.\\n\\n"+RULES+"\\n\\nReturn ONLY valid JSON with no markdown fences:\\n{\"humanized\":\"the complete rewritten text\",\"changes\":[{\"what\":\"short label\",\"why\":\"short reason\"}]}\\nThe humanized field must contain the complete text. Keep changes to at most four short items. If space is limited, return an empty changes array rather than shortening the humanized text.";
     let p1;
-    try{const r1=await callClaude(p1sys,"Intensity: "+intensity+" — "+iMap[intensity]+"\\n\\nOriginal text with numeric bracket citations removed:\\n"+cleanedSource,2000);p1=JSON.parse(r1.replace(/```json|```/g,"").trim());}
-    catch(e){setError("Pass 1 error: "+(e?.message||"unknown"));setPhase("");return;}
+    const passOnePrompt="Intensity: "+intensity+" — "+iMap[intensity]+"\\n\\nOriginal text with numeric bracket citations removed:\\n"+cleanedSource;
+    const passOneBudget=humanizeOutputTokenBudget(cleanedSource);
+    try{
+      try{p1=await callHumanizePass(p1sys,passOnePrompt,passOneBudget);}
+      catch(firstError){
+        if(!isRetryableHumanizeResponseError(firstError))throw firstError;
+        const retryBudget=Math.min(8192,Math.max(6000,passOneBudget+1400));
+        p1=await callHumanizePass(p1sys+"\\n\\nRETRY REQUIREMENT: The previous response was incomplete or malformed. Return one complete JSON object. Escape paragraph breaks inside JSON strings and finish the humanized field before adding any change notes.",passOnePrompt,retryBudget);
+      }
+    }
+    catch(e){
+      setError(isRetryableHumanizeResponseError(e)?"Ghosty could not finish this long rewrite after retrying. Your original text is still here, so you can press Humanize again or process it in two sections.":(e?.message||"Humanize could not reach the writing service. Please try again."));
+      setPhase("");return;
+    }
     setPhase("pass2");
     const p2sys="You are a strict human-writing reviewer. Make the writing clearer and simpler. Remove every rhetorical question the rewrite introduced. Do not add numeric citations in square brackets.\\n\\n"+RULES+"\\n\\nReturn ONLY valid JSON:\\n{\"humanized\":\"reviewed text\",\"note\":\"one short sentence\"}";
     let finalText,note;
-    try{const r2=await callClaude(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\\n\\n"+p1.humanized,2000);const d2=JSON.parse(r2.replace(/```json|```/g,"").trim());finalText=d2.humanized||p1.humanized;note=d2.note||"";}
+    try{const d2=await callHumanizePass(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\\n\\n"+p1.humanized,humanizeOutputTokenBudget(p1.humanized));finalText=d2.humanized||p1.humanized;note=d2.note||"";}
     catch(e){finalText=p1.humanized;note="";}
     finalText=cleanHumanizedFormatting(removeBracketedNumberCitations(finalText));
     finalText=limitQuestionsToSource(finalText,cleanedSource);
