@@ -11,6 +11,9 @@ import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
 import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
+import AiDetectionPanel from "./AiDetectionPanel";
+import { AI_DETECTION_SYSTEM } from "./aiDetection";
+import { loadPdfJs, preparePresentationPdf, PRESENTATION_PDF_MAX_MB, presentationSourceInstructions } from "./presentationPdf";
 import { buildEditorialBlueprint, normalizeEditorialDeck, resolveSlideCount, slideNeedsIllustration } from "./slideDeckRules";
 import { isComingSoonForUser } from "./featureAvailability";
 import { getTarotCardArt } from "./tarotCardAssets";
@@ -606,22 +609,24 @@ async function callHumanizePass(system,user,maxTokens){
   return parseHumanizeResponse(response.text);
 }
 
-// The three Pro studio tools use OpenAI's Responses API through a dedicated
+// The studio tools use Anthropic's document API through a dedicated
 // server route. Files stay in memory for the request and are never written to
 // localStorage or the history database. The server owns the model allowlist,
 // token cap, file validation, and API secret.
 async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",opts={}){
   assertAIAvailable();
   const controller=new AbortController();const timeoutMs=Math.max(15000,Number(opts.timeoutMs)||120000);const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+  const cancel=()=>controller.abort();
+  if(opts.signal?.aborted)cancel();else opts.signal?.addEventListener("abort",cancel,{once:true});
   let r;
   try{r=await fetch("/api/openai",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       signal:controller.signal,
-      body:JSON.stringify({system:system+HUMAN_STYLE+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
+      body:JSON.stringify({system:system+(opts.mode==="ai-detection"?"":HUMAN_STYLE)+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
     });}
   catch(error){if(error?.name==="AbortError")throw new Error("This generation took too long and was safely stopped. Please try again with fewer sections or a shorter source.");throw error;}
-  finally{clearTimeout(timeout);}
+  finally{clearTimeout(timeout);opts.signal?.removeEventListener("abort",cancel);}
   const d=await r.json().catch(()=>({}));
   if(!r.ok){
     if(r.status===413)throw new Error("The prepared sources are still too large for one request. Remove one source or split a very long document.");
@@ -631,6 +636,8 @@ async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",
   if(opts.returnMetadata)return{text:d.output_text||"",sources:Array.isArray(d.sources)?d.sources:[]};
   return d.output_text||"";
 }
+
+const analyzeAiContent=(text,signal)=>callStudioAI(AI_DETECTION_SYSTEM,`Analyze only the writing in this JSON string:\n${JSON.stringify(text)}`,1400,[],"",{mode:"ai-detection",signal,timeoutMs:60000});
 
 const parseStudioJson=raw=>{
   const cleaned=String(raw||"").replace(/```json|```/gi,"").trim();
@@ -652,7 +659,6 @@ const studioFileSummary=files=>(files||[]).map(f=>({name:f.name,type:f.type,data
 const STUDY_FILE_LIMIT_MB=12;
 const STUDY_FILE_LIMIT_BYTES=STUDY_FILE_LIMIT_MB*1024*1024;
 const STUDY_TEXT_LIMIT=115000;
-let pdfJsPromise;
 
 const textDataUrl=value=>{
   const bytes=new TextEncoder().encode(String(value||""));let binary="";
@@ -682,8 +688,7 @@ const compactStudyImage=async file=>{
 };
 
 const extractStudyPdf=async file=>{
-  pdfJsPromise||=import("pdfjs-dist/build/pdf.mjs").then(pdfjs=>{pdfjs.GlobalWorkerOptions.workerSrc=`${process.env.PUBLIC_URL||""}/pdf.worker.min.mjs`;return pdfjs;});
-  const pdfjs=await pdfJsPromise;const bytes=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjs.getDocument({data:bytes}).promise;
+  const pdfjs=await loadPdfJs();const bytes=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjs.getDocument({data:bytes}).promise;
   const pages=[];let length=0;
   for(let pageNumber=1;pageNumber<=pdf.numPages&&length<STUDY_TEXT_LIMIT;pageNumber++){
     const page=await pdf.getPage(pageNumber);const content=await page.getTextContent();
@@ -937,13 +942,13 @@ function StudioChoice({active,onClick,icon,title,description,swatch}){
   );
 }
 
-function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=false,maxFileMB=4,prepareFile}){
+function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=false,maxFileMB=4,prepareFile,onPreparingChange,disabled=false}){
   const inputRef=useRef(null);const [error,setError]=useState("");const [dragging,setDragging]=useState(false);const [preparing,setPreparing]=useState(false);
   const addFiles=async list=>{
-    const incoming=Array.from(list||[]);if(!incoming.length)return;
-    setError("");setPreparing(true);
+    const incoming=Array.from(list||[]);if(!incoming.length||preparing||disabled)return;
+    setError("");setPreparing(true);onPreparingChange?.(true);
     const room=Math.max(0,maxFiles-(files?.length||0));
-    if(room===0){setError("Remove a file before adding another.");setPreparing(false);return;}
+    if(room===0){setError("Remove a file before adding another.");setPreparing(false);onPreparingChange?.(false);return;}
     const chosen=incoming.slice(0,room);const next=[];
     for(const file of chosen){
       if(file.size>maxFileMB*1024*1024){setError(file.name+` is over the ${maxFileMB} MB limit.`);continue;}
@@ -953,22 +958,22 @@ function StudioFileDrop({label,hint,accept,files,onChange,maxFiles=1,required=fa
       }catch(e){setError(e?.message||("Couldn't read "+file.name+". Try another file."));}
     }
     if(next.length)onChange([...(files||[]),...next].slice(0,maxFiles));
-    if(inputRef.current)inputRef.current.value="";setPreparing(false);
+    if(inputRef.current)inputRef.current.value="";setPreparing(false);onPreparingChange?.(false);
   };
   return(
     <div style={{marginBottom:12}}>
       <label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase"}}>{label}{required&&<span style={{color:C.redText}}> *</span>}</label>
-      <input ref={inputRef} type="file" accept={accept} multiple={maxFiles>1} disabled={preparing} onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
+      <input ref={inputRef} aria-label={label} type="file" accept={accept} multiple={maxFiles>1} disabled={preparing||disabled} onChange={e=>addFiles(e.target.files)} style={{display:"none"}}/>
       <div aria-busy={preparing} onDragEnter={e=>{e.preventDefault();if(!preparing)setDragging(true);}} onDragOver={e=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);if(!preparing)addFiles(e.dataTransfer.files);}} style={{border:`1px dashed ${dragging?C.blue:C.border}`,background:dragging?C.accentSoft:C.surface,borderRadius:10,padding:"12px",transition:"border-color 0.2s,background 0.2s",opacity:preparing?0.78:1}}>
         {(files||[]).length===0?(
-            <button type="button" disabled={preparing} onClick={()=>inputRef.current?.click()} style={{width:"100%",minHeight:64,border:0,background:"transparent",color:C.muted,cursor:preparing?"wait":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,textAlign:"left"}}>
+            <button type="button" disabled={preparing||disabled} onClick={()=>inputRef.current?.click()} style={{width:"100%",minHeight:64,border:0,background:"transparent",color:C.muted,cursor:preparing?"wait":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,textAlign:"left"}}>
               <span style={{width:38,height:38,borderRadius:11,background:C.card,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{preparing?<Spin size={18} color={C.blue}/>:<GwmIcon name="upload" size={20}/>}</span>
-              <span><span style={{display:"block",fontSize:13,fontWeight:800,color:C.text}}>{preparing?"Preparing your source…":`Drop or choose ${maxFiles>1?"files":"a file"}`}</span><span style={{fontSize:12,color:C.muted,lineHeight:1.4}}>{preparing?"Large documents are compacted securely on this device.":hint}</span></span>
+              <span><span style={{display:"block",fontSize:13,fontWeight:800,color:C.text}}>{preparing?"Preparing your source…":`Drop or choose ${maxFiles>1?"files":"a file"}`}</span><span style={{fontSize:12,color:C.muted,lineHeight:1.4}}>{preparing?"Reading your source on this device.":hint}</span></span>
           </button>
         ):(
           <div style={{display:"flex",flexDirection:"column",gap:7}}>
-            {files.map((file,index)=><div key={file.name+index} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 9px"}}><span style={{width:30,height:30,borderRadius:8,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={file.type?.startsWith("image/")?"image":"file"} size={16}/></span><span style={{minWidth:0,flex:1}}><span style={{display:"block",fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{file.name}</span><span style={{display:"block",fontSize:11,color:C.muted}}>{Math.max(1,Math.round(file.size/1024))} KB{file.preparedLabel?` · ${file.preparedLabel}`:""}</span></span><button type="button" aria-label={`Remove ${file.name}`} onClick={()=>onChange(files.filter((_,i)=>i!==index))} style={{width:32,height:32,border:0,borderRadius:8,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div>)}
-            {files.length<maxFiles&&<button type="button" disabled={preparing} onClick={()=>inputRef.current?.click()} style={{minHeight:38,border:`1px solid ${C.border}`,borderRadius:8,background:"transparent",color:C.blueText,cursor:preparing?"wait":"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}><IconLabel name="upload">{preparing?"Preparing…":"Add another"}</IconLabel></button>}
+            {files.map((file,index)=><div key={file.name+index} style={{display:"flex",alignItems:"center",gap:8,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 9px"}}><span style={{width:30,height:30,borderRadius:8,background:C.accentSoft,color:C.blueText,display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name={file.type?.startsWith("image/")?"image":"file"} size={16}/></span><span style={{minWidth:0,flex:1}}><span style={{display:"block",fontSize:12.5,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{file.name}</span><span style={{display:"block",fontSize:11,color:C.muted}}>{Math.max(1,Math.round(file.size/1024))} KB{file.preparedLabel?` · ${file.preparedLabel}`:""}</span></span><button type="button" aria-label={`Remove ${file.name}`} disabled={preparing||disabled} onClick={()=>onChange(files.filter((_,i)=>i!==index))} style={{width:32,height:32,border:0,borderRadius:8,background:"transparent",color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={14}/></button></div>)}
+            {files.length<maxFiles&&<button type="button" disabled={preparing||disabled} onClick={()=>inputRef.current?.click()} style={{minHeight:38,border:`1px solid ${C.border}`,borderRadius:8,background:"transparent",color:C.blueText,cursor:preparing?"wait":"pointer",fontFamily:"inherit",fontSize:12,fontWeight:800}}><IconLabel name="upload">{preparing?"Preparing…":"Add another"}</IconLabel></button>}
           </div>
         )}
       </div>
@@ -3546,7 +3551,7 @@ function AuthorMode({user}){
   );
 }
 
-function HumanizeMode({user}){
+export function HumanizeMode({user}){
   const [hAccepted,setHAccepted]=useState(()=>isNoticeAccepted("humanize"));
   const [showHNotice,setShowHNotice]=useState(()=>!isNoticeAccepted("humanize"));
   const [text,setText]=useState("");const [level,setLevel]=useState("B2");const [intensity,setIntensity]=useState("moderate");const [purpose,setPurpose]=useState("essay");const [res,setRes]=useState(null);const [phase,setPhase]=useState("");const [error,setError]=useState("");const [view,setView]=useState("output");const [hzHover,setHzHover]=useState(false);
@@ -3607,6 +3612,7 @@ function HumanizeMode({user}){
         <div><div style={{fontSize:13,fontWeight:800,color:C.violet,marginBottom:2}}>Humanize My Writing — Master Exclusive</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5}}>Uses level-matched vocabulary, clearer sentence structure, and clean plain-text formatting while preserving your meaning.</div></div>
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
+      <AiDetectionPanel text={text} rewrittenText={res?.humanized} analyze={analyzeAiContent} disabled={isLoading}/>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]} · {(["A1","A2","B1"].includes(level)?"common words and short sentences · ":"")}{["A1","A2","B1","B2"].includes(level)?"no rhetorical questions":"natural advanced phrasing"}</div></div>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={p.icon} size={18} color={purpose===p.id?C.violet:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:4}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
       <div style={{marginBottom:14}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Transformation Intensity</div>{INTENSITIES.map(iv=>(<div key={iv.id} onClick={()=>setIntensity(iv.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:intensity===iv.id?C.violetSoft:C.surface,border:`1px solid ${intensity===iv.id?C.violet:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",marginBottom:6}}><div><div style={{fontSize:13,fontWeight:700,color:intensity===iv.id?C.violet:C.text}}>{iv.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{iv.desc}</div></div><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${intensity===iv.id?C.violet:C.border}`,background:intensity===iv.id?C.violet:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{intensity===iv.id&&<div style={{width:7,height:7,borderRadius:"50%",background:"#000"}}/>}</div></div>))}</div>
@@ -4148,12 +4154,13 @@ const presentationAsText=result=>{
 
 const PRESENTATION_TIME_PRESETS=["5","10","15","20","30"];
 
-function PresentationMode({user}){
+export function PresentationMode({user}){
   const cacheKey="gwm_presentation_result_"+String(user?.email||"guest").trim().toLowerCase();
   const [workflow,setWorkflow]=useState("create");
   const [topic,setTopic]=useState("");const [audience,setAudience]=useState("");const [details,setDetails]=useState("");
   const [groupSize,setGroupSize]=useState("3");const [sectionCount,setSectionCount]=useState("6");const [duration,setDuration]=useState("10");const [customDuration,setCustomDuration]=useState("7");const [names,setNames]=useState("");
   const [script,setScript]=useState(null);const [scriptLoading,setScriptLoading]=useState(false);const [scriptError,setScriptError]=useState("");
+  const [presentationFiles,setPresentationFiles]=useState([]);const [pdfPreparing,setPdfPreparing]=useState(false);
   const [friendScript,setFriendScript]=useState("");const [reviewFocus,setReviewFocus]=useState("clarity");const [reviewFiles,setReviewFiles]=useState([]);
   const [review,setReview]=useState(null);const [reviewLoading,setReviewLoading]=useState(false);const [reviewError,setReviewError]=useState("");
 
@@ -4162,14 +4169,16 @@ function PresentationMode({user}){
   const totalMinutes=clampGenerationCount(duration==="custom"?customDuration:duration,{min:1,max:180,fallback:10});
 
   const generate=async()=>{
-    if(!topic.trim())return;
+    if((!topic.trim()&&!presentationFiles.length)||pdfPreparing||scriptLoading)return;
     setScriptLoading(true);setScriptError("");setScript(null);
     const presenterCount=clampGenerationCount(groupSize,{min:1,max:20,fallback:3});const requestedSections=clampGenerationCount(sectionCount,{min:1,max:30,fallback:6});
     const presenters=names.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).slice(0,presenterCount);
-    const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return only the requested structured result. Use exactly the requested number of presenters and sections. Every presenter must speak.';
-    const prompt=`Create a group presentation about: ${topic}. Audience: ${audience||"general audience"}. Total length: ${totalMinutes} minutes. Presenter count: ${presenterCount}. Script section count: ${requestedSections}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+presenterCount+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments. Return exactly ${requestedSections} sections.`;
+    const source=presentationFiles[0];
+    const system='You are a presentation coach. Create natural spoken scripts with fair speaker distribution, smooth handoffs, realistic timing, and concise visual cues. Return only the requested structured result. Use exactly the requested number of presenters and sections. Every presenter must speak. '+presentationSourceInstructions(source);
+    const prompt=`Create a group presentation about: ${topic.trim()||"the attached presentation PDF"}. Audience: ${audience||"general audience"}. Total length: ${totalMinutes} minutes. Presenter count: ${presenterCount}. Script section count: ${requestedSections}. ${presenters.length?"Presenter names in order: "+presenters.join(", ")+".":"Use Speaker 1 through Speaker "+presenterCount+"."} Extra direction: ${details||"none"}. Give each presenter complete lines they can rehearse, not bullet fragments. Return exactly ${requestedSections} sections.`;
     try{
-      const result=parseStudioJson(await callStudioAI(system,prompt,5000,[],user?.email,{mode:"presentation",timeoutMs:90000}));
+      const result=parseStudioJson(await callStudioAI(system,prompt,5000,studioFileSummary(presentationFiles),user?.email,{mode:"presentation",timeoutMs:90000}));
+      if(source&&!(result.sections||[]).length)throw new Error(result.summary||"The PDF has no readable presentation content. Upload a clearer copy.");
       if((result.sections||[]).length!==requestedSections)throw new Error(`Ghosty created ${(result.sections||[]).length} of ${requestedSections} sections. Please generate again.`);
       setGroupSize(String(presenterCount));setSectionCount(String(requestedSections));if(duration==="custom")setCustomDuration(String(totalMinutes));setScript(result);try{sessionStorage.setItem(cacheKey,JSON.stringify({script:result,topic,audience,details,groupSize:presenterCount,sectionCount:requestedSections,duration:totalMinutes,names}));}catch{}
       if(user)HS.save(user.email,"presentation",{title:result.title||("Presentation: "+topic.slice(0,42)),input:`${presenterCount} presenters · ${requestedSections} sections · ${totalMinutes} minutes`,output:presentationAsText(result)});
@@ -4193,20 +4202,25 @@ function PresentationMode({user}){
       <StudioTabs value={workflow} onChange={setWorkflow} items={[{id:"create",icon:"presentation",label:"Create Script"},{id:"review",icon:"reviewer",label:"Check a Friend's Script"}]}/>
 
       {workflow==="create"&&<>
-        <FArea label="Presentation Topic" placeholder="e.g. How urban gardens improve city life" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
+        <StudioFileDrop label="Presentation PDF (optional)" hint="PDF · up to 4 MB and 100 slides · or enter a topic below" accept=".pdf,application/pdf" files={presentationFiles} onChange={files=>{setPresentationFiles(files);setScriptError("");}} maxFileMB={PRESENTATION_PDF_MAX_MB} prepareFile={preparePresentationPdf} onPreparingChange={setPdfPreparing} disabled={scriptLoading}/>
+        {presentationFiles[0]&&<div style={{marginBottom:14,fontSize:12,color:C.muted,lineHeight:1.5}}>
+          <div role="status">{presentationFiles[0].textPages?"Slide text extracted. The complete PDF, including visuals, will be read when you generate.":"This PDF has no selectable text. Its slides will be read visually when you generate."}</div>
+          <details style={{marginTop:6}}><summary style={{cursor:"pointer",color:C.blueText}}>Preview extracted slide text</summary><div style={{maxHeight:220,overflowY:"auto",whiteSpace:"pre-wrap",overflowWrap:"anywhere",padding:10,marginTop:6,borderRadius:8,background:C.surface,border:`1px solid ${C.border}`}}>{presentationFiles[0].preview}</div>{presentationFiles[0].previewTruncated&&<div style={{marginTop:4}}>Preview shortened. The full PDF will be used for the script.</div>}</details>
+        </div>}
+        <FArea label={presentationFiles.length?"Presentation Topic (optional with PDF)":"Presentation Topic"} placeholder="e.g. How urban gardens improve city life" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/>
         <div className="studio-grid-3" style={{marginBottom:duration==="custom"?8:12}}><FNumber label="People in Group" value={groupSize} onChange={setGroupSize} min={1} max={20} fallback={3} suffix="people"/><FNumber label="Script Sections" value={sectionCount} onChange={setSectionCount} min={1} max={30} fallback={6} suffix="sections"/><FSelect label="Total Time" value={duration} onChange={setDuration} options={[{value:"5",label:"5 minutes"},{value:"10",label:"10 minutes"},{value:"15",label:"15 minutes"},{value:"20",label:"20 minutes"},{value:"30",label:"30 minutes"},{value:"custom",label:"Write my own time"}]}/></div>
         {duration==="custom"&&<div style={{marginBottom:12}}><FNumber label="Write Your Own Time (optional)" value={customDuration} onChange={setCustomDuration} min={1} max={180} fallback={10} suffix="minutes"/><div style={{fontSize:11.5,color:C.muted,lineHeight:1.5,marginTop:-5}}>Enter any total presentation length from 1 to 180 minutes.</div></div>}
         <FInput label="Presenter Names (optional)" placeholder="Mina, Jay, Alex" value={names} onChange={e=>setNames(e.target.value)} icoL="users"/>
         <FInput label="Audience (optional)" placeholder="e.g. university class, sales team" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/>
         <FArea label="Details (optional)" placeholder="Learning goals, required sections, tone, or points that must be included..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
-        <PriBtn onClick={generate} loading={scriptLoading} disabled={!topic.trim()}><IconLabel name="presentation">Generate Group Script</IconLabel></PriBtn>
+        <PriBtn onClick={generate} loading={scriptLoading} disabled={pdfPreparing||(!topic.trim()&&!presentationFiles.length)}><IconLabel name="presentation">{presentationFiles.length?"Generate Script from PDF":"Generate Group Script"}</IconLabel></PriBtn>
         {scriptError&&<ErrBox msg={scriptError}/>}
         {script&&<div style={{marginTop:15,animation:"fadeUp 0.3s ease"}}>
           <div className="studio-grid-3" style={{marginBottom:10}}><StudioStat label="Presenters" value={new Set((script.sections||[]).map(x=>x.speaker)).size||groupSize}/><StudioStat label="Estimated time" value={(script.totalMinutes||totalMinutes)+" min"}/><StudioStat label="Script sections" value={(script.sections||[]).length}/></div>
           <Card glow><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}><div><div style={{fontSize:18,fontWeight:900,color:C.text}}>{script.title}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.55,marginTop:4}}>{script.summary}</div></div><PlanBadge plan="pro"/></div>
             <div className="studio-timeline">{(script.sections||[]).map((section,index)=><div key={index} style={{position:"relative",paddingBottom:index<script.sections.length-1?16:0}}><span className="studio-timeline-dot"/><div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:5}}><span style={{fontSize:12,fontWeight:900,color:C.blueText}}>{section.speaker||`Speaker ${index+1}`}</span>{section.role&&<span style={{fontSize:11,color:C.muted}}>{section.role}</span>}{section.timing&&<span style={{marginLeft:"auto",fontSize:11,color:C.muted,display:"inline-flex",alignItems:"center",gap:4}}><GwmIcon name="timer" size={12}/>{section.timing}</span>}</div><div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:5}}>{section.heading}</div><div style={{fontSize:13.5,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{section.script}</div>{section.visualCue&&<div style={{marginTop:7,padding:"7px 9px",borderRadius:7,background:C.surface,color:C.muted,fontSize:12,display:"flex",gap:6}}><GwmIcon name="slides" size={14} color={C.blueText}/>{section.visualCue}</div>}</div>)}</div>
             {script.handoffs?.length>0&&<div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}><div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Smooth handoffs</div>{script.handoffs.map((x,i)=><div key={i} style={{fontSize:12.5,color:C.muted,lineHeight:1.6,display:"flex",gap:7,marginBottom:4}}><GwmIcon name="arrowRight" size={13} color={C.blueText} style={{marginTop:3}}/>{x}</div>)}</div>}
-            <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={presentationAsText(script)}/><ListenBtn text={presentationAsText(script)}/><SaveAsImageBtn text={presentationAsText(script)} title="Presentation Script"/><GenMoreBtn loading={scriptLoading} onClick={()=>{setScript(null);setTopic("");setDetails("");setNames("");setScriptError("");try{sessionStorage.removeItem(cacheKey);}catch{}}} label="New Script"/></div>
+            <div style={{display:"flex",gap:7,marginTop:13,flexWrap:"wrap"}}><CopyBtn text={presentationAsText(script)}/><ListenBtn text={presentationAsText(script)}/><SaveAsImageBtn text={presentationAsText(script)} title="Presentation Script"/><GenMoreBtn loading={scriptLoading} onClick={()=>{setScript(null);setTopic("");setDetails("");setNames("");setScriptError("");setPresentationFiles([]);try{sessionStorage.removeItem(cacheKey);}catch{}}} label="New Script"/></div>
           </Card>
         </div>}
       </>}

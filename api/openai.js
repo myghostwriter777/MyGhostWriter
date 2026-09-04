@@ -29,6 +29,11 @@ const objectSchema = (properties) => ({
 });
 
 const STRUCTURED_OUTPUTS = {
+  "ai-detection": objectSchema({
+    score: { type: "integer" },
+    summary: text,
+    signals: stringList,
+  }),
   presentation: objectSchema({
     title: text,
     summary: text,

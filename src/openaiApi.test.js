@@ -71,6 +71,30 @@ describe("Studio AI API route",()=>{
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  test("passes presentation PDFs to the provider as documents with the presentation schema",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"title":"Deck"}'}]})});
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Follow the attached slide order.",user:"Generate a script.",mode:"presentation",files:[{name:"deck.pdf",type:"application/pdf",dataUrl:"data:application/pdf;base64,JVBERi0xLjc="}]}},res);
+    expect(res.statusCode).toBe(200);
+    const request=JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(request.messages[0].content[0]).toMatchObject({type:"document",title:"deck.pdf",source:{type:"base64",media_type:"application/pdf",data:"JVBERi0xLjc="}});
+    expect(request.output_config.format.schema.properties.sections.items.properties.visualCue).toEqual({type:"string"});
+  });
+
+  test("requires a numeric AI-content score and explanation in structured output",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"score":42,"summary":"Mixed patterns","signals":[]}'}]})});
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Assess writing style.",user:"Source text to analyze.",mode:"ai-detection",max_output_tokens:1400}},res);
+    expect(res.statusCode).toBe(200);
+    const request=JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(request.output_config.format.schema.properties.score).toEqual({type:"integer"});
+    expect(request.output_config.format.schema.required).toEqual(["score","summary","signals"]);
+    expect(request.max_tokens).toBe(1400);
+    expect(request.tools).toBeUndefined();
+  });
+
   test("uses the low-latency Haiku model and a small token budget for Meeting Assist",async()=>{
     process.env.ANTHROPIC_API_KEY="test-key";
     global.fetch=jest.fn().mockResolvedValue({
