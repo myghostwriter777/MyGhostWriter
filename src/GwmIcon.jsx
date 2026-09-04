@@ -15,6 +15,7 @@ function Glyph({name}){
     case "writing": return <><path d="M5 4.5h10.5L19 8v12H5zM15.5 4.5V8H19"/><path d="M8 11h5M8 14h3.5M8 17h6"/><path d="m14.5 14.5 4.2-4.2 1.5 1.5-4.2 4.2-2 .5z"/><Spark x={19} y={4}/></>;
     case "academic": case "cap": return <><path d="m3 9 9-4 9 4-9 4zM6.5 11v4.5c3.4 2.3 7.6 2.3 11 0V11M20 10v5"/><circle cx="20" cy="17" r="1"/></>;
     case "cv": case "profileDocument": return <><path d="M6 3.5h12V20H6z"/><circle cx="10" cy="9" r="2"/><path d="M8 14c1.2-1.5 2.8-1.5 4 0M14.5 9h1.5M14.5 12h1.5M9 17h7"/></>;
+    case "portfolio": return <><path d="M4 5.5h6l2 2h8V20H4z"/><path d="M7 3h10v4.5M7 11h6M7 14h4"/><path d="m13 17 2-3 2 2 2-3"/></>;
     case "author": case "book": case "memoir": return <><path d="M4 5.5h5.2c1.5 0 2.8 1 2.8 2.4v11c0-1.4-1.3-2.4-2.8-2.4H4zM20 5.5h-5.2c-1.5 0-2.8 1-2.8 2.4v11c0-1.4 1.3-2.4 2.8-2.4H20z"/><path d="M7 9h2M15 9h2"/></>;
     case "story": case "movie": return <><rect x="4" y="7.5" width="16" height="11" rx="2"/><path d="M4 11h16M7 7.5l2.5-4M12 7.5l2.5-4M17 7.5l2.5-4M4.5 5.5h15"/></>;
     case "video": return <><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="m10 9 5 3-5 3z"/><Spark x={19} y={4}/></>;

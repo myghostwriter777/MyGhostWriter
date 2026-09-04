@@ -29,6 +29,24 @@ const objectSchema = (properties) => ({
 });
 
 const STRUCTURED_OUTPUTS = {
+  "portfolio-create": objectSchema({
+    title: text,
+    introduction: text,
+    sections: { type: "array", items: objectSchema({ heading: text, body: text }) },
+    checklist: stringList,
+  }),
+  "portfolio-review": objectSchema({
+    readable: { type: "boolean" },
+    summary: text,
+    criteria: { type: "array", items: objectSchema({
+      name: { type: "string", enum: ["Content", "Structure", "Evidence", "Presentation", "Accuracy"] },
+      score: { type: "integer" }, feedback: text,
+    }) },
+    strengths: stringList,
+    mistakes: { type: "array", items: objectSchema({ page: { type: "integer" }, excerpt: text, issue: text, correction: text }) },
+    suggestions: stringList,
+    missingInformation: stringList,
+  }),
   "ai-detection": objectSchema({
     score: { type: "integer" },
     summary: text,

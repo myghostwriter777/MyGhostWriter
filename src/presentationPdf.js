@@ -22,24 +22,24 @@ const asDataUrl = file => new Promise((resolve, reject) => {
 
 // The preview is bounded; the complete original PDF is sent to the existing
 // document-capable AI route so diagrams and scanned slides remain available.
-export async function preparePresentationPdf(file) {
+export async function preparePdfDocument(file, { kind = "presentation", pageLabel = "Slide", action = "generate" } = {}) {
   if (!file || (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf")) {
-    throw new Error("Choose a PDF presentation (.pdf).");
+    throw new Error(`Choose a PDF ${kind} (.pdf).`);
   }
-  if (!file.size) throw new Error("This PDF is empty. Choose another presentation.");
+  if (!file.size) throw new Error(`This PDF is empty. Choose another ${kind}.`);
   if (file.size > PRESENTATION_PDF_MAX_MB * 1024 * 1024) {
-    throw new Error(`The presentation must be ${PRESENTATION_PDF_MAX_MB} MB or smaller. Compress the PDF or split it into smaller decks.`);
+    throw new Error(`The ${kind} must be ${PRESENTATION_PDF_MAX_MB} MB or smaller. Compress the PDF or split it into smaller files.`);
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!Array.from(bytes.subarray(0, 1024), byte => String.fromCharCode(byte)).join("").includes("%PDF-")) {
-    throw new Error("This file is not a valid PDF. Export the presentation as a PDF and try again.");
+    throw new Error(`This file is not a valid PDF. Export the ${kind} as a PDF and try again.`);
   }
   const pdfjs = await loadPdfJs();
   const task = pdfjs.getDocument({ data: bytes, isEvalSupported: false });
   try {
     const pdf = await task.promise;
     if (pdf.numPages > PRESENTATION_PDF_MAX_PAGES) {
-      throw new Error(`Use a presentation with ${PRESENTATION_PDF_MAX_PAGES} pages or fewer. Split this deck into smaller PDFs.`);
+      throw new Error(`Use a ${kind} with ${PRESENTATION_PDF_MAX_PAGES} pages or fewer. Split it into smaller PDFs.`);
     }
     const preview = [];
     let previewLength = 0;
@@ -52,7 +52,7 @@ export async function preparePresentationPdf(file) {
         const text = content.items.map(item => String(item.str || "") + (item.hasEOL ? "\n" : " ")).join("").trim();
         if (text) textPages++;
         if (previewLength < PREVIEW_CHAR_LIMIT) {
-          const entry = `[Slide ${pageNumber}]\n${text || "No selectable text. This slide will be read visually when you generate."}\n\n`;
+          const entry = `[${pageLabel} ${pageNumber}]\n${text || `No selectable text. This ${pageLabel.toLowerCase()} will be read visually when you ${action}.`}\n\n`;
           preview.push(entry.slice(0, PREVIEW_CHAR_LIMIT - previewLength));
           previewLength += entry.length;
           if (previewLength > PREVIEW_CHAR_LIMIT) previewTruncated = true;
@@ -63,7 +63,7 @@ export async function preparePresentationPdf(file) {
       name: file.name, type: "application/pdf", size: file.size,
       dataUrl: await asDataUrl(file), pageCount: pdf.numPages, textPages,
       preview: preview.join("").trim(), previewTruncated,
-      preparedLabel: `${pdf.numPages} slide${pdf.numPages === 1 ? "" : "s"} ready · ${textPages} with selectable text`,
+      preparedLabel: `${pdf.numPages} ${pageLabel.toLowerCase()}${pdf.numPages === 1 ? "" : "s"} ready · ${textPages} with selectable text`,
     };
   } catch (error) {
     if (error?.name === "PasswordException") throw new Error("This PDF is password protected. Upload an unlocked copy.");
@@ -71,6 +71,8 @@ export async function preparePresentationPdf(file) {
     throw error;
   } finally { await task.destroy(); }
 }
+
+export const preparePresentationPdf = file => preparePdfDocument(file);
 
 export function presentationSourceInstructions(file) {
   if (!file) return "";

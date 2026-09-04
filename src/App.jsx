@@ -12,6 +12,7 @@ import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
 import AiDetectionPanel from "./AiDetectionPanel";
+import PortfolioStudio from "./PortfolioMode";
 import { AI_DETECTION_SYSTEM } from "./aiDetection";
 import { loadPdfJs, preparePresentationPdf, PRESENTATION_PDF_MAX_MB, presentationSourceInstructions } from "./presentationPdf";
 import { buildEditorialBlueprint, normalizeEditorialDeck, resolveSlideCount, slideNeedsIllustration } from "./slideDeckRules";
@@ -340,6 +341,7 @@ const MODES = [
   { id:"story",    icon:"story",    label:"Story Guide", access:"pro+student" },
   { id:"meeting",  icon:"meeting",  label:"Meeting",     access:"student"     },
   { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
+  { id:"portfolio",icon:"portfolio",label:"Portfolio",   access:"student"     },
   { id:"humanize", icon:"humanize", label:"Humanize",    access:"student"     },
   { id:"manga",    icon:"manga",    label:"Manga Studio",access:"student"     },
   { id:"history",  icon:"history",  label:"History",     access:"free"        },
@@ -351,7 +353,7 @@ const MODES = [
 const NAV_GROUPS=[
   {id:"free",label:"Free",modeIds:["reply","writing","email","grammar"]},
   {id:"pro",label:"Pro",modeIds:["essay","presentation","interview","slides","cv","author","story"]},
-  {id:"student",label:"Master",modeIds:["meeting","academic","humanize","manga"]},
+  {id:"student",label:"Master",modeIds:["meeting","academic","portfolio","humanize","manga"]},
   {id:"history",label:"History",modeIds:["history"]},
 ];
 const modeGroup=id=>NAV_GROUPS.find(group=>group.modeIds.includes(id))||NAV_GROUPS[0];
@@ -525,7 +527,7 @@ const HS = {
     return full;
   },
   load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
-  modes:["reply","email","essay","presentation","interview","slides","study","meeting","academic","cv","author","grammar","humanize","story","manga"],
+  modes:["reply","email","essay","presentation","interview","slides","study","meeting","academic","portfolio","cv","author","grammar","humanize","story","manga"],
   loadAll:(email)=>dedupeHistoryItems(HS.modes.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m})))),
   // Pull the server copy. Returns {ok:true,items} or {ok:false,error} — the
   // error MESSAGE is surfaced (bug fix: the old version returned null on any
@@ -1184,6 +1186,7 @@ const TAROT_TOOLS=[
   {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
   {id:"meeting", name:"Meeting Assist",tier:"Master", comingSoon:true,desc:"Listens only to shared meeting audio and prepares concise, useful reply suggestions."},
   {id:"academic",name:"Academic",     tier:"Master", desc:"Provides feedback on your writing and offers research guidance."},
+  {id:"portfolio",name:"Portfolio", tier:"Master", desc:"Creates university application portfolios from your details and photos, or reviews a PDF with scores and follow-up coaching."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
   {id:"humanize",name:"Humanize",     tier:"Master", desc:"Refines AI-generated text into natural, human-like writing."},
@@ -1203,6 +1206,7 @@ const TOOL_SHOWCASES={
   slides:{kicker:"Visual storytelling",title:"Build the deck",accent:"and the story behind it.",prompt:"Create an eight-slide investor deck for a sustainable fashion marketplace with an executive theme.",output:"Your deck opens with the market tension, moves through customer proof and the business model, and closes on a specific funding ask with speaker notes for every slide.",tone:"Executive",meta:"8-slide story"},
   meeting:{kicker:"Meeting companion",title:"Hear the room.",accent:"Prepare the next move.",prompt:"Listen to the shared meeting tab, ignore my microphone, and suggest concise text replies when a decision or question appears.",output:"GhostwriterMe follows the remote conversation and prepares short reply options without joining the call or speaking for you.",tone:"Private",meta:"Admin testing in progress"},
   academic:{kicker:"Research companion",title:"Sharper reasoning.",accent:"Stronger academic writing.",prompt:"Review my introduction for argument strength, evidence gaps, and APA-style academic tone.",output:"Your central claim is clear, but the opening needs a stronger link between the cited trend and your research question. Add one recent source here, then define the scope of your argument.",tone:"Reviewer",meta:"Actionable feedback"},
+  portfolio:{kicker:"University application",title:"Tell the story",accent:"behind your achievements.",prompt:"Turn my education, science projects, volunteer work and photos into a university portfolio.",output:"Organize your experiences, show what you contributed, and reflect on what you learned. Review your draft with a score and practical suggestions.",tone:"Personal",meta:"Create · Review · Ask"},
   cv:{kicker:"Career story builder",title:"Make experience",accent:"read like impact.",prompt:"Product designer with 4 years of experience. Rewrite my project bullet for ATS and show measurable impact.",output:"Led the end-to-end redesign of the onboarding flow, reducing time-to-value by 38% and increasing new-user activation across mobile and web.",tone:"Executive",meta:"ATS optimized"},
   author:{kicker:"Creative writing room",title:"Find the scene",accent:"only you could write.",prompt:"A quiet sci-fi opening: a botanist on Mars discovers that one of her plants is responding to music.",output:"On the eighty-third morning, the fern leaned toward the old piano recording. Elara stopped the track. The fronds went still. She pressed play again, and the whole greenhouse seemed to listen.",tone:"Literary",meta:"Original prose"},
   humanize:{kicker:"Natural language pass",title:"Sound unmistakably",accent:"like yourself.",prompt:"Humanize this formal paragraph. Keep the meaning, but make it warm and conversational.",output:"We’ve spent the past few months listening, testing, and fixing the details that slowed people down. The result is a simpler experience that gets you where you’re going faster.",tone:"Human",meta:"Voice preserved"},
@@ -1211,7 +1215,7 @@ const TOOL_SHOWCASES={
   history:{kicker:"Personal writing archive",title:"Every good idea,",accent:"ready when you are.",prompt:"Find the cover letter draft I made last week and the follow-up email connected to it.",output:"Found 2 related pieces. Your cover letter was created 6 days ago; the follow-up email was created the next morning. Both are ready to reopen or copy.",tone:"Organized",meta:"Synced across devices"},
 };
 
-const TAROT_ICON={reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",meeting:"meeting",manga:"manga",academic:"academic",cv:"cv",author:"author",humanize:"humanize",story:"story",history:"history"};
+const TAROT_ICON={portfolio:"portfolio",reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",meeting:"meeting",manga:"manga",academic:"academic",cv:"cv",author:"author",humanize:"humanize",story:"story",history:"history"};
 
 function TarotCard({tool}){
   const [flipped,setFlipped]=React.useState(false);
@@ -1591,14 +1595,14 @@ function LandingScreen({onGetStarted,onSignIn}){
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
     {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","Priority generation"],cta:"Start Free Trial"},
-{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Manga Studio — Coming Soon","Meeting Assist — Coming Soon"],cta:"Start Master Trial"},  ];
+{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","University Portfolio","Humanize My Writing","Manga Studio — Coming Soon","Meeting Assist — Coming Soon"],cta:"Start Master Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
     {q:"How does GhostwriterMe work?",a:"Pick a writing tool, type or speak what you need, and the AI generates a draft you can edit, copy, or refine. Every tool is built around a specific writing task so you get focused, relevant results."},
     {q:"Is my content private?",a:"Your writing is processed only to generate your results and is not sold or shared. History is stored on your own device. We recommend avoiding sensitive personal data in any AI tool."},
     {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
-    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan with Academic and Humanize. Manga Studio and Meeting Assist are coming soon and remain available only to admin testers while they are finalized. All paid plans start with a free trial."},
+    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan with Academic, Portfolio and Humanize. Manga Studio and Meeting Assist are coming soon and remain available only to admin testers while they are finalized. All paid plans start with a free trial."},
     {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
   ];
 
@@ -2141,7 +2145,7 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
 
   const FREE_F=["15 AI replies / day","Writing Mode — unlimited","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
   const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Guide — books and films","Full history across all modes","Priority generation speed"];
-  const STU_F=["Everything in Pro","Manga & Manhwa Studio — Coming Soon","Meeting Assist — Coming Soon","Academic Essay + auto-citations (Master exclusive)","Humanize My Writing (Master exclusive)","CEFR-matched voice output","Priority support"];
+  const STU_F=["Everything in Pro","Manga & Manhwa Studio — Coming Soon","Meeting Assist — Coming Soon","Academic Essay + auto-citations (Master exclusive)","University Portfolio (Master exclusive)","Humanize My Writing (Master exclusive)","CEFR-matched voice output","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
   const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Master",color:C.magenta}];
@@ -2179,7 +2183,7 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.magenta:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> and <strong>Humanize My Writing</strong>. <strong>Manga Studio</strong> and <strong>Meeting Assist</strong> are coming soon.</div></div>)}
+        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong>, <strong>Portfolio</strong> and <strong>Humanize My Writing</strong>. <strong>Manga Studio</strong> and <strong>Meeting Assist</strong> are coming soon.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(244,114,182,0.08),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.46)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.magentaGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
           {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>MASTER PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
@@ -2431,7 +2435,7 @@ function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete,onBack,them
 // Shared follow-up chat (Item 3) used by Academic Reviewer AND Grammar (DRY).
 // Stateless API strategy: callClaude has no server-side memory, so every send
 // embeds the full context + conversation so far in one user message.
-function FollowUpChat({context,intro,accent}){
+function FollowUpChat({context,intro,accent,requestReply,placeholder="e.g. How can I strengthen my thesis?"}){
   const [msgs,setMsgs]=useState([]);
   const [q,setQ]=useState("");
   const [busy,setBusy]=useState(false);
@@ -2447,7 +2451,8 @@ function FollowUpChat({context,intro,accent}){
     const sys="You are a friendly, specific writing coach answering follow-up questions about the student's work and the feedback below. Reference their actual text where possible. Keep answers under ~200 words unless more detail is explicitly requested. Do not rewrite the whole piece unless asked.\n\n=== CONTEXT ===\n"+context.slice(0,9000); // cap: very long essays must not blow the prompt budget
     const convo=history.map(m=>(m.role==="user"?"STUDENT":"COACH")+": "+m.content).join("\n\n");
     try{
-      const reply=await callClaude(sys,convo,1200);
+      const reply=requestReply?await requestReply(history):await callClaude(sys,convo,1200);
+      if(requestReply&&!reply.trim())throw new Error("Ghosty returned an empty reply. Please send your question again.");
       setMsgs(h=>[...h,{role:"ai",content:reply}]);
     }catch(e){
       // Edge case: on failure, roll back the optimistic question and restore
@@ -2470,7 +2475,7 @@ function FollowUpChat({context,intro,accent}){
       {busy&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}><Spin size={14} color={ac}/><span style={{fontSize:12,color:C.muted}}>Thinking...</span></div>}
       {err&&<ErrBox msg={err}/>}
       <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
-        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send();}} placeholder="e.g. How can I strengthen my thesis?" style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=ac} onBlur={e=>e.target.style.borderColor=C.border}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send();}} aria-label="Follow-up question" placeholder={placeholder} style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",color:C.text,fontSize:13,fontFamily:"inherit"}} onFocus={e=>e.target.style.borderColor=ac} onBlur={e=>e.target.style.borderColor=C.border}/>
         <MicBtn onResult={t=>setQ(v=>v+(v?" ":"")+t)} sm/>
         <button onClick={send} disabled={busy||!q.trim()} style={{padding:"9px 14px",borderRadius:8,border:"none",background:busy||!q.trim()?"#0c1220":ac,color:busy||!q.trim()?C.muted:"#000",fontSize:13,fontWeight:800,cursor:busy||!q.trim()?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0}}>Send</button>
       </div>
@@ -2593,8 +2598,8 @@ function HistoryMangaPreview({item}){
 }
 
 // Module-scope so both HistoryMode and HistoryDetailModal share one source (DRY).
-const HIST_ML={reply:"AI Reply",writing:"Writing",email:"Email",grammar:"Grammar",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",cv:"CV",author:"Author",story:"Story Guide",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",humanize:"Humanize",manga:"Manga Studio"};
-const HIST_MI={reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",cv:"cv",author:"author",story:"story",study:"study",meeting:"meeting",academic:"academic",humanize:"humanize",manga:"manga"};
+const HIST_ML={portfolio:"Portfolio",reply:"AI Reply",writing:"Writing",email:"Email",grammar:"Grammar",essay:"Essay",presentation:"Presentation",interview:"Interview",slides:"Slide Deck",cv:"CV",author:"Author",story:"Story Guide",study:"Study Pack",meeting:"Meeting Assist",academic:"Academic",humanize:"Humanize",manga:"Manga Studio"};
+const HIST_MI={portfolio:"portfolio",reply:"reply",writing:"writing",email:"mail",grammar:"grammar",essay:"essay",presentation:"presentation",interview:"interview",slides:"slides",cv:"cv",author:"author",story:"story",study:"study",meeting:"meeting",academic:"academic",humanize:"humanize",manga:"manga"};
 // Reuses the same plan-tier colors already assigned in MODES (free/pro/student)
 // so a history item's tag color matches the tool's tier elsewhere in the app.
 const MODE_TAG_COLOR=Object.fromEntries(MODES.map(m=>[m.id,modeVisual(m).solid]));
@@ -3240,6 +3245,11 @@ function buildCvHtml(d,p,t,accent){
   const ach=(d.achievements||[]).length?('<ul style="margin:0;padding-left:16px;">'+d.achievements.map(a=>'<li style="font-size:12px;line-height:1.6;color:#444;margin-bottom:3px;">'+esc(a)+'</li>').join("")+'</ul>'):"";
   const body='<div style="padding:'+(t==="modern"?"26px 36px 36px":"10px 40px 40px")+';">'+secWrap("Professional Summary",summary)+secWrap("Experience",exp)+secWrap("Skills",skills)+secWrap("Education",edu)+secWrap("Achievements",ach)+'</div>';
   return '<div style="font-family:'+f+';background:#ffffff;color:#222;width:100%;">'+header+body+'</div>';
+}
+
+const savePortfolioHistory=(user,title,input,output)=>{if(user?.email)HS.save(user.email,"portfolio",{title,input,output});};
+export function PortfolioMode({user}){
+  return <PortfolioStudio user={user} request={callStudioAI} save={savePortfolioHistory} compactImage={compactStudyImage} ui={{Card,FInput,FArea,StudioFileDrop,StudioTabs,PriBtn,CopyBtn,ErrBox,FollowUpChat}}/>;
 }
 
 function CVMode({user}){
@@ -4810,7 +4820,7 @@ function SlideGeneratorMode({user}){
 function TrialModal({mode,targetPlan,onStart,onClose}){
   const [bill,setBill]=useState("monthly");
   const isStudent=targetPlan==="student";const planColor=isStudent?C.magenta:C.blue;
-  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},presentation:{icon:"presentation",title:"Presentation Mode",perks:["Scripts for 1–8 speakers","Fair timing and handoffs","Friend-script image review","Delivery coaching"]},interview:{icon:"interview",title:"Interview Simulator",perks:["CV + requirements tailoring","Spoken interview questions","Answer-by-answer feedback","Final readiness score"]},slides:{icon:"slides",title:"Slide Generator",perks:["Research-backed storyboards","AI and uploaded visuals","Inline text and image editing","Editable sources + PDF, Word and PPTX"]},manga:{icon:"manga",title:"Manga & Manhwa Studio",perks:["Original illustrated comic pages","Consistent character bible","Manga, manhwa, romance and action looks","High-resolution page downloads"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books and movies","Original plot summaries","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["Simple sentence structure","Numeric citation cleanup","No added rhetorical questions","Two-pass quality review"]}};
+  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},presentation:{icon:"presentation",title:"Presentation Mode",perks:["Scripts for 1–8 speakers","Fair timing and handoffs","Friend-script image review","Delivery coaching"]},interview:{icon:"interview",title:"Interview Simulator",perks:["CV + requirements tailoring","Spoken interview questions","Answer-by-answer feedback","Final readiness score"]},slides:{icon:"slides",title:"Slide Generator",perks:["Research-backed storyboards","AI and uploaded visuals","Inline text and image editing","Editable sources + PDF, Word and PPTX"]},manga:{icon:"manga",title:"Manga & Manhwa Studio",perks:["Original illustrated comic pages","Consistent character bible","Manga, manhwa, romance and action looks","High-resolution page downloads"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},portfolio:{icon:"portfolio",title:"University Portfolio",perks:["Create with your details and photos","Save your portfolio as PDF","PDF review with 1–100 scores","Follow-up coaching in both modes"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books and movies","Original plot summaries","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["Simple sentence structure","Numeric citation cleanup","No added rhetorical questions","Two-pass quality review"]}};
   const h=M[mode]||M.essay;
   return(
     <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -4942,6 +4952,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"meeting":return <MeetingAssistMode user={user}/>;
       case"academic":return <AcademicMode user={user}/>;
       case"cv":return <CVMode user={user}/>;
+      case"portfolio":return <PortfolioMode user={user}/>;
       case"author":return <AuthorMode user={user}/>;
       case"story":return <StoryAnalyzer user={user}/>;
       case"humanize":return <HumanizeMode user={user}/>;

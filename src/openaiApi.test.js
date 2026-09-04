@@ -95,6 +95,21 @@ describe("Studio AI API route",()=>{
     expect(request.tools).toBeUndefined();
   });
 
+  test("uses structured portfolio creation and review, with document-aware follow-up chat",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({content:[{type:"text",text:'{"ok":true}'}]})});
+    for(const mode of ["portfolio-create","portfolio-review","portfolio-chat"]){
+      const res=mockResponse();
+      await handler({method:"POST",body:{system:"Portfolio coach.",user:"Review the attached work.",mode,files:[{name:"portfolio.pdf",type:"application/pdf",dataUrl:"data:application/pdf;base64,JVBERi0xLjc="},{name:"context.txt",type:"text/plain",dataUrl:"data:text/plain;base64,aGVsbG8="}]}},res);
+      expect(res.statusCode).toBe(200);
+      const request=JSON.parse(global.fetch.mock.calls.at(-1)[1].body);
+      expect(request.messages[0].content.slice(0,2).map(item=>item.type)).toEqual(["document","document"]);
+      if(mode==="portfolio-create")expect(request.output_config.format.schema.required).toEqual(["title","introduction","sections","checklist"]);
+      if(mode==="portfolio-review")expect(request.output_config.format.schema.properties.criteria.items.properties.name.enum).toEqual(["Content","Structure","Evidence","Presentation","Accuracy"]);
+      if(mode==="portfolio-chat")expect(request.output_config).toBeUndefined();
+    }
+  });
+
   test("uses the low-latency Haiku model and a small token budget for Meeting Assist",async()=>{
     process.env.ANTHROPIC_API_KEY="test-key";
     global.fetch=jest.fn().mockResolvedValue({
