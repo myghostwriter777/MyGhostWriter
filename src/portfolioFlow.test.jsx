@@ -1,8 +1,10 @@
 import { TextEncoder } from "util";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { PortfolioMode } from "./App";
+import { MODES, NAV_GROUPS, PortfolioMode } from "./App";
 import { preparePdfDocument } from "./presentationPdf";
-import { PORTFOLIO_CRITERIA } from "./portfolio";
+import { downloadPortfolioPdf, PORTFOLIO_CRITERIA } from "./portfolio";
+
+jest.mock("./portfolio", () => ({ ...jest.requireActual("./portfolio"), downloadPortfolioPdf: jest.fn() }));
 
 jest.mock("./localWhisper", () => ({ prepareLocalWhisper: jest.fn(), transcribeLocalAudio: jest.fn() }));
 jest.mock("./presentationPdf", () => ({ ...jest.requireActual("./presentationPdf"), preparePdfDocument: jest.fn() }));
@@ -18,12 +20,14 @@ const createPanel = () => screen.getByRole("tabpanel", { name: "Create Portfolio
 const reviewPanel = () => screen.getByRole("tabpanel", { name: "Review Portfolio PDF" });
 
 beforeEach(() => {
+  jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  downloadPortfolioPdf.mockReset().mockResolvedValue(3);
   global.TextEncoder = TextEncoder;
   global.fetch = jest.fn().mockResolvedValue(respond(portfolio));
   localStorage.clear(); sessionStorage.clear();
   preparePdfDocument.mockReset().mockResolvedValue(pdf);
 });
-afterEach(() => { global.fetch = originalFetch; global.TextEncoder = originalEncoder; });
+afterEach(() => { jest.restoreAllMocks(); global.fetch = originalFetch; global.TextEncoder = originalEncoder; });
 
 test("creates from student details, saves text history, and grounds the follow-up in the original inputs", async () => {
   const user = { email: "portfolio-test@example.test" };
@@ -121,7 +125,7 @@ test("includes the student's uploaded picture and caption in creation, preview a
     fireEvent.change(caption, { target: { value: "Building our robot at school" } });
     fireEvent.click(screen.getByRole("button", { name: "Create Portfolio" }));
     const preview = await screen.findByLabelText("Generated portfolio preview");
-    expect(within(preview).getByRole("img")).toHaveAttribute("src", dataUrl);
+    expect(within(preview).getByRole("img")).toHaveAttribute("href", dataUrl);
     expect(preview).toHaveTextContent("Building our robot at school");
     const request = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(request.files[0]).toMatchObject({ name: "robotics.jpg", type: "image/jpeg", dataUrl });
@@ -142,4 +146,33 @@ test("reports PDF read failures and never invents a score", async () => {
   expect(screen.getByRole("button", { name: "Review Portfolio" })).toBeDisabled();
   expect(screen.queryByLabelText("Overall portfolio score")).not.toBeInTheDocument();
   expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test("exposes Portfolio in Pro navigation with access for Pro and Master", () => {
+  expect(MODES.find(mode => mode.id === "portfolio").access).toBe("pro+student");
+  expect(NAV_GROUPS.find(group => group.id === "pro").modeIds).toContain("portfolio");
+  expect(NAV_GROUPS.find(group => group.id === "student").modeIds).not.toContain("portfolio");
+});
+
+test("downloads the generated portfolio directly and allows retry after an export failure", async () => {
+  downloadPortfolioPdf.mockRejectedValueOnce(new Error("A portfolio photo could not be loaded."));
+  render(<PortfolioMode/>); inputNotes(); fireEvent.click(screen.getByRole("button", { name: "Create Portfolio" }));
+  await screen.findByLabelText("Generated portfolio preview");
+  fireEvent.click(screen.getByRole("button", { name: "Save portfolio as PDF" }));
+  await screen.findByText("A portfolio photo could not be loaded.");
+  fireEvent.click(screen.getByRole("button", { name: "Save portfolio as PDF" }));
+  expect(await screen.findByText(/3-page portfolio PDF is ready/)).toBeInTheDocument();
+  expect(downloadPortfolioPdf).toHaveBeenLastCalledWith(portfolio, expect.objectContaining({ achievements: "I led the school robotics club." }), []);
+});
+
+test("clears a stale review when the target course changes", async () => {
+  global.fetch.mockResolvedValueOnce(respond(review));
+  render(<PortfolioMode/>);
+  fireEvent.click(screen.getByRole("tab", { name: "Review Portfolio PDF" }));
+  fireEvent.change(screen.getByLabelText("Portfolio PDF"), { target: { files: [new File(["pdf"], "portfolio.pdf")] } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Review Portfolio" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Review Portfolio" }));
+  await screen.findByLabelText("Overall portfolio score");
+  fireEvent.change(screen.getByPlaceholderText("Which university or subject is this portfolio for?"), { target: { value: "Architecture" } });
+  expect(screen.queryByLabelText("Overall portfolio score")).not.toBeInTheDocument();
 });

@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import GwmIcon from "./GwmIcon";
 import { preparePdfDocument } from "./presentationPdf";
-import { PORTFOLIO_TEXT_LIMIT, PORTFOLIO_CREATE_SYSTEM, PORTFOLIO_REVIEW_SYSTEM, PORTFOLIO_CHAT_SYSTEM, portfolioNotes, portfolioTextFile, portfolioFiles, parsePortfolio, parsePortfolioReview, portfolioAsText, portfolioReviewAsText, portfolioChatPrompt, buildPortfolioHtml, printPortfolio } from "./portfolio";
+import { PORTFOLIO_TEXT_LIMIT, PORTFOLIO_CREATE_SYSTEM, PORTFOLIO_REVIEW_SYSTEM, PORTFOLIO_CHAT_SYSTEM, portfolioNotes, portfolioTextFile, portfolioFiles, parsePortfolio, parsePortfolioReview, portfolioAsText, portfolioReviewAsText, portfolioChatPrompt, buildPortfolioHtml, downloadPortfolioPdf } from "./portfolio";
 
-const C = { text: "var(--gwm-text)", muted: "var(--gwm-muted)", border: "var(--gwm-border)", surface: "var(--gwm-surface)", accent: "var(--gwm-magenta-text)", green: "var(--gwm-green-text)", red: "var(--gwm-red-text)" };
+const C = { text: "var(--gwm-text)", muted: "var(--gwm-muted)", border: "var(--gwm-border)", surface: "var(--gwm-surface)", accent: "var(--gwm-blue-text)", green: "var(--gwm-green-text)", red: "var(--gwm-red-text)" };
 const secondaryButton = { minHeight: 40, padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, color: C.text, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 800 };
 const preparePortfolioPdf = file => preparePdfDocument(file, { kind: "portfolio", pageLabel: "Page", action: "review" });
 
@@ -42,6 +42,12 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
   const [error, setError] = useState("");
   const [pack, setPack] = useState(null);
   const [printNotice, setPrintNotice] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const preview = useMemo(() => {
+    if (!pack) return {};
+    try { return { html: buildPortfolioHtml(pack.result, pack.form, pack.photos) }; }
+    catch (failure) { return { error: failure.message }; }
+  }, [pack]);
   const update = key => event => setForm(previous => ({ ...previous, [key]: event.target.value }));
   const notes = portfolioNotes(form, photos) + (notesFiles[0]?.text ? "\n\nUploaded notes:\n" + notesFiles[0].text : "");
   const hasContent = [form.about, form.education, form.achievements, form.activities, form.projects, form.other, notesFiles[0]?.text].some(value => value?.trim());
@@ -49,7 +55,7 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
   const preparing = photosPreparing || notesPreparing;
 
   const generate = async () => {
-    if (busy || preparing || !hasContent || tooLong) return;
+    if (busy || exporting || preparing || !hasContent || tooLong) return;
     setBusy(true); setError(""); setPrintNotice("");
     const snapshot = { form: { ...form }, photos: photos.map(photo => ({ ...photo })), notes };
     try {
@@ -63,6 +69,16 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
   const answer = async messages => {
     const files = [...portfolioFiles(pack.photos), portfolioTextFile("student-notes.txt", pack.notes), portfolioTextFile("current-portfolio.txt", portfolioAsText(pack.result, pack.form, pack.photos) + "\n\nDetails to add:\n" + pack.result.checklist.join("\n"))];
     return request(PORTFOLIO_CHAT_SYSTEM, portfolioChatPrompt(messages), 1800, files, user?.email, { mode: "portfolio-chat" });
+  };
+
+  const download = async () => {
+    if (exporting) return;
+    setExporting(true); setError(""); setPrintNotice("");
+    try {
+      const count = await downloadPortfolioPdf(pack.result, pack.form, pack.photos);
+      setPrintNotice(`Your ${count}-page portfolio PDF is ready. Check your browser downloads.`);
+    } catch (failure) { setError(failure?.message || "The PDF could not be saved. Please try again."); }
+    finally { setExporting(false); }
   };
 
   return <div>
@@ -79,16 +95,17 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
     <StudioFileDrop label="Your pictures (optional)" hint="PNG, JPG or WebP · up to 4 photos, 4 MB each" accept="image/png,image/jpeg,image/webp" files={photos} onChange={setPhotos} maxFiles={4} prepareFile={file => preparePortfolioPhoto(file, compactImage)} onPreparingChange={setPhotosPreparing} disabled={busy}/>
     {photos.length > 0 && <div className="studio-grid-2" style={{ marginBottom: 14 }}>{photos.map((photo, index) => <div key={photo.name + index} style={{ padding: 10, border: `1px solid ${C.border}`, borderRadius: 8 }}><img src={photo.dataUrl} alt={photo.caption || photo.name} style={{ display: "block", width: "100%", height: 135, objectFit: "contain", marginBottom: 8 }}/><label style={{ display: "block", color: C.muted, fontSize: 12 }}>Caption for picture {index + 1}<input value={photo.caption} maxLength={300} disabled={busy} onChange={event => setPhotos(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, caption: event.target.value } : item))} placeholder="What does this photo show?" style={{ ...secondaryButton, display: "block", width: "100%", marginTop: 4, fontWeight: 400 }}/></label></div>)}</div>}
     {tooLong && <ErrBox msg="Use up to 18,000 characters in total, including notes and captions. Shorten your details before generating."/>}
-    <PriBtn onClick={generate} loading={busy} disabled={!hasContent || tooLong || preparing}>Create Portfolio</PriBtn>
+    <PriBtn onClick={generate} loading={busy} disabled={!hasContent || tooLong || preparing || exporting}>Create Portfolio</PriBtn>
     {!hasContent && <p style={{ fontSize: 12, color: C.muted }}>Add some background, an achievement, an activity or a text notes file to begin.</p>}
     {error && <ErrBox msg={error}/>}
     {pack && <div style={{ marginTop: 16 }}>
       <h2 style={{ fontSize: 16, color: C.accent, margin: "0 0 10px" }}>Your portfolio</h2>
-      <div aria-label="Generated portfolio preview" style={{ background: "white", borderRadius: 10, overflow: "hidden", border: `1px solid ${C.border}` }} dangerouslySetInnerHTML={{ __html: buildPortfolioHtml(pack.result, pack.form, pack.photos) }}/>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}><button type="button" style={secondaryButton} onClick={() => { try { printPortfolio(pack.result, pack.form, pack.photos); setPrintNotice("Choose Save as PDF in the print dialog to save the portfolio with your pictures."); } catch (failure) { setError(failure.message); } }}>Save portfolio as PDF</button><CopyBtn text={portfolioAsText(pack.result, pack.form, pack.photos)}/></div>
-      <p role={printNotice ? "status" : undefined} style={{ fontSize: 12, color: C.muted }}>{printNotice || "PDF saving opens your browser's print dialog. Your photos are included."}</p>
+      {!!pack.photos.length && <details style={{ marginBottom: 14, color: C.muted, fontSize: 13 }}><summary style={{ cursor: "pointer", color: C.accent }}>Arrange portfolio photos</summary><p>The first photo appears on the cover by default. Place supporting photos beside the relevant section.</p>{pack.photos.map((photo, index) => <label key={index} style={{ display: "block", marginTop: 8 }}>Picture {index + 1}{photo.caption ? ` · ${photo.caption}` : ""}<select aria-label={`Placement for picture ${index + 1}`} value={photo.placement || ""} disabled={exporting || busy} onChange={event => { const placement = event.target.value; setPrintNotice(""); setPack(current => ({ ...current, photos: current.photos.map((item, i) => i === index ? { ...item, placement } : placement === "cover" && item.placement === "cover" ? { ...item, placement: "auto" } : item) })); }} style={{ ...secondaryButton, display: "block", width: "100%", marginTop: 4 }}><option value="">Automatic</option><option value="cover">Cover</option><option value="auto">Supporting photos</option>{pack.result.sections.map((section, i) => <option key={i} value={String(i)}>{section.heading}</option>)}</select></label>)}</details>}
+      {preview.error ? <ErrBox msg={preview.error}/> : <div aria-label="Generated portfolio preview" style={{ borderRadius: 10, overflow: "hidden", maxHeight: 880, overflowY: "auto", background: C.surface, padding: 8, border: `1px solid ${C.border}` }} dangerouslySetInnerHTML={{ __html: preview.html }}/>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}><button type="button" style={{ ...secondaryButton, opacity: exporting || busy || preview.error ? 0.55 : 1 }} disabled={exporting || busy || !!preview.error} onClick={download}>{exporting ? "Preparing PDF…" : "Save portfolio as PDF"}</button><CopyBtn text={portfolioAsText(pack.result, pack.form, pack.photos)}/></div>
+      <p role="status" style={{ fontSize: 12, color: C.muted }}>{exporting ? "Preparing your pages and photographs…" : printNotice || "Download the A4 pages shown above, including your photographs. Review the content and page count against your university's requirements."}</p>
       {!!pack.result.checklist.length && <Card><NotesList title="Details you could add before submitting" items={pack.result.checklist}/></Card>}
-      <FollowUpChat key={pack.id} context="" requestReply={answer} intro="Ask about your portfolio, how to describe an achievement, or which details to add." placeholder="e.g. How can I explain my leadership experience?" accent="#f472b6"/>
+      <FollowUpChat key={pack.id} context="" requestReply={answer} intro="Ask about your portfolio, how to describe an achievement, or which details to add." placeholder="e.g. How can I explain my leadership experience?" accent="#79baec"/>
     </div>}
   </div>;
 }
@@ -120,9 +137,9 @@ function ReviewPortfolio({ user, request, save, ui }) {
   return <div>
     <StudioFileDrop label="Portfolio PDF" hint="PDF · up to 4 MB and 100 pages · scanned pages and images are supported" accept=".pdf,application/pdf" files={files} onChange={next => { setFiles(next); setPack(null); setError(""); }} prepareFile={preparePortfolioPdf} onPreparingChange={setPreparing} disabled={busy} required/>
     {files[0] && <details style={{ marginBottom: 14, fontSize: 12, color: C.muted }}><summary style={{ cursor: "pointer", color: C.accent }}>Preview extracted portfolio text</summary><div style={{ padding: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 220, overflowY: "auto" }}>{files[0].preview}</div><p>The complete PDF, including images and page layout, is used for the review.{files[0].previewTruncated ? " This text preview is shortened." : ""}</p></details>}
-    <FInput label="Target university / course (optional)" placeholder="Which university or subject is this portfolio for?" value={target} onChange={event => setTarget(event.target.value)}/>
-    <FArea label="Requirements or review focus (optional)" placeholder="Paste application instructions or tell Ghosty what you want checked..." value={requirements} onChange={event => setRequirements(event.target.value)} rows={3}/>
-    {tooLong && <ErrBox msg="Keep the course and requirements under 10,000 characters."/>}
+    <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><FInput label="Target university / course (optional)" placeholder="Which university or subject is this portfolio for?" value={target} onChange={event => { setTarget(event.target.value); setPack(null); }}/>
+    <FArea label="Requirements or review focus (optional)" placeholder="Paste application instructions or tell Ghosty what you want checked..." value={requirements} onChange={event => { setRequirements(event.target.value); setPack(null); }} rows={3}/>
+    </fieldset>{tooLong && <ErrBox msg="Keep the course and requirements under 10,000 characters."/>}
     <PriBtn onClick={review} loading={busy} disabled={!files.length || preparing || tooLong}>Review Portfolio</PriBtn>
     {error && <ErrBox msg={error}/>}
     {pack && <div style={{ marginTop: 16 }}>
@@ -133,7 +150,7 @@ function ReviewPortfolio({ user, request, save, ui }) {
       <Card style={{ marginTop: 10 }}><h3 style={{ color: C.accent, fontSize: 14, margin: "0 0 10px" }}>Mistakes & corrections</h3>{pack.result.mistakes.length ? pack.result.mistakes.map((mistake, index) => <div key={index} style={{ borderTop: index ? `1px solid ${C.border}` : "none", padding: "10px 0" }}><div style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>{mistake.page ? `Page ${mistake.page}` : "Whole portfolio"}</div><div style={{ fontSize: 13, color: C.text, marginTop: 4 }}>{mistake.issue}</div>{mistake.excerpt && <blockquote style={{ margin: "7px 0", paddingLeft: 10, borderLeft: `2px solid ${C.border}`, color: C.muted, fontSize: 13 }}>{mistake.excerpt}</blockquote>}<div style={{ fontSize: 13, color: C.green, lineHeight: 1.6 }}>{mistake.correction}</div></div>) : <p style={{ fontSize: 13, color: C.muted }}>No specific mistakes were identified in this review.</p>}
         <NotesList title="Suggested improvements" items={pack.result.suggestions}/><NotesList title="Missing or unclear information" items={pack.result.missingInformation}/><div style={{ marginTop: 14 }}><CopyBtn text={portfolioReviewAsText(pack.result)}/></div>
       </Card>
-      <FollowUpChat key={pack.id} context="" requestReply={answer} intro="Ask about a score, a correction or any page of your uploaded portfolio." placeholder="e.g. What should I improve on page 2?" accent="#f472b6"/>
+      <FollowUpChat key={pack.id} context="" requestReply={answer} intro="Ask about a score, a correction or any page of your uploaded portfolio." placeholder="e.g. What should I improve on page 2?" accent="#79baec"/>
     </div>}
   </div>;
 }
@@ -142,7 +159,7 @@ export default function PortfolioStudio(props) {
   const [workflow, setWorkflow] = useState("create");
   const { StudioTabs } = props.ui;
   return <div>
-    <div style={{ background: "rgba(244,114,182,0.1)", border: "1px solid rgba(244,114,182,0.25)", borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", gap: 9 }}><GwmIcon name="portfolio" size={20} color={C.accent}/><div><div style={{ color: C.accent, fontSize: 14, fontWeight: 800 }}>University Portfolio</div><div style={{ color: C.muted, fontSize: 12, lineHeight: 1.5, marginTop: 3 }}>Bring your school years, achievements and experiences into your university application.</div></div></div>
+    <div style={{ background: "rgba(121,186,236,0.1)", border: "1px solid rgba(121,186,236,0.25)", borderRadius: 10, padding: 12, marginBottom: 14, display: "flex", gap: 9 }}><GwmIcon name="portfolio" size={20} color={C.accent}/><div><div style={{ color: C.accent, fontSize: 14, fontWeight: 800 }}>University Portfolio</div><div style={{ color: C.muted, fontSize: 12, lineHeight: 1.5, marginTop: 3 }}>Bring your school years, achievements and experiences into your university application.</div></div></div>
     <StudioTabs value={workflow} onChange={setWorkflow} items={[{ id: "create", icon: "portfolio", label: "Create Portfolio" }, { id: "review", icon: "reviewer", label: "Review Portfolio PDF" }]}/>
     <div role="tabpanel" aria-label="Create Portfolio" hidden={workflow !== "create"}><CreatePortfolio {...props}/></div>
     <div role="tabpanel" aria-label="Review Portfolio PDF" hidden={workflow !== "review"}><ReviewPortfolio {...props}/></div>

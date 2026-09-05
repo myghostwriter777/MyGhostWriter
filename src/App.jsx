@@ -327,7 +327,7 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 
 const CONTACT_EMAIL = "myghosthehehzjspt@gmail.com";
 
-const MODES = [
+export const MODES = [
   { id:"reply",    icon:"reply",    label:"AI Replies", access:"free"        },
   { id:"writing",  icon:"writing",  label:"Writing",    access:"free"        },
   { id:"email",    icon:"mail",     label:"Email",       access:"free"        },
@@ -341,7 +341,7 @@ const MODES = [
   { id:"story",    icon:"story",    label:"Story Guide", access:"pro+student" },
   { id:"meeting",  icon:"meeting",  label:"Meeting",     access:"student"     },
   { id:"academic", icon:"academic", label:"Academic",    access:"student"     },
-  { id:"portfolio",icon:"portfolio",label:"Portfolio",   access:"student"     },
+  { id:"portfolio",icon:"portfolio",label:"Portfolio",   access:"pro+student"     },
   { id:"humanize", icon:"humanize", label:"Humanize",    access:"student"     },
   { id:"manga",    icon:"manga",    label:"Manga Studio",access:"student"     },
   { id:"history",  icon:"history",  label:"History",     access:"free"        },
@@ -350,10 +350,10 @@ const MODES = [
 // The app has more tools than a conventional five-item tab bar can support.
 // A four-destination plan rail keeps the primary hierarchy predictable, then
 // exposes only the tools for the selected plan in the secondary row.
-const NAV_GROUPS=[
+export const NAV_GROUPS=[
   {id:"free",label:"Free",modeIds:["reply","writing","email","grammar"]},
-  {id:"pro",label:"Pro",modeIds:["essay","presentation","interview","slides","cv","author","story"]},
-  {id:"student",label:"Master",modeIds:["meeting","academic","portfolio","humanize","manga"]},
+  {id:"pro",label:"Pro",modeIds:["essay","presentation","interview","slides","cv","portfolio","author","story"]},
+  {id:"student",label:"Master",modeIds:["meeting","academic","humanize","manga"]},
   {id:"history",label:"History",modeIds:["history"]},
 ];
 const modeGroup=id=>NAV_GROUPS.find(group=>group.modeIds.includes(id))||NAV_GROUPS[0];
@@ -1186,7 +1186,7 @@ const TAROT_TOOLS=[
   {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
   {id:"meeting", name:"Meeting Assist",tier:"Master", comingSoon:true,desc:"Listens only to shared meeting audio and prepares concise, useful reply suggestions."},
   {id:"academic",name:"Academic",     tier:"Master", desc:"Provides feedback on your writing and offers research guidance."},
-  {id:"portfolio",name:"Portfolio", tier:"Master", desc:"Creates university application portfolios from your details and photos, or reviews a PDF with scores and follow-up coaching."},
+  {id:"portfolio",name:"Portfolio", tier:"Pro", desc:"Creates university application portfolios from your details and photos, or reviews a PDF with scores and follow-up coaching."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},
   {id:"author",  name:"Author Mode",  tier:"Pro",     desc:"Helps you write creative stories, novels, and books with ease."},
   {id:"humanize",name:"Humanize",     tier:"Master", desc:"Refines AI-generated text into natural, human-like writing."},
@@ -1594,15 +1594,15 @@ function LandingScreen({onGetStarted,onSignIn}){
 
   const PLANS=[
     {name:"Free",price:"$0",per:"forever",color:C.green,feats:["AI Replies, Email & Grammar","Voice input & text-to-speech","History (last 50)"],cta:"Start Free"},
-    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","Priority generation"],cta:"Start Free Trial"},
-{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","University Portfolio","Humanize My Writing","Manga Studio — Coming Soon","Meeting Assist — Coming Soon"],cta:"Start Master Trial"},  ];
+    {name:"Pro",price:"$7",per:"/mo",note:"intro, then $12/mo",color:C.blue,popular:true,feats:["Everything in Free","Presentations & interview practice","Slide Generator with exports","Essay, CV, Author & Story tools","University Portfolio","Priority generation"],cta:"Start Free Trial"},
+{name:"Master",price:"$20",per:"/mo",note:"first 2 months, then $30/mo",color:C.magenta,feats:["Everything in Pro","Academic Reviewer & Research","Humanize My Writing","Manga Studio — Coming Soon","Meeting Assist — Coming Soon"],cta:"Start Master Trial"},  ];
 
   const FAQS=[
     {q:"What is GhostwriterMe?",a:"GhostwriterMe is an AI writing suite that helps you turn rough ideas into clear, polished writing — from everyday replies and emails to essays, resumes, and creative work."},
     {q:"How does GhostwriterMe work?",a:"Pick a writing tool, type or speak what you need, and the AI generates a draft you can edit, copy, or refine. Every tool is built around a specific writing task so you get focused, relevant results."},
     {q:"Is my content private?",a:"Your writing is processed only to generate your results and is not sold or shared. History is stored on your own device. We recommend avoiding sensitive personal data in any AI tool."},
     {q:"Can I use GhostwriterMe for academic assistance?",a:"Yes — Academic mode is built as a writing coach. It reviews your own work, gives feedback, and helps you plan and research. You remain responsible for following your institution's academic integrity policies."},
-    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features, and a Master plan with Academic, Portfolio and Humanize. Manga Studio and Meeting Assist are coming soon and remain available only to admin testers while they are finalized. All paid plans start with a free trial."},
+    {q:"What subscription plans are available?",a:"A free plan with core tools, a Pro plan for advanced writing features and Portfolio, and a Master plan with Academic and Humanize. Manga Studio and Meeting Assist are coming soon and remain available only to admin testers while they are finalized. All paid plans start with a free trial."},
     {q:"How do I contact support?",a:"Use the Contact & Feedback form below, or email us directly at "+CONTACT_EMAIL+". We typically reply within 24 hours."},
   ];
 
@@ -2144,8 +2144,8 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
   const trialUsed=!!(user&&(user.trialUsed||user.trialPlan||user.plan!=="free"));
 
   const FREE_F=["15 AI replies / day","Writing Mode — unlimited","Email Mode — unlimited","Grammar check","History (last 50)","Voice input on all fields","Text-to-speech on all outputs"];
-  const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","Author Mode (12 genres)","Story Guide — books and films","Full history across all modes","Priority generation speed"];
-  const STU_F=["Everything in Pro","Manga & Manhwa Studio — Coming Soon","Meeting Assist — Coming Soon","Academic Essay + auto-citations (Master exclusive)","University Portfolio (Master exclusive)","Humanize My Writing (Master exclusive)","CEFR-matched voice output","Priority support"];
+  const PRO_F=["Unlimited AI replies","Presentation scripts + friend review","Spoken interview simulator","Slide Generator + PDF, Word & image exports","Essay Writer (CEFR A1–C2)","CV / Resume Builder","University Portfolio — create, PDF export & review","Author Mode (12 genres)","Story Guide — books and films","Full history across all modes","Priority generation speed"];
+  const STU_F=["Everything in Pro","Manga & Manhwa Studio — Coming Soon","Meeting Assist — Coming Soon","Academic Essay + auto-citations (Master exclusive)","Humanize My Writing (Master exclusive)","CEFR-matched voice output","Priority support"];
 
   const allProF=[...FREE_F,...PRO_F];const allStuF=[...FREE_F,...PRO_F,...STU_F];
   const tabs=[{id:"free",label:"Free",color:C.green},{id:"pro",label:"Pro",color:C.blue},{id:"student",label:"Master",color:C.magenta}];
@@ -2183,7 +2183,7 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
         </div>
         {tab==="pro"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setProBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:proBill===b.id?C.blue:"transparent",color:proBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
         {tab==="student"&&(<div style={{display:"flex",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:3,marginBottom:12,animation:"fadeUp 0.2s ease"}}>{[{id:"monthly",label:"Monthly"},{id:"yearly",label:"Yearly"}].map(b=>(<button key={b.id} onClick={()=>setStuBill(b.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:stuBill===b.id?C.magenta:"transparent",color:stuBill===b.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}>{b.label}</button>))}</div>)}
-        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong>, <strong>Portfolio</strong> and <strong>Humanize My Writing</strong>. <strong>Manga Studio</strong> and <strong>Meeting Assist</strong> are coming soon.</div></div>)}
+        {tab==="student"&&(<div style={{background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.28)",borderRadius:8,padding:"10px 12px",marginBottom:12,display:"flex",gap:8,animation:"fadeUp 0.2s ease"}}><GwmIcon name="academic" size={17} color={C.magentaText}/><div style={{fontSize:13,color:C.magentaText,lineHeight:1.6}}>Includes exclusive <strong>Academic Essay</strong> and <strong>Humanize My Writing</strong>. <strong>Manga Studio</strong> and <strong>Meeting Assist</strong> are coming soon.</div></div>)}
         <div style={{background:tab==="student"?`linear-gradient(150deg,rgba(244,114,182,0.08),${C.card})`:tab==="pro"?`linear-gradient(150deg,rgba(121,186,236,0.08),${C.card})`:C.card,border:`1px solid ${tab==="student"?"rgba(244,114,182,0.46)":tab==="pro"?C.blue:C.border}`,borderRadius:12,padding:"18px",position:"relative",overflow:"hidden",boxShadow:tab==="student"?`0 0 28px ${C.magentaGlow}`:tab==="pro"?`0 0 28px ${C.blueGlow}`:"none",marginBottom:14,animation:"fadeUp 0.3s ease"}}>
           {tab!=="free"&&(<div style={{position:"absolute",top:-1,right:14,display:"flex",alignItems:"center",gap:4,background:tab==="student"?`linear-gradient(135deg,${C.magenta},#f9a8d4)`: `linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:11,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px",boxShadow:tab==="pro"?`0 2px 12px ${C.blueGlow}`:`0 2px 12px ${C.magentaGlow}`}}>{tab==="student"?<><GwmIcon name="academic" size={11}/>MASTER PLAN</>:<><StarIcon size={11} color="#000"/>MOST POPULAR</>}</div>)}
           <div style={{fontSize:12,letterSpacing:"0.12em",color:tabColor,textTransform:"uppercase",marginBottom:5}}>{tab.toUpperCase()}</div>
