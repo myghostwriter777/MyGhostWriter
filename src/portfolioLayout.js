@@ -6,6 +6,7 @@ const BODY = "Arial, sans-serif", DISPLAY = "Impact, 'Arial Narrow', sans-serif"
 const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
 export const safePortfolioImage = value => /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(value || "");
 const normalizeText = value => String(value || "").replace(/\r\n?/g, "\n").trim();
+const graphemeSegmenter = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
 
 export function wrapPortfolioText(value, width, size, measure, font = BODY, weight = 400) {
   const lines = [];
@@ -17,7 +18,8 @@ export function wrapPortfolioText(value, width, size, measure, font = BODY, weig
       const next = line ? `${line} ${word}` : word;
       if (measure(next, size, font, weight) <= width) { line = next; continue; }
       if (line) { lines.push(line); line = ""; }
-      for (const character of Array.from(word)) {
+      const characters = graphemeSegmenter ? Array.from(graphemeSegmenter.segment(word), part => part.segment) : Array.from(word);
+      for (const character of characters) {
         if (line && measure(line + character, size, font, weight) > width) { lines.push(line); line = ""; }
         line += character;
       }

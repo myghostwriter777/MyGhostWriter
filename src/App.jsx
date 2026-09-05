@@ -615,21 +615,22 @@ async function callHumanizePass(system,user,maxTokens){
 // server route. Files stay in memory for the request and are never written to
 // localStorage or the history database. The server owns the model allowlist,
 // token cap, file validation, and API secret.
-async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",opts={}){
+export async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",opts={}){
   assertAIAvailable();
   const controller=new AbortController();const timeoutMs=Math.max(15000,Number(opts.timeoutMs)||120000);const timeout=setTimeout(()=>controller.abort(),timeoutMs);
   const cancel=()=>controller.abort();
   if(opts.signal?.aborted)cancel();else opts.signal?.addEventListener("abort",cancel,{once:true});
-  let r;
+  let r,d;
   try{r=await fetch("/api/openai",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       signal:controller.signal,
       body:JSON.stringify({system:system+(opts.mode==="ai-detection"?"":HUMAN_STYLE)+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
-    });}
+    });
+    // Keep timeout and cancellation active until the full body has arrived.
+    d=await r.json().catch(error=>{if(error?.name==="AbortError")throw error;return{};});}
   catch(error){if(error?.name==="AbortError")throw new Error("This generation took too long and was safely stopped. Please try again with fewer sections or a shorter source.");throw error;}
   finally{clearTimeout(timeout);opts.signal?.removeEventListener("abort",cancel);}
-  const d=await r.json().catch(()=>({}));
   if(!r.ok){
     if(r.status===413)throw new Error("The prepared sources are still too large for one request. Remove one source or split a very long document.");
     if(r.status===429)throw new Error("The studio is busy right now. Wait a moment and try again.");

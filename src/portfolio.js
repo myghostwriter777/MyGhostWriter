@@ -41,7 +41,8 @@ export function parsePortfolioReview(raw, pageCount) {
   if (data?.readable !== true || !isText(data.summary) || !Array.isArray(data.criteria) || data.criteria.length !== PORTFOLIO_CRITERIA.length) throw new Error("The review was incomplete. Please review the PDF again.");
   const criteria = PORTFOLIO_CRITERIA.map(name => data.criteria.find(item => item?.name === name));
   if (criteria.some(item => !item || !Number.isInteger(item.score) || item.score < 1 || item.score > 100 || !isText(item.feedback))) throw new Error("The review returned an invalid score. Please try again.");
-  const mistakes = Array.isArray(data.mistakes) ? data.mistakes : [];
+  if (!Array.isArray(data.mistakes) || ["strengths", "suggestions", "missingInformation"].some(key => !Array.isArray(data[key]) || data[key].some(item => !isText(item)))) throw new Error("The review was incomplete. Please review the PDF again.");
+  const mistakes = data.mistakes;
   if (mistakes.some(item => !Number.isInteger(item?.page) || item.page < 0 || item.page > pageCount || !isText(item.issue) || !isText(item.correction) || typeof item.excerpt !== "string")) throw new Error("The review returned an invalid page reference. Please try again.");
   return { summary: data.summary, criteria, score: Math.round(criteria.reduce((total, item) => total + item.score, 0) / criteria.length), mistakes,
     strengths: strings(data.strengths), suggestions: strings(data.suggestions), missingInformation: strings(data.missingInformation) };
@@ -67,6 +68,8 @@ export function portfolioChatPrompt(messages) {
   for (let index = messages.length - 2; index >= 0; index--) {
     const entry = { role: messages[index].role === "user" ? "student" : "coach", content: messages[index].content };
     if (length + entry.content.length > 14000) break;
+    // JSON escaping can multiply the size of pasted control characters.
+    if (JSON.stringify({ previousMessages: [entry, ...previous], latestQuestion: latest }).length > 28000) break;
     previous.unshift(entry); length += entry.content.length;
   }
   return JSON.stringify({ previousMessages: previous, latestQuestion: latest });

@@ -26,6 +26,20 @@ test("computes overall score from five criteria and rejects fabricated page refe
   expect(() => parsePortfolioReview(JSON.stringify({ ...review, readable: false, summary: "The PDF is blank." }), 2)).toThrow("The PDF is blank.");
 });
 
+test("rejects missing review feedback instead of displaying a misleading clean review", () => {
+  for (const field of ["mistakes", "strengths", "suggestions", "missingInformation"]) {
+    expect(() => parsePortfolioReview(JSON.stringify({ ...review, [field]: undefined }), 2)).toThrow(/incomplete/);
+  }
+  expect(() => parsePortfolioReview(JSON.stringify({ ...review, suggestions: [42] }), 2)).toThrow(/incomplete/);
+});
+
+test("keeps escaped chat history within the API's serialized request limit", () => {
+  const messages = [{ role: "ai", content: "\u0001".repeat(11000) }, { role: "user", content: "\u0001".repeat(3000) }];
+  const prompt = portfolioChatPrompt(messages);
+  expect(prompt.length).toBeLessThanOrEqual(30000);
+  expect(JSON.parse(prompt).latestQuestion).toBe(messages[1].content);
+});
+
 test("escapes student text and image captions in preview and PDF HTML", () => {
   const html = buildPortfolioHtml({ ...portfolio, introduction: '<script>alert("bad")</script>' }, { name: '<img src=x onerror="bad()">' }, [{ ...photo, caption: '"><script>bad()</script>' }, { name: "unsafe", dataUrl: 'javascript:alert(1)' }]);
   const container = document.createElement("div"); container.innerHTML = html;
@@ -88,4 +102,11 @@ test("wraps unspaced multilingual text without discarding characters", () => {
   const lines = wrapPortfolioText(source, 487, 13, measure);
   expect(lines.join("")).toBe(source);
   expect(lines.every(line => measure(line, 13) <= 487)).toBe(true);
+});
+
+test("does not split Thai combining marks or emoji sequences across lines", () => {
+  const thai = wrapPortfolioText("ก้ก้ก้", 3, 1, value => Array.from(value).length);
+  expect(thai).toEqual(["ก้", "ก้", "ก้"]);
+  const emoji = "👩‍🎓";
+  expect(wrapPortfolioText(emoji.repeat(2), 4, 1, value => Array.from(value).length)).toEqual([emoji, emoji]);
 });
