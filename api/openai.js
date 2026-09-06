@@ -52,6 +52,20 @@ const STRUCTURED_OUTPUTS = {
     summary: text,
     signals: stringList,
   }),
+  // Meeting Assist labels who said each new transcript line and, when the
+  // other party asked something, returns exactly three spoken-style answers.
+  meeting: objectSchema({
+    lines: {
+      type: "array",
+      items: objectSchema({
+        index: { type: "integer" },
+        speaker: { type: "string", enum: ["other", "you", "unclear"] },
+      }),
+    },
+    needsReply: { type: "boolean" },
+    heard: text,
+    options: stringList,
+  }),
   presentation: objectSchema({
     title: text,
     summary: text,

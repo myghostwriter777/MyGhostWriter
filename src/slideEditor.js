@@ -1,29 +1,31 @@
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,Number(value)||0));
 
+// Percentages of the 1600×900 stage. Text columns keep a 6% margin; image
+// panels hug a slide edge so their organic curve can meet the background.
 const LAYOUT_DEFAULTS={
   "left-third":{
-    eyebrow:{x:5,y:13,width:51},
-    title:{x:5,y:36,width:52},
-    supportingText:{x:5,y:64,width:52},
-    image:{x:61,y:0,width:39,height:100},
+    eyebrow:{x:6,y:30,width:47},
+    title:{x:6,y:35,width:47},
+    supportingText:{x:6,y:64,width:45},
+    image:{x:57.5,y:0,width:42.5,height:100},
   },
   "right-third":{
-    eyebrow:{x:44,y:8,width:51},
-    title:{x:44,y:17,width:51},
-    supportingText:{x:44,y:39,width:51},
-    image:{x:0,y:0,width:38,height:100},
+    eyebrow:{x:42.75,y:9,width:51.25},
+    title:{x:42.75,y:13.5,width:51.25},
+    supportingText:{x:42.75,y:40,width:51.25},
+    image:{x:0,y:0,width:37,height:100},
   },
   "top-third":{
-    eyebrow:{x:5,y:6,width:90},
-    title:{x:5,y:14,width:90},
-    supportingText:{x:5,y:72,width:90},
-    image:{x:29,y:29,width:42,height:38},
+    eyebrow:{x:6,y:8,width:88},
+    title:{x:6,y:12.5,width:88},
+    supportingText:{x:6,y:74,width:88},
+    image:{x:30,y:30,width:40,height:40},
   },
   "full-bleed":{
-    eyebrow:{x:5,y:35,width:52},
-    title:{x:5,y:46,width:52},
-    supportingText:{x:5,y:76,width:52},
-    image:{x:58,y:0,width:42,height:100},
+    eyebrow:{x:6,y:34,width:52},
+    title:{x:6,y:39,width:52},
+    supportingText:{x:6,y:70,width:50},
+    image:{x:0,y:0,width:100,height:100},
   },
 };
 
@@ -31,20 +33,18 @@ const EDITORIAL_DEFAULTS={
   "hero-image":LAYOUT_DEFAULTS["left-third"],
   "image-cards":LAYOUT_DEFAULTS["right-third"],
   process:{
-    eyebrow:{x:5,y:6,width:90},title:{x:5,y:14,width:90},supportingText:{x:5,y:79,width:90},image:{x:29,y:28,width:42,height:43},
+    eyebrow:{x:6,y:8,width:88},title:{x:6,y:12.5,width:88},supportingText:{x:6,y:76,width:88},image:{x:30,y:29,width:40,height:42},
   },
   "image-detail":{
-    eyebrow:{x:66,y:4,width:29},title:{x:66,y:10,width:29},supportingText:{x:66,y:47,width:29},image:{x:5,y:27,width:57,height:62},
+    eyebrow:{x:65,y:9,width:29},title:{x:65,y:13.5,width:29},supportingText:{x:65,y:46,width:29},image:{x:5,y:24,width:55,height:62},
   },
   "icon-columns":{
-    eyebrow:{x:5,y:10,width:90},title:{x:5,y:19,width:90},supportingText:{x:5,y:43,width:90},image:{x:5,y:40,width:90,height:42},
+    eyebrow:{x:6,y:21,width:88},title:{x:6,y:26,width:88},supportingText:{x:6,y:47,width:88},image:{x:6,y:44,width:88,height:42},
   },
   equation:{
-    eyebrow:{x:5,y:3,width:90},title:{x:5,y:8,width:90},supportingText:{x:52,y:39,width:43},image:{x:5,y:35,width:44,height:43},
+    eyebrow:{x:6,y:19,width:88},title:{x:6,y:23.5,width:88},supportingText:{x:52.5,y:38,width:41.5},image:{x:6,y:37,width:43,height:38},
   },
-  "takeaway-grid":{
-    eyebrow:{x:44,y:7,width:51},title:{x:44,y:15,width:51},supportingText:{x:44,y:35,width:51},image:{x:0,y:0,width:38,height:100},
-  },
+  "takeaway-grid":LAYOUT_DEFAULTS["right-third"],
 };
 
 export const editableSlideSupportingText=slide=>String(slide?.supportingText??"");
@@ -59,8 +59,16 @@ export const slideTitleScale=value=>{
   return 1;
 };
 
+// Each visual type has a natural layout. When the slide keeps that layout the
+// hand-tuned editorial positions apply; when the user picks another layout the
+// generic geometry for that layout takes over so the choice is visible.
+const NATURAL_LAYOUT={"hero-image":"left-third","image-cards":"right-third",process:"top-third","image-detail":"right-third","icon-columns":"top-third",equation:"top-third","takeaway-grid":"right-third"};
+
 export const defaultSlideElementPosition=(layout,key,slide)=>{
-  const defaults=EDITORIAL_DEFAULTS[slide?.visualType]||LAYOUT_DEFAULTS[layout]||LAYOUT_DEFAULTS["left-third"];
+  const visual=slide?.visualType;
+  const resolvedLayout=LAYOUT_DEFAULTS[layout]?layout:(NATURAL_LAYOUT[visual]||"left-third");
+  const editorial=EDITORIAL_DEFAULTS[visual]&&NATURAL_LAYOUT[visual]===resolvedLayout?EDITORIAL_DEFAULTS[visual]:null;
+  const defaults=editorial||LAYOUT_DEFAULTS[resolvedLayout];
   const fallback={...(defaults[key]||defaults.image)};
   if(key!=="supportingText"||!slide?.title)return fallback;
   const title=defaults.title;const scale=slideTitleScale(slide.title);

@@ -12,6 +12,20 @@ Present → Create Script accepts one PDF (up to 4 MB / 100 pages) in place of a
 
 Humanize → Analyze AI content assesses either the pasted text or the humanized result on demand. It uses the same studio route and existing `ANTHROPIC_API_KEY`; no new provider credentials are required. The 1–100% score is a model-based style estimate, not a calibrated probability or a measurement of actual AI authorship. Analysis requires 200–20,000 characters, shows supporting observations, and clears stale results when the analyzed text changes. Rewriting remains a separate action.
 
+## Meeting Assist
+
+Meeting Assist listens to a live conversation and prepares three spoken-style answer options whenever the other party asks something.
+
+- **Audio sources:** the **Microphone** (default; works on phones, in person, and with any meeting app) hears the room or the device's speakers, with echo cancellation deliberately off so a remote voice playing through the speakers is not stripped out. **Meeting tab audio** (desktop Chrome/Edge) captures only the remote participants of a Meet, Teams or Zoom browser tab.
+- **Segmentation:** an energy-based voice-activity detector cuts the stream into whole utterances at natural pauses (with pre-roll), instead of fixed timer chunks that split questions mid-sentence.
+- **Transcription:** segments go to `/api/transcribe` (Vercel AI Gateway, `openai/gpt-4o-mini-transcribe`) as 16 kHz WAV. If that route reports a terminal failure (no credits, not configured, unreachable), the session switches to the on-device Whisper model automatically.
+- **Who is speaking:** in microphone mode Claude labels every new line as the other party, the user, or unclear, using the conversation, turn-taking, and an optional six-second voice sample (median pitch and brightness, stored only in this browser). Lines attributed to the user never become suggestions; an **"I'm speaking · pause"** toggle drops audio entirely while the user answers.
+- **Answers:** the `meeting` structured output returns exactly three distinct first-person options (direct, example-led, and one ending in a clarifying question) grounded only in the "About you" context, with `[placeholders]` where a detail is unknown. The floating answer panel (Document Picture-in-Picture) mirrors the options and the pause toggle.
+
+## Slide Generator rendering
+
+Every slide surface (studio preview, fullscreen, PDF, PNG/JPEG, PPTX and Word previews) renders the same block layout produced by `src/slideLayout.js` on a fixed 1600×900 stage; the preview scales that stage to fit, so exports match the screen. Layouts follow an editorial deck: cover with a curved image panel, evidence cards, process circles, icon columns, an equation card, a takeaway grid, and an editable Sources card. Copy that would overflow is fitted automatically. Illustrations are generated progressively for every image-led slide via `/api/slide-image` (Gateway: Gemini image models first, then Flux and GPT Image), and the deck is shown as soon as the text is ready; failed illustrations can be retried per deck or replaced per slide.
+
 ## University Portfolio
 
 Pro → Portfolio has two workflows (also included in Master):

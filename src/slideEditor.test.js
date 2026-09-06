@@ -2,11 +2,19 @@ import {defaultSlideElementPosition,editableSlideSupportingText,moveSlideElement
 
 describe("slide editor geometry",()=>{
   test("uses layout-aware defaults",()=>{
-    expect(defaultSlideElementPosition("right-third","title")).toEqual({x:44,y:17,width:51});
-    expect(defaultSlideElementPosition("missing","image")).toEqual({x:61,y:0,width:39,height:100});
+    expect(defaultSlideElementPosition("right-third","title")).toEqual({x:42.75,y:13.5,width:51.25});
+    expect(defaultSlideElementPosition("missing","image")).toEqual({x:57.5,y:0,width:42.5,height:100});
     expect(defaultSlideElementPosition("left-third","supportingText").y).toBeGreaterThan(55);
-    expect(defaultSlideElementPosition("top-third","image",{visualType:"image-detail"})).toEqual({x:5,y:27,width:57,height:62});
-    expect(defaultSlideElementPosition("right-third","supportingText",{visualType:"image-cards",title:"A title that wraps onto several lines in the narrow text column"}).y).toBeGreaterThanOrEqual(39);
+    expect(defaultSlideElementPosition("right-third","image",{visualType:"image-detail",layout:"right-third"})).toEqual({x:5,y:24,width:55,height:62});
+    expect(defaultSlideElementPosition("right-third","supportingText",{visualType:"image-cards",title:"A title that wraps onto several lines in the narrow text column"}).y).toBeGreaterThanOrEqual(40);
+  });
+
+  test("lets a user-chosen layout override the visual type's natural geometry",()=>{
+    const natural=defaultSlideElementPosition("right-third","image",{visualType:"image-cards",layout:"right-third"});
+    const moved=defaultSlideElementPosition("left-third","image",{visualType:"image-cards",layout:"left-third"});
+    expect(natural.x).toBe(0);
+    expect(moved.x).toBeGreaterThan(50);
+    expect(defaultSlideElementPosition("full-bleed","image",{visualType:"hero-image",layout:"full-bleed"})).toEqual({x:0,y:0,width:100,height:100});
   });
 
   test("normalizes images inside the canvas",()=>{

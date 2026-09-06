@@ -5,9 +5,7 @@ import { Elements, CardElement, useStripe, useElements } from "@stripe/react-str
 import GwmIcon from "./GwmIcon";
 import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 import { HISTORY_INITIAL_VISIBLE, HISTORY_REVEAL_STEP, prepareHistoryItems } from "./historyPaging";
-import { buildRemoteMeetingAudioStream, cleanMeetingTranscriptSegment, detectMeetingCaptureProfile, hasAudibleMeetingSpeech, isBrowserTabMeetingShare, isUsefulMeetingTranscript, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
-import { audioBlobToMono16k } from "./localAudio";
-import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
+import MeetingAssistMode from "./MeetingAssistMode";
 import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
@@ -19,8 +17,11 @@ import { buildEditorialBlueprint, normalizeEditorialDeck, resolveSlideCount, sli
 import { isComingSoonForUser } from "./featureAvailability";
 import { getTarotCardArt } from "./tarotCardAssets";
 import { clampGenerationCount } from "./generationControls";
-import { defaultSlideElementPosition, editableSlideSupportingText, moveSlideElement, normalizeSlideElementPosition, nudgeSlideElement, resizeSlideElement, slideTitleScale } from "./slideEditor";
-import { normalizeSlideSources, slideSourceDomain, withSourcesSlide } from "./slideSources";
+import { defaultSlideElementPosition, editableSlideSupportingText, normalizeSlideElementPosition } from "./slideEditor";
+import { DEFAULT_SLIDE_FONT, DEFAULT_SLIDE_THEME, GOOGLE_SLIDE_FONTS, normalizeSlideHex, SLIDE_FONTS, SLIDE_THEMES, slideContrast, slideFontStack, slidePalette, slideThemeById } from "./slideTheme";
+import { SlideFrame } from "./SlideRenderer";
+import { drawSlideCanvas } from "./slideCanvas";
+import { normalizeSlideSources, withSourcesSlide } from "./slideSources";
 import { mergeSavedProfile, saveProfile } from "./profilePersistence";
 
 // Initialized once, outside the component tree — Stripe's recommended pattern.
@@ -306,7 +307,7 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .studio-stepper{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:7px;align-items:center;}
 .studio-option-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;}
 .studio-upload-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
-.studio-slide-shell{aspect-ratio:16/9;min-height:240px;overflow:hidden;border-radius:12px;position:relative;isolation:isolate;}
+.studio-slide-shell{aspect-ratio:16/9;overflow:hidden;border-radius:12px;position:relative;isolation:isolate;}
 .studio-slide-shell::after{content:"";position:absolute;inset:0;border:1px solid rgba(255,255,255,0.12);border-radius:inherit;pointer-events:none;}
 .studio-deck-workspace{display:grid;grid-template-columns:116px minmax(0,1fr);gap:10px;align-items:start;}
 .studio-deck-rail{display:flex;flex-direction:column;gap:7px;max-height:520px;overflow:auto;padding:2px;scrollbar-width:thin;}
@@ -320,8 +321,8 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .studio-timeline{position:relative;padding-left:21px;}
 .studio-timeline::before{content:"";position:absolute;left:6px;top:8px;bottom:8px;width:1px;background:var(--gwm-border);}
 .studio-timeline-dot{position:absolute;left:-21px;top:5px;width:13px;height:13px;border:3px solid var(--gwm-card);border-radius:50%;background:#79BAEC;box-shadow:0 0 0 1px rgba(121,186,236,0.45);}
-@media (max-width:620px){input,select,textarea{font-size:16px!important}.studio-grid-2,.studio-grid-3,.studio-upload-row{grid-template-columns:1fr}.studio-option-grid{grid-template-columns:1fr 1fr}.studio-export-row{grid-template-columns:1fr 1fr}.studio-deck-workspace{grid-template-columns:1fr}.studio-deck-rail{order:2;flex-direction:row;max-height:none;overflow-x:auto}.studio-deck-thumb{flex:0 0 104px;width:104px}.studio-flow{grid-template-columns:1fr}.studio-slide-shell{min-height:205px}.mode-stage{padding-left:12px!important;padding-right:12px!important}}
-@media (max-width:390px){.studio-option-grid,.studio-export-row{grid-template-columns:1fr}.studio-slide-shell{min-height:180px}}
+@media (max-width:620px){input,select,textarea{font-size:16px!important}.studio-grid-2,.studio-grid-3,.studio-upload-row{grid-template-columns:1fr}.studio-option-grid{grid-template-columns:1fr 1fr}.studio-export-row{grid-template-columns:1fr 1fr}.studio-deck-workspace{grid-template-columns:1fr}.studio-deck-rail{order:2;flex-direction:row;max-height:none;overflow-x:auto}.studio-deck-thumb{flex:0 0 104px;width:104px}.studio-flow{grid-template-columns:1fr}.mode-stage{padding-left:12px!important;padding-right:12px!important}}
+@media (max-width:390px){.studio-option-grid,.studio-export-row{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.studio-slide-shell,.studio-timeline-dot{transition:none!important;animation:none!important}}
 `;
 
@@ -3858,305 +3859,6 @@ function StudyMode({user}){
   </div>;
 }
 
-const MEETING_PLATFORMS=["Google Meet","Microsoft Teams","Zoom","WhatsApp","Discord"];
-
-function MeetingAssistMode({user}){
-  const captureProfile=detectMeetingCaptureProfile();
-  const [platform,setPlatform]=useState(MEETING_PLATFORMS[0]);
-  const [context,setContext]=useState("");
-  const [consent,setConsent]=useState(false);
-  const [active,setActive]=useState(false);
-  const [processing,setProcessing]=useState(false);
-  const [transcript,setTranscript]=useState("");
-  const [interimTranscript,setInterimTranscript]=useState("");
-  const [suggestion,setSuggestion]=useState("");
-  const [error,setError]=useState("");
-  const [captureNotice,setCaptureNotice]=useState("");
-  const [speechSetup,setSpeechSetup]=useState("unchecked");
-  const [preparingSpeech,setPreparingSpeech]=useState(false);
-  const [speechProgress,setSpeechProgress]=useState("");
-  const [overlayWindow,setOverlayWindow]=useState(null);
-  const [saved,setSaved]=useState(false);
-  const displayStreamRef=useRef(null);
-  const recordingStreamRef=useRef(null);
-  const recorderRef=useRef(null);
-  const timerRef=useRef(null);
-  const activeRef=useRef(false);
-  const transcriptRef=useRef("");
-  const processChunkRef=useRef(null);
-  const handleTranscriptRef=useRef(null);
-  const requestSuggestionRef=useRef(null);
-  const recordNextRef=useRef(null);
-  const stopSessionRef=useRef(null);
-  const remoteRecorderActiveRef=useRef(false);
-  const overlayWindowRef=useRef(null);
-  const queueRef=useRef(Promise.resolve());
-  const replyInFlightRef=useRef(false);
-  const pendingSuggestionRef=useRef("");
-  const processingCountRef=useRef(0);
-  const canShareAudio=typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getDisplayMedia;
-  const canRecordAudio=typeof window!=="undefined"&&"MediaRecorder" in window;
-  const canUseOverlay=typeof window!=="undefined"&&!!window.documentPictureInPicture?.requestWindow;
-  const canCapture=captureProfile.remoteAudioOnlyAvailable&&canShareAudio&&canRecordAudio;
-
-  useEffect(()=>{transcriptRef.current=transcript;},[transcript]);
-  useEffect(()=>()=>{
-    activeRef.current=false;
-    clearTimeout(timerRef.current);
-    try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
-    displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-    recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-    try{overlayWindowRef.current?.close?.();}catch(e){}
-  },[]);
-
-  const updateWhisperProgress=data=>{
-    const progress=Number(data?.progress);
-    if(Number.isFinite(progress))setSpeechProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);
-  };
-
-  const beginProcessing=()=>{
-    processingCountRef.current+=1;
-    setProcessing(true);
-  };
-  const endProcessing=()=>{
-    processingCountRef.current=Math.max(0,processingCountRef.current-1);
-    if(processingCountRef.current===0)setProcessing(false);
-  };
-
-  const prepareWhisperFallback=async()=>{
-    setPreparingSpeech(true);setSpeechSetup("downloading");setSpeechProgress("");setError("");
-    try{
-      await prepareLocalWhisper(updateWhisperProgress);
-      setSpeechSetup("whisper");setSpeechProgress("");
-      return true;
-    }catch(error){
-      setSpeechSetup("failed");
-      setError("The on-device speech model could not be prepared. Check your connection for the one-time model download, then try again. "+(error?.message||""));
-      return false;
-    }finally{setPreparingSpeech(false);}
-  };
-
-  // Browser SpeechRecognition may silently ignore a supplied display-audio
-  // track and listen to the default microphone. Remote-only mode therefore
-  // always uses MediaRecorder + on-device Whisper on the shared track.
-  const prepareOfflineSpeech=prepareWhisperFallback;
-
-  const openMeetingOverlay=async()=>{
-    if(typeof window==="undefined"||!window.documentPictureInPicture?.requestWindow){
-      setError("The floating answer panel requires current desktop Chrome or Edge. Keep GhostwriterMe beside the meeting on this device.");return;
-    }
-    if(overlayWindowRef.current&&!overlayWindowRef.current.closed){overlayWindowRef.current.focus();return;}
-    try{
-      const pipWindow=await window.documentPictureInPicture.requestWindow({width:390,height:480});
-      pipWindow.document.title="Ghosty Meeting Answers";
-      Object.assign(pipWindow.document.body.style,{margin:"0",background:"#05070b",color:"#fff",fontFamily:"Arial, sans-serif",overflow:"hidden"});
-      overlayWindowRef.current=pipWindow;setOverlayWindow(pipWindow);
-      pipWindow.addEventListener("pagehide",()=>{overlayWindowRef.current=null;setOverlayWindow(null);},{once:true});
-    }catch(e){
-      if(e?.name!=="NotAllowedError")setError("Ghosty's floating answer panel could not open. Try again from the Meeting Assist screen.");
-    }
-  };
-
-  requestSuggestionRef.current=async latest=>{
-    pendingSuggestionRef.current=String(latest||"").trim();
-    if(replyInFlightRef.current||!pendingSuggestionRef.current)return;
-    replyInFlightRef.current=true;
-    try{
-      while(pendingSuggestionRef.current){
-        const speech=pendingSuggestionRef.current;
-        pendingSuggestionRef.current="";
-        beginProcessing();
-        try{
-          assertAIAvailable();
-          const reply=await callStudioAI(
-            "You are GhostwriterMe Meeting Assist. The transcript contains only remote-participant audio and has no speaker labels. Based only on that transcript and the user's optional context, write 1 to 3 concise, copy-ready text responses the user could choose to send. Never treat the word 'you' as a speaker name. Do not claim the user said or agreed to anything. Do not invent facts. Never discuss transcript quality or ask the user to provide a transcript. If the latest speech is incomplete, return one natural clarification such as 'Could you repeat the last part?' Put each option on its own line and return no preamble.",
-            `Platform: ${platform}\nUser context: ${context||"none"}\nLatest remote-participant speech: ${speech}\nRecent remote-participant transcript:\n${transcriptRef.current.slice(-3000)}`,
-            240,[],user?.email,{mode:"meeting"}
-          );
-          setSuggestion(reply.trim());setError("");
-        }catch(replyError){
-          setError("The transcript was captured, but a reply could not be generated yet. "+(replyError.message||"Try again shortly."));
-        }finally{endProcessing();}
-      }
-    }finally{replyInFlightRef.current=false;}
-  };
-
-  handleTranscriptRef.current=text=>{
-    const latest=cleanMeetingTranscriptSegment(text);
-    if(!isUsefulMeetingTranscript(latest)){setInterimTranscript("Listening for a clear sentence from the meeting…");return;}
-    const previousLast=transcriptRef.current.trim().split("\n").at(-1)||"";
-    if(previousLast.toLocaleLowerCase()===latest.toLocaleLowerCase()){setInterimTranscript("");return;}
-    const updated=(transcriptRef.current?transcriptRef.current+"\n":"")+latest;
-    transcriptRef.current=updated;setTranscript(updated);setInterimTranscript("");setSaved(false);
-    requestSuggestionRef.current?.(latest);
-  };
-
-  processChunkRef.current=async blob=>{
-    if(!blob||blob.size<256)return{retryAfterMs:0};
-    beginProcessing();setError("");
-    try{
-      assertAIAvailable();
-      const audio=await audioBlobToMono16k(blob);
-      if(!hasAudibleMeetingSpeech(audio)){setInterimTranscript("Listening for remote speech…");return{retryAfterMs:80};}
-      const latest=cleanMeetingTranscriptSegment(await transcribeLocalAudio(audio,updateWhisperProgress));
-      if(!latest){setInterimTranscript("Listening for a clear sentence from the meeting…");return{retryAfterMs:120};}
-      handleTranscriptRef.current(latest);
-      return{};
-    }catch(e){
-      setError((e?.message||"Meeting Assist could not process this audio segment.")+" Restart Meeting Assist to try the on-device model again.");
-      setTimeout(()=>stopSessionRef.current?.(),0);
-      return{terminal:true};
-    }
-    finally{endProcessing();}
-  };
-
-  recordNextRef.current=()=>{
-    if(!activeRef.current)return;
-    const source=recordingStreamRef.current;
-    const audioTrack=source?.getAudioTracks?.()[0];
-    if(!audioTrack||audioTrack.readyState==="ended"){stopSessionRef.current?.();return;}
-    if(typeof MediaRecorder==="undefined"){
-      setError("This browser cannot record audio for the transcription fallback.");
-      stopSessionRef.current?.();return;
-    }
-    const audioStream=new MediaStream([audioTrack]);
-    const preferred=["audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus"].find(type=>MediaRecorder.isTypeSupported?.(type));
-    const recorder=new MediaRecorder(audioStream,preferred?{mimeType:preferred}:undefined);
-    const chunks=[];recorderRef.current=recorder;
-    recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data);};
-    recorder.onstop=()=>{
-      const blob=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});
-      // Start capturing the next segment immediately. Transcription and reply
-      // generation continue in parallel, so the app no longer goes silent
-      // while it is preparing an answer.
-      if(activeRef.current)timerRef.current=setTimeout(()=>recordNextRef.current?.(),20);
-      queueRef.current=queueRef.current
-        .then(()=>processChunkRef.current(blob))
-        .catch(()=>({terminal:true}));
-    };
-    recorder.start();
-    // Longer segments reduce clipped phrases and one-word Whisper
-    // hallucinations while remaining responsive enough for live suggestions.
-    timerRef.current=setTimeout(()=>{if(recorder.state==="recording")recorder.stop();},7000);
-  };
-
-  const startRemoteAudioTranscription=reason=>{
-    if(!activeRef.current)return false;
-    if(remoteRecorderActiveRef.current)return true;
-    if(typeof MediaRecorder==="undefined"){
-      setError("This browser cannot record the shared meeting audio for on-device transcription.");
-      setTimeout(()=>stopSessionRef.current?.(),0);return false;
-    }
-    remoteRecorderActiveRef.current=true;
-    setInterimTranscript("");setError("");
-    setCaptureNotice(reason||"GhostwriterMe is transcribing only the shared meeting-audio track with on-device Whisper. The microphone is not opened.");
-    try{recordNextRef.current?.();return true;}
-    catch(e){
-      remoteRecorderActiveRef.current=false;
-      setError(e?.message||"The on-device transcription service could not start.");
-      setTimeout(()=>stopSessionRef.current?.(),0);return false;
-    }
-  };
-
-  const stopSession=()=>{
-    activeRef.current=false;setActive(false);clearTimeout(timerRef.current);
-    pendingSuggestionRef.current="";
-    remoteRecorderActiveRef.current=false;setInterimTranscript("");
-    try{if(recorderRef.current?.state==="recording")recorderRef.current.stop();}catch(e){}
-    displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-    recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-    displayStreamRef.current=null;
-    recordingStreamRef.current=null;
-  };
-  stopSessionRef.current=stopSession;
-
-  const startSession=async()=>{
-    if(!consent||!canCapture)return;
-    setError("");setSuggestion("");setCaptureNotice("");setSaved(false);remoteRecorderActiveRef.current=false;
-    try{
-      const speechReady=await prepareOfflineSpeech();
-      if(!speechReady)return;
-      const stream=await navigator.mediaDevices.getDisplayMedia(MEETING_DISPLAY_OPTIONS);
-      const surface=stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
-      if(!isBrowserTabMeetingShare(stream)){
-        stream.getTracks().forEach(track=>track.stop());
-        throw new Error(surface==="browser"?"The selected meeting tab did not provide audio. Enable Share tab audio and try again.":"Meeting Assist accepts only a Chrome or Edge browser tab. Choose the Google Meet, Teams, Zoom, WhatsApp, or Discord tab—not a Window or Entire Screen—and enable Share tab audio.");
-      }
-      displayStreamRef.current=stream;
-      recordingStreamRef.current=buildRemoteMeetingAudioStream(stream);
-      if(!recordingStreamRef.current){
-        stream.getTracks().forEach(track=>track.stop());
-        throw new Error("The shared source did not expose meeting audio. Choose the meeting tab and enable Share tab audio.");
-      }
-      setCaptureNotice("Meeting-tab audio is connected directly. The microphone, windows, entire screen, and physical device-speaker input are excluded.");
-      activeRef.current=true;setActive(true);
-      processingCountRef.current=0;setProcessing(false);pendingSuggestionRef.current="";
-      const ended=()=>stopSession();
-      stream.getVideoTracks()[0]?.addEventListener("ended",ended,{once:true});
-      stream.getAudioTracks()[0]?.addEventListener("ended",ended,{once:true});
-      queueRef.current=Promise.resolve();
-      const started=startRemoteAudioTranscription("GhostwriterMe is transcribing only the selected meeting tab's digital audio track. The microphone and device-speaker input are not opened or mixed in.");
-      if(!started&&activeRef.current)stopSession();
-    }catch(e){
-      activeRef.current=false;setActive(false);
-      displayStreamRef.current?.getTracks().forEach(track=>track.stop());
-      recordingStreamRef.current?.getTracks().forEach(track=>track.stop());
-      displayStreamRef.current=null;recordingStreamRef.current=null;
-      if(e?.name!=="NotAllowedError")setError(e.message||"Screen audio sharing could not start.");
-      else setError("Sharing was cancelled. Nothing was recorded.");
-    }
-  };
-
-  const saveSession=()=>{
-    if(!transcript.trim()||!user)return;
-    HS.save(user.email,"meeting",{title:`${platform} meeting notes`,input:context||"Shared meeting audio",output:`TRANSCRIPT\n${transcript}${suggestion?"\n\nSUGGESTED REPLY\n"+suggestion:""}`});
-    setSaved(true);
-  };
-
-  return(
-    <div>
-      <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Remote voices in. Helpful text out.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>GhostwriterMe accepts only the selected meeting tab's digital audio track. Window, Entire Screen, and microphone capture are rejected so your own voice is excluded.</div></div></div>
-      </Card>
-      {captureProfile.firefoxLike&&<Card style={{marginBottom:14,padding:"12px 13px",background:"rgba(245,200,66,0.07)",border:"1px solid rgba(245,200,66,0.28)"}}>
-        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="info" size={18} color={C.yellowText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.yellowText}}>Remote-only capture needs Chrome or Edge</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Zen and Firefox cannot provide a meeting tab's audio track to this web app. Open GhostwriterMe and the meeting in current desktop Chrome or Edge; the microphone fallback has been removed so your voice is never mixed in.</div></div></div>
-      </Card>}
-      {captureProfile.mobile&&<Card style={{marginBottom:14,padding:"12px 13px",background:"rgba(121,186,236,0.07)",border:"1px solid rgba(121,186,236,0.25)"}}>
-        <div style={{display:"flex",gap:9,alignItems:"flex-start"}}><GwmIcon name="meeting" size={18} color={C.blueText} style={{marginTop:1,flexShrink:0}}/><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Remote-only capture is desktop-only for now</div><div style={{fontSize:12.5,color:C.text,lineHeight:1.6,marginTop:3}}>Mobile web cannot provide another app's playback audio without also using the microphone. Use desktop Chrome or Edge so GhostwriterMe can hear the shared meeting source without recording you.</div></div></div>
-      </Card>}
-      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Audio source</div>
-      <div style={{marginBottom:13,minHeight:54,padding:"10px 12px",borderRadius:9,border:`1px solid ${canCapture?C.magenta:C.border}`,background:canCapture?C.magentaSoft:C.surface,color:canCapture?C.magentaText:C.muted,display:"flex",alignItems:"center",gap:9}}><GwmIcon name="meeting" size={17}/><span style={{fontSize:13,fontWeight:850}}>Meeting audio only<span style={{display:"block",fontSize:11,fontWeight:500,color:C.muted,marginTop:2}}>Local microphone excluded</span></span><span style={{marginLeft:"auto",fontSize:10.5,fontWeight:800,color:canCapture?C.greenText:C.yellowText}}>{canCapture?"AVAILABLE":"UNAVAILABLE"}</span></div>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 11px",marginBottom:13,borderRadius:9,border:`1px solid ${speechSetup==="ready"?"rgba(61,219,164,0.32)":C.border}`,background:speechSetup==="ready"?"rgba(61,219,164,0.07)":C.surface}}>
-        <div style={{minWidth:0}}><div style={{fontSize:12.5,fontWeight:850,color:speechSetup==="whisper"?C.greenText:C.text}}>{speechSetup==="whisper"?"Remote-audio transcription ready":speechSetup==="downloading"?`Downloading on-device speech${speechProgress?` · ${speechProgress}`:"…"}`:"Prepare remote-only speech"}</div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:2}}>{speechSetup==="whisper"?"Only the shared meeting track is transcribed; the microphone stays closed.":"One-time on-device model preparation. Browser microphone recognition is never used."}</div></div>
-        <button type="button" onClick={prepareOfflineSpeech} disabled={preparingSpeech||speechSetup==="whisper"} style={{minHeight:36,padding:"7px 10px",borderRadius:8,border:`1px solid ${speechSetup==="whisper"?C.green:C.magenta}`,background:speechSetup==="whisper"?"rgba(61,219,164,0.1)":C.magentaSoft,color:speechSetup==="whisper"?C.greenText:C.magentaText,fontFamily:"inherit",fontSize:11.5,fontWeight:800,cursor:preparingSpeech||speechSetup==="whisper"?"default":"pointer",whiteSpace:"nowrap"}}>{preparingSpeech?"Preparing…":speechSetup==="whisper"?"Ready":"Prepare Offline"}</button>
-      </div>
-      <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Meeting platform</div>
-      <div className="studio-option-grid" style={{marginBottom:13}}>{MEETING_PLATFORMS.map(item=><button key={item} onClick={()=>setPlatform(item)} disabled={active} style={{minHeight:44,padding:"9px 10px",borderRadius:8,border:`1px solid ${platform===item?C.magenta:C.border}`,background:platform===item?C.magentaSoft:C.surface,color:platform===item?C.magentaText:C.muted,fontFamily:"inherit",fontWeight:700,cursor:active?"default":"pointer",display:"flex",alignItems:"center",gap:7}}><GwmIcon name="meeting" size={15}/>{item}</button>)}</div>
-      <FArea label="Details for better replies (optional)" placeholder="Your role, meeting goal, names, or facts the assistant should know..." value={context} onChange={e=>setContext(e.target.value)} rows={3}/>
-      <button type="button" role="checkbox" aria-checked={consent} onClick={()=>!active&&setConsent(!consent)} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"11px 12px",marginBottom:12,borderRadius:9,border:`1px solid ${consent?C.magenta:C.border}`,background:consent?C.magentaSoft:C.surface,color:consent?C.text:C.muted,textAlign:"left",fontFamily:"inherit",fontSize:12.5,lineHeight:1.55,cursor:active?"default":"pointer"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${consent?C.magenta:C.border}`,background:consent?C.magenta:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{consent&&<GwmIcon name="check" size={12} color="#071018" strokeWidth={2.5}/>}</span><span>I have permission to capture this meeting audio and will follow the meeting platform, workplace, and local recording rules.</span></button>
-      {!canCapture&&<div style={{fontSize:12.5,color:C.yellowText,background:"rgba(245,200,66,0.08)",border:"1px solid rgba(245,200,66,0.22)",borderRadius:8,padding:"10px 12px",marginBottom:12}}><IconLabel name="info">{captureProfile.firefoxLike?"Open this screen in current desktop Chrome or Edge to share meeting-tab audio without the microphone.":captureProfile.mobile?"Remote-only meeting capture is not available in mobile web. Use desktop Chrome or Edge.":!canRecordAudio?"This browser cannot record the shared audio track for on-device transcription.":"This browser cannot share a meeting tab's audio with Meeting Assist."}</IconLabel></div>}
-      {!active?<PriBtn onClick={startSession} loading={preparingSpeech} disabled={!consent||!canCapture||preparingSpeech} variant="violet"><IconLabel name="meeting">Start Remote-Only Meeting Assist</IconLabel></PriBtn>:<button onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop listening</button>}
-      <button type="button" onClick={openMeetingOverlay} disabled={!canUseOverlay} title={canUseOverlay?"Open an always-on-top Ghosty panel over Google Meet, Zoom, or Teams.":"Requires current desktop Chrome or Edge."} style={{width:"100%",minHeight:42,marginTop:8,borderRadius:9,border:`1px solid ${canUseOverlay?C.magenta:C.border}`,background:canUseOverlay?C.magentaSoft:C.surface,color:canUseOverlay?C.magentaText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:850,cursor:canUseOverlay?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:7,opacity:canUseOverlay?1:0.65}}><GwmIcon name="ghost" size={16}/>{overlayWindow?"Ghosty Overlay Is Open":"Open Ghosty Answer Overlay"}</button>
-      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. In Chrome or Edge, choose the meeting tab and enable its audio. GhostwriterMe does not request microphone permission.</div>
-      {captureNotice&&<div style={{marginTop:10,padding:"10px 12px",background:"rgba(61,219,164,0.07)",border:"1px solid rgba(61,219,164,0.24)",borderRadius:8,fontSize:12.5,color:C.greenText,lineHeight:1.55,display:"flex",gap:8,alignItems:"flex-start"}}><GwmIcon name="info" size={15} color={C.greenText} style={{marginTop:2,flexShrink:0}}/><span>{captureNotice}</span></div>}
-      {error&&<ErrBox msg={error}/>}
-      {(active||processing||transcript)&&<Card style={{marginTop:14}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:10}}><div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,fontWeight:800,color:active?C.greenText:C.muted}}><span style={{width:8,height:8,borderRadius:"50%",background:active?C.green:C.muted,boxShadow:active?`0 0 12px ${C.green}`:"none"}}/>{active?"Listening only to shared meeting audio · On-device Whisper":processing?"Finishing the last reply":"Session stopped"}</div>{processing&&<span style={{fontSize:11.5,color:C.magentaText}}>Preparing reply…</span>}</div>
-        <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Live transcript</div>
-        <div aria-live="polite" style={{minHeight:100,maxHeight:240,overflowY:"auto",whiteSpace:"pre-wrap",fontSize:13.5,lineHeight:1.75,color:transcript||interimTranscript?C.text:C.muted,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"11px 12px"}}>{transcript||interimTranscript||"Waiting for speech…"}{transcript&&interimTranscript?<span style={{color:C.muted}}>{"\n"+interimTranscript}</span>:null}</div>
-        {suggestion&&<div style={{marginTop:11,padding:"12px",borderRadius:9,background:C.magentaSoft,border:"1px solid rgba(244,114,182,0.25)"}}><div style={{fontSize:11,color:C.magentaText,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Suggested reply</div><div style={{whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.7,color:C.text}}>{suggestion}</div><div style={{marginTop:9}}><CopyBtn text={suggestion}/></div></div>}
-        {transcript&&<div style={{display:"flex",gap:8,marginTop:11,flexWrap:"wrap"}}><button onClick={saveSession} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:saved?C.greenText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}><GwmIcon name={saved?"check":"save"} size={14}/>{saved?"Saved to History":"Save session"}</button>{!active&&<button onClick={()=>{setTranscript("");transcriptRef.current="";setInterimTranscript("");setSuggestion("");setError("");setSaved(false);}} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Clear</button>}</div>}
-      </Card>}
-      {overlayWindow&&createPortal(<div style={{height:"100vh",boxSizing:"border-box",padding:14,display:"flex",flexDirection:"column",gap:11,background:"radial-gradient(circle at 50% 0%,rgba(244,114,182,0.18),transparent 42%),#05070b",color:"#fff"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{width:34,height:34,borderRadius:11,background:"rgba(244,114,182,0.14)",color:"#f9a8d4",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="ghost" size={19}/></span><div><div style={{fontSize:14,fontWeight:900}}>Ghosty Meeting Answers</div><div style={{fontSize:10.5,color:active?"#6ee7b7":"#93a4b8",marginTop:2}}>{active?"Listening now":"Meeting Assist paused"}</div></div></div><button type="button" aria-label="Close Ghosty overlay" onClick={()=>overlayWindow.close()} style={{width:30,height:30,borderRadius:9,border:"1px solid #243044",background:"#0b111b",color:"#a8bad0",cursor:"pointer",fontSize:17}}>×</button></div>
-        <div style={{padding:"10px 11px",borderRadius:10,border:"1px solid #1c293b",background:"rgba(8,13,20,0.94)",maxHeight:120,overflowY:"auto"}}><div style={{fontSize:9.5,letterSpacing:"0.12em",textTransform:"uppercase",color:"#8eacc4",marginBottom:6}}>What Ghosty heard</div><div style={{fontSize:12.5,lineHeight:1.55,color:transcript||interimTranscript?"#dbeafe":"#71859a",whiteSpace:"pre-wrap"}}>{(transcript||interimTranscript||"Waiting for speech…").slice(-1000)}</div></div>
-        <div style={{flex:1,minHeight:0,padding:"12px",borderRadius:12,border:"1px solid rgba(244,114,182,0.34)",background:"linear-gradient(145deg,rgba(244,114,182,0.13),rgba(12,18,32,0.96))",overflowY:"auto"}}><div style={{fontSize:9.5,letterSpacing:"0.12em",textTransform:"uppercase",color:"#f9a8d4",marginBottom:8}}>Suggested answer</div><div style={{fontSize:14,lineHeight:1.65,fontWeight:650,color:suggestion?"#fff":"#8eacc4",whiteSpace:"pre-wrap"}}>{suggestion||"Ghosty will place a copy-ready answer here after it hears the conversation."}</div></div>
-        <button type="button" disabled={!suggestion} onClick={()=>overlayWindow.navigator?.clipboard?.writeText(suggestion)} style={{minHeight:42,borderRadius:10,border:0,background:suggestion?"linear-gradient(90deg,#f472b6,#c084fc)":"#141b28",color:suggestion?"#160714":"#64748b",fontWeight:900,cursor:suggestion?"pointer":"default"}}>Copy Answer</button>
-      </div>,overlayWindow.document.body)}
-    </div>
-  );
-}
-
 const presentationAsText=result=>{
   if(!result)return"";
   const sections=(result.sections||[]).map((s,i)=>`${i+1}. ${s.heading||"Section"}\nSpeaker: ${s.speaker||"Presenter"}${s.timing?` (${s.timing})`:""}\n${s.script||""}${s.visualCue?`\nVisual cue: ${s.visualCue}`:""}`).join("\n\n");
@@ -4349,152 +4051,9 @@ function InterviewMode({user}){
   );
 }
 
-const SLIDE_THEMES=[
-  {id:"executive",icon:"briefcase",title:"Executive",desc:"Quiet authority & decisive data",accent:"#79BAEC",prompt:"asymmetrical editorial composition, one decisive data signal, disciplined negative space"},
-  {id:"storytelling",icon:"story",title:"Storytelling",desc:"Cinematic scenes & human tension",accent:"#f6bd75",prompt:"cinematic full-bleed scenes, emotionally legible subjects, strong narrative pacing"},
-  {id:"classroom",icon:"academic",title:"Classroom",desc:"Concrete ideas & simple diagrams",accent:"#5eead4",prompt:"one concrete learning idea at a time, simple visual analogy, clear high-retention diagram"},
-  {id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Bold contrast & memorable proof",accent:"#f472b6",prompt:"high-contrast visual storytelling, one proof point per slide, strong tension-to-resolution rhythm"},
-  {id:"custom",icon:"spark",title:"Custom Theme",desc:"Build your own coherent visual world",accent:"#c084fc",prompt:"a distinctive user-defined visual system with consistent mood, imagery, palette, and composition"},
-];
-const SLIDE_FONTS=["Cabinet Grotesk","Inter","Poppins","Open Sans","Raleway","Montserrat","Oswald","League Spartan","Libre Baskerville","Playfair Display","Source Serif 4","Fredoka","Nunito","Plus Jakarta Sans","Newsreader","Roboto","Libre Bodoni","Public Sans","Permanent Marker","Georgia"];
-const GOOGLE_SLIDE_FONTS=new Set(SLIDE_FONTS.filter(name=>!["Cabinet Grotesk","Georgia"].includes(name)));
-
-const normalizeSlideHex=value=>/^#[0-9a-f]{6}$/i.test(String(value||""))?String(value).toLowerCase():"#07111d";
-const hexRgb=value=>{const hex=normalizeSlideHex(value).slice(1);return {r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};};
-const rgbHex=({r,g,b})=>"#"+[r,g,b].map(x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,"0")).join("");
-const mixSlideColor=(from,to,amount)=>{const a=hexRgb(from),b=hexRgb(to);return rgbHex({r:a.r+(b.r-a.r)*amount,g:a.g+(b.g-a.g)*amount,b:a.b+(b.b-a.b)*amount});};
-const slideLuminance=value=>{const {r,g,b}=hexRgb(value);const linear=channel=>{const s=channel/255;return s<=0.04045?s/12.92:Math.pow((s+0.055)/1.055,2.4);};return 0.2126*linear(r)+0.7152*linear(g)+0.0722*linear(b);};
-const slideContrast=(a,b)=>{const first=slideLuminance(a),second=slideLuminance(b);return (Math.max(first,second)+0.05)/(Math.min(first,second)+0.05);};
-const readableSlideAccent=(bg,bg2,preferred,dark)=>{
-  const {r,g,b}=hexRgb(preferred);const inverse=rgbHex({r:255-r,g:255-g,b:255-b});
-  const candidates=dark?[preferred,mixSlideColor(preferred,"#ffffff",0.2),inverse,"#7dd3fc","#f9a8d4","#fcd34d","#ffffff"]:[mixSlideColor(preferred,"#000000",0.5),mixSlideColor(inverse,"#000000",0.46),"#075985","#9d174d","#854d0e","#17202c"];
-  return candidates.find(color=>Math.min(slideContrast(color,bg),slideContrast(color,bg2))>=3.2)||candidates.reduce((best,color)=>Math.min(slideContrast(color,bg),slideContrast(color,bg2))>Math.min(slideContrast(best,bg),slideContrast(best,bg2))?color:best,candidates[0]);
-};
-const slidePalette=(background,themeId,textColor="")=>{
-  const bg=normalizeSlideHex(background);const dark=slideLuminance(bg)<0.56;const system=SLIDE_THEMES.find(item=>item.id===themeId)||SLIDE_THEMES[0];
-  const bg2=mixSlideColor(bg,dark?"#ffffff":"#000000",dark?0.16:0.1);const text=textColor?normalizeSlideHex(textColor):(dark?"#f8fbff":"#101824");const muted=mixSlideColor(text,bg,0.2);const accent=readableSlideAccent(bg,bg2,system.accent,dark);
-  const accent2=readableSlideAccent(bg,bg2,themeId==="pitch"?"#5eead4":"#f472b6",dark);const accent3=readableSlideAccent(bg,bg2,themeId==="storytelling"?"#7dd3fc":"#fcd34d",dark);const onAccent=slideContrast(accent,"#071019")>=4.5?"#071019":"#ffffff";
-  return {bg,bg2,text,muted,accent,accent2,accent3,onAccent,preview:`linear-gradient(135deg,${bg},${bg2})`,dark};
-};
-const slideFontStack=font=>`"${String(font||"Cabinet Grotesk").replace(/"/g,"")}", Arial, sans-serif`;
 const slideSupportingText=slide=>String(slide?.supportingText||"").trim();
-const slidePointParts=value=>{const match=String(value||"").match(/^([^:]{1,48}):\s*(.+)$/);return match?{label:match[1].trim(),detail:match[2].trim()}:{label:String(value||"").trim(),detail:""};};
-
-function EditorialGlyph({index=0,color="currentColor",size="100%"}){
-  const variant=index%4;
-  if(variant===0)return <svg viewBox="0 0 48 48" width={size} height={size} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="24" cy="24" r="8"/><path d="M24 5v6M24 37v6M5 24h6M37 24h6M10.5 10.5l4.3 4.3M33.2 33.2l4.3 4.3M37.5 10.5l-4.3 4.3M14.8 33.2l-4.3 4.3"/></svg>;
-  if(variant===1)return <svg viewBox="0 0 48 48" width={size} height={size} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M39 7C22 8 11 17 11 29c0 7 5 12 12 12 13 0 18-14 16-34Z"/><path d="M12 39c6-9 13-16 25-27M24 25v14"/></svg>;
-  if(variant===2)return <svg viewBox="0 0 48 48" width={size} height={size} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m28 4-15 23h11l-4 17 15-24H24l4-16Z"/></svg>;
-  return <svg viewBox="0 0 48 48" width={size} height={size} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 15 24 7l14 8v18l-14 8-14-8V15Z"/><path d="m10 15 14 8 14-8M24 23v18"/></svg>;
-}
-
-const slideArtworkHtml=()=>"";
-
-function SlideArtwork({theme,slide,index,palette}){
-  const label=slide.visualLabel||slide.dataValue||"";const number=String(index+1).padStart(2,"0");const layout=slide.layout||"left-third";
-  const base=layout==="right-third"?{position:"absolute",left:"4.5%",top:"15%",width:"31%",height:"68%",zIndex:1,color:palette.accent,pointerEvents:"none",filter:"drop-shadow(0 18px 24px rgba(0,0,0,0.2))"}:layout==="full-bleed"?{position:"absolute",inset:"2%",zIndex:1,color:palette.accent,pointerEvents:"none",filter:"drop-shadow(0 18px 24px rgba(0,0,0,0.18))"}:{position:"absolute",right:"4.5%",top:layout==="top-third"?"32%":"15%",width:layout==="top-third"?"42%":"31%",height:layout==="top-third"?"55%":"68%",zIndex:1,color:palette.accent,pointerEvents:"none",filter:"drop-shadow(0 18px 24px rgba(0,0,0,0.2))"};
-  const visual=slide.visualType||"signal";const pill={position:"absolute",left:"12%",right:"12%",bottom:"5%",padding:"7px 9px",borderRadius:999,background:palette.accent,color:palette.onAccent,fontSize:"clamp(8px,1vw,11px)",fontWeight:900,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"};const labelPill=label?<span style={pill}>{label}</span>:null;
-  if(visual==="hero-image")return <div aria-hidden="true" style={{position:"absolute",right:0,top:0,width:"42%",height:"100%",zIndex:1,overflow:"hidden",borderRadius:"50% 0 0 50% / 18% 0 0 18%",background:`linear-gradient(155deg,${palette.accent3}dd,${palette.accent}88 48%,${palette.bg2})`}}><svg viewBox="0 0 500 600" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"><circle cx="346" cy="126" r="78" fill={palette.accent3} opacity=".9"/><path d="M-30 510c88-126 176-179 264-160 68 15 111 71 160 49 40-18 75-71 137-101v302H-30Z" fill={palette.bg2} opacity=".7"/><path d="M-10 602c64-160 126-245 189-254 73-11 92 90 158 90 64 0 105-111 190-142v306Z" fill={palette.accent} opacity=".78"/><path d="M73 590c56-163 94-257 165-334M156 598c28-126 75-228 181-327M284 599c18-98 57-187 133-267" stroke={palette.text} strokeWidth="7" opacity=".34"/><path d="M197 321c-48-14-73 11-76 51 37 7 66-7 76-51Zm54-74c37-30 72-20 89 17-31 23-65 22-89-17Zm95 80c41-25 72-10 83 28-34 18-67 12-83-28Z" fill={palette.accent3} stroke={palette.text} strokeWidth="4" opacity=".9"/></svg></div>;
-  if(visual==="image-cards"||visual==="takeaway-grid")return <div aria-hidden="true" style={{position:"absolute",left:0,top:0,width:"38%",height:"100%",zIndex:1,overflow:"hidden",borderRadius:"0 50% 50% 0 / 0 18% 18% 0",background:`linear-gradient(155deg,${palette.accent3}dd,${palette.accent}88 52%,${palette.bg2})`}}><svg viewBox="0 0 470 600" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"><circle cx="115" cy="112" r="72" fill={palette.accent3} opacity=".94"/><path d="M-40 395c81-68 142-77 207-42 53 29 87 19 125-11 48-38 101-51 189-10v268H-40Z" fill={palette.bg2} opacity=".7"/><path d="M-20 491c99-111 168-103 230-50 63 53 114 31 170-39 26-32 65-45 111-37v235H-20Z" fill={palette.accent} opacity=".78"/><path d="M45 596c38-151 86-249 150-295M131 598c34-119 87-204 162-256M244 598c22-104 70-175 143-221" stroke={palette.text} strokeWidth="6" opacity=".32"/><path d="M109 378c-45-5-67 20-62 57 34 0 58-19 62-57Zm102-61c34-25 64-14 75 20-29 18-58 13-75-20Zm89 70c40-19 68-3 75 33-33 12-61 2-75-33Z" fill={palette.accent3} stroke={palette.text} strokeWidth="4" opacity=".88"/></svg></div>;
-  if(visual==="process"){
-    const points=(slide.bullets||[]).slice(0,3);const stages=points.length>=2?points:["Stage one","Stage two"];
-    return <div aria-hidden="true" style={{position:"absolute",left:"24%",right:"24%",top:"30%",height:"38%",zIndex:1,display:"flex",justifyContent:"center",alignItems:"center"}}>{stages.map((point,stageIndex)=>{const part=slidePointParts(point);return <React.Fragment key={stageIndex}>{stageIndex>0&&<span style={{width:"8%",height:4,background:palette.accent,position:"relative",margin:"0 -1%"}}><i style={{position:"absolute",right:-2,top:-6,width:14,height:14,borderTop:`4px solid ${palette.accent}`,borderRight:`4px solid ${palette.accent}`,transform:"rotate(45deg)"}}/></span>}<span style={{width:stages.length===3?"29%":"39%",aspectRatio:"1",border:`clamp(4px,.6vw,9px) solid ${palette.accent}`,borderRadius:"50%",display:"grid",placeItems:"center",position:"relative",color:palette.text}}><span style={{width:"30%",height:"30%"}}><EditorialGlyph index={stageIndex} color={palette.text}/></span><b style={{position:"absolute",top:"108%",left:"-18%",right:"-18%",textAlign:"center",fontSize:"clamp(8px,1.25vw,15px)",lineHeight:1.25}}>{part.label}</b></span></React.Fragment>;})}</div>;
-  }
-  if(visual==="image-detail")return <div aria-hidden="true" style={{position:"absolute",left:"5%",top:"28%",width:"57%",height:"61%",zIndex:1,borderRadius:14,overflow:"hidden",background:`radial-gradient(circle at 55% 38%,${palette.accent3},${palette.accent}88 30%,${palette.bg2} 72%)`,boxShadow:"0 20px 50px rgba(0,0,0,.22)"}}><svg viewBox="0 0 760 440" width="100%" height="100%"><path d="M105 359c114-37 147-147 264-164 111-16 151 89 278 27" stroke={palette.text} strokeWidth="10" opacity=".24"/><path d="M96 291c115 21 163-83 264-105 123-27 175 100 294 34" stroke={palette.accent3} strokeWidth="18" opacity=".8"/><ellipse cx="387" cy="215" rx="147" ry="112" fill={palette.accent} opacity=".65" stroke={palette.text} strokeWidth="8"/><path d="M303 205c56-77 129-77 173 0-48 68-120 70-173 0Z" fill={palette.bg} opacity=".72"/><circle cx="389" cy="207" r="40" fill={palette.accent3}/></svg></div>;
-  if(visual==="equation")return <div aria-hidden="true" style={{position:"absolute",left:"5%",top:"35%",width:"44%",height:"43%",zIndex:1,borderRadius:12,background:palette.dark?`${palette.accent}44`:`${palette.accent}28`,padding:"4.5% 4%",border:`1px solid ${palette.accent}44`,display:"flex",flexDirection:"column",justifyContent:"center"}}><span style={{color:palette.accent,fontSize:"clamp(9px,1.2vw,15px)",fontWeight:900,marginBottom:"6%"}}>{slide.visualLabel||"The proof"}</span><span style={{color:palette.text,fontFamily:"Georgia,serif",fontSize:"clamp(18px,3vw,38px)",lineHeight:1.18,textAlign:"center",overflowWrap:"anywhere"}}>{slide.dataValue||number}</span>{slide.dataLabel&&<span style={{color:palette.muted,fontSize:"clamp(8px,1vw,13px)",lineHeight:1.4,marginTop:"7%"}}>{slide.dataLabel}</span>}</div>;
-  if(visual==="icon-columns")return null;
-  if(visual==="fullbleed")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"-8% 4% 6% 34%",borderRadius:"58% 42% 52% 48% / 44% 57% 43% 56%",background:`radial-gradient(circle at 34% 32%,${palette.accent3}cc,${palette.accent}55 34%,${palette.accent2}20 67%,transparent 72%)`,transform:"rotate(-7deg)",filter:"blur(0.2px)"}}/><div style={{position:"absolute",right:"8%",top:"10%",width:"48%",height:"68%",border:`2px solid ${palette.accent}88`,borderRadius:"49% 51% 41% 59% / 62% 42% 58% 38%",transform:"rotate(9deg)"}}/>{labelPill}</div>;
-  if(visual==="big-number")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:0,display:"grid",placeItems:"center",fontSize:"clamp(56px,10vw,142px)",fontWeight:950,letterSpacing:"-0.08em",color:palette.accent,lineHeight:.8,textShadow:`0 0 40px ${palette.accent}44`}}>{slide.dataValue||label||number}</div>{slide.dataLabel&&<span style={{position:"absolute",left:"12%",right:"12%",bottom:"17%",fontSize:"clamp(9px,1.2vw,15px)",fontWeight:850,textAlign:"center",color:palette.text}}>{slide.dataLabel}</span>}</div>;
-  if(visual==="simple-chart")return <div aria-hidden="true" style={base}><div style={{position:"absolute",left:"10%",right:"8%",bottom:"18%",height:"66%",display:"flex",alignItems:"flex-end",gap:"9%"}}>{[38,56,72,92].map((height,i)=><span key={i} style={{height:`${height}%`,flex:1,borderRadius:"7px 7px 2px 2px",background:i===3?palette.accent:palette.muted,opacity:i===3?1:.42}}/>)}</div>{labelPill}</div>;
-  if(visual==="metaphor")return <div aria-hidden="true" style={base}><svg viewBox="0 0 520 340" width="100%" height="100%" fill="none"><path d="M34 79c90 135 102-75 194 75S356 45 470 151 302 326 214 202 91 291 48 198" stroke={palette.muted} strokeWidth="13" strokeLinecap="round" opacity=".38"/><path d="M42 270C176 234 316 191 474 76" stroke={palette.accent} strokeWidth="12" strokeLinecap="round"/><path d="m443 72 32 4-11 30" stroke={palette.accent3} strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"/><circle cx="42" cy="270" r="14" fill={palette.accent2}/></svg>{labelPill}</div>;
-  if(visual==="constellation")return <div aria-hidden="true" style={base}><svg viewBox="0 0 300 360" width="100%" height="100%" fill="none"><path d="M34 244 92 68l75 84 92-90-38 225-98-39-89-4Z" stroke={palette.accent} strokeWidth="3"/><path d="m92 68 31 180 44-96 54 135" stroke={palette.accent2} strokeWidth="4" opacity=".78"/>{[[34,244],[92,68],[167,152],[259,62],[221,287],[123,248]].map(([cx,cy],i)=><circle key={i} cx={cx} cy={cy} r={i%2?10:7} fill={[palette.accent,palette.accent2,palette.accent3][i%3]} stroke={palette.text} strokeWidth="2"/>)}</svg>{labelPill}</div>;
-  if(visual==="steps")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"5%",border:`1px solid ${palette.accent}66`,borderRadius:18,background:`linear-gradient(150deg,${palette.accent}16,${palette.accent2}0d)`}}/>{[0,1,2].map(i=><span key={i} style={{position:"absolute",left:`${11+i*21}%`,bottom:`${22+i*18}%`,width:"25%",height:"17%",borderRadius:"9px 9px 3px 3px",background:palette.accent,opacity:.58+i*.2,boxShadow:"0 10px 24px rgba(0,0,0,0.2)"}}/>)}{labelPill}</div>;
-  if(visual==="comparison")return <div aria-hidden="true" style={base}><div style={{position:"absolute",left:"2%",top:"9%",bottom:"18%",width:"45%",border:`2px solid ${palette.muted}`,borderRadius:"42% 15% 25% 18%",background:`${palette.muted}12`,transform:"rotate(-4deg)",opacity:.55}}/><div style={{position:"absolute",right:"2%",top:"9%",bottom:"18%",width:"45%",border:`2px solid ${palette.accent}`,borderRadius:"15% 42% 18% 25%",background:`${palette.accent}22`,transform:"rotate(4deg)"}}/><span style={{position:"absolute",left:"46%",top:"36%",width:"8%",aspectRatio:"1",borderRadius:"50%",background:palette.accent3,boxShadow:`0 0 28px ${palette.accent3}`}}/>{labelPill}</div>;
-  if(visual==="gallery")return <div aria-hidden="true" style={base}>{[-7,2,9].map((rotate,i)=><span key={i} style={{position:"absolute",left:`${5+i*11}%`,right:`${22-i*10}%`,top:`${8+i*12}%`,bottom:`${25-i*3}%`,border:`2px solid ${palette.accent}`,borderRadius:14,background:`linear-gradient(145deg,${palette.accent}22,rgba(255,255,255,0.04))`,opacity:.55+i*.18,transform:`rotate(${rotate}deg)`,boxShadow:"0 16px 30px rgba(0,0,0,0.24)"}}/>)}{labelPill}</div>;
-  if(visual==="spotlight")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"5%",border:`2px solid ${palette.accent}`,borderRadius:"50%",boxShadow:`inset 0 0 48px ${palette.accent}28,0 0 42px ${palette.accent}26`}}/><div style={{position:"absolute",inset:"23%",border:`8px solid ${palette.accent}44`,borderRadius:"50%",background:`radial-gradient(circle,${palette.accent3}88,${palette.accent}30 48%,transparent 70%)`}}/><span style={{position:"absolute",inset:0,display:"grid",placeItems:"center",fontSize:"clamp(44px,8vw,104px)",fontWeight:950,letterSpacing:"-0.08em",color:palette.accent3}}>{slide.dataValue||number}</span>{labelPill}</div>;
-  if(visual==="signal")return <div aria-hidden="true" style={base}><svg viewBox="0 0 360 360" width="100%" height="100%" fill="none"><path d="M30 292C112 274 172 226 221 169S296 86 332 54" stroke={palette.muted} strokeWidth="8" strokeLinecap="round" opacity=".34"/><path d="m294 55 39-2-4 39" stroke={palette.accent} strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"/><circle cx="30" cy="292" r="12" fill={palette.muted} opacity=".55"/><circle cx="221" cy="169" r="13" fill={palette.muted} opacity=".55"/><circle cx="332" cy="54" r="18" fill={palette.accent}/></svg>{labelPill}</div>;
-  if(theme==="storytelling")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"8% 9% 16% 4%",border:`1px solid ${palette.accent}66`,borderRadius:12,background:`linear-gradient(145deg,${palette.accent}22,rgba(255,255,255,0.03))`,transform:"rotate(-6deg)",boxShadow:"0 18px 40px rgba(0,0,0,0.22)"}}/><div style={{position:"absolute",inset:"18% 2% 5% 17%",border:`1px solid ${palette.accent}88`,borderRadius:12,background:`linear-gradient(160deg,rgba(255,255,255,0.12),${palette.accent}16)`,transform:"rotate(5deg)",display:"flex",alignItems:"flex-end",padding:"10%",fontSize:"clamp(9px,1.1vw,13px)",fontWeight:850,lineHeight:1.25}}>{label}</div><span style={{position:"absolute",top:0,right:"4%",fontFamily:"Georgia,serif",fontSize:"clamp(42px,7vw,88px)",opacity:0.24}}>“</span></div>;
-  if(theme==="classroom")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"12% 5% 8% 9%",border:`2px solid ${palette.accent}99`,borderRadius:"18% 12% 16% 10%",transform:"rotate(2deg)",background:`linear-gradient(150deg,${palette.accent}18,${palette.accent2}16)`}}/><div style={{position:"absolute",left:"15%",top:"25%",right:"11%",padding:"12% 10%",background:palette.dark?"rgba(255,255,255,0.13)":"rgba(255,255,255,0.82)",borderLeft:`4px solid ${palette.accent3}`,boxShadow:"0 14px 32px rgba(0,0,0,0.16)",transform:"rotate(-3deg)",fontSize:"clamp(9px,1.1vw,13px)",fontWeight:850,lineHeight:1.3,color:palette.text}}>{label}</div>{[0,1,2].map(i=><span key={i} style={{position:"absolute",width:7+i*3,height:7+i*3,borderRadius:"50%",background:[palette.accent,palette.accent2,palette.accent3][i],right:`${8+i*14}%`,top:`${8+i*12}%`,opacity:0.9}}/>)}<div style={{position:"absolute",right:"5%",bottom:"5%",width:"15%",aspectRatio:"1",border:`2px solid ${palette.accent2}`,transform:"rotate(38deg)",borderRadius:"22%"}}/></div>;
-  if(theme==="pitch")return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"4%",border:`2px solid ${palette.accent}`,borderRadius:"50%",boxShadow:`inset 0 0 0 12px ${palette.accent}12,0 0 44px ${palette.accent2}38`}}/><div style={{position:"absolute",inset:"19%",border:`7px solid ${palette.accent2}55`,borderRadius:"50%",background:`radial-gradient(circle,${palette.accent3}55,transparent 68%)`}}/><span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"clamp(48px,9vw,110px)",fontWeight:950,letterSpacing:"-0.08em",color:palette.accent3,opacity:0.82}}>{number}</span><span style={{position:"absolute",left:"21%",right:"21%",bottom:"9%",padding:"7px 8px",borderRadius:999,background:palette.accent,color:palette.onAccent,fontSize:"clamp(8px,1vw,11px)",fontWeight:900,textAlign:"center",textTransform:"uppercase",letterSpacing:"0.08em"}}>{label}</span></div>;
-  return <div aria-hidden="true" style={base}><div style={{position:"absolute",inset:"3%",border:`1px solid ${palette.accent}88`,borderRadius:14,background:`linear-gradient(145deg,${palette.accent}20,${palette.accent2}12)`,boxShadow:"0 18px 38px rgba(0,0,0,0.18)"}}/><div style={{position:"absolute",left:"15%",right:"13%",bottom:"19%",height:"44%",display:"flex",alignItems:"flex-end",gap:"7%"}}>{[38,72,52,88].map((height,i)=><span key={i} style={{height:`${height}%`,flex:1,borderRadius:"5px 5px 2px 2px",background:[palette.accent,palette.accent2,palette.accent3,palette.accent][i]}}/>)}</div><span style={{position:"absolute",left:"14%",top:"17%",fontSize:"clamp(8px,1vw,11px)",fontWeight:900,textTransform:"uppercase",letterSpacing:"0.1em",color:palette.accent2}}>{label}</span><span style={{position:"absolute",right:"12%",top:"14%",fontSize:"clamp(28px,5vw,62px)",fontWeight:900,color:palette.accent3,opacity:0.75}}>{number}</span></div>;
-}
 
 const slideDeckAsText=deck=>`${deck?.title||"Slide Deck"}${deck?.subtitle?"\n"+deck.subtitle:""}\n\n${(deck?.slides||[]).filter(s=>!s.isSources).map((s,i)=>`SLIDE ${i+1}: ${s.title}${slideSupportingText(s)?"\n"+slideSupportingText(s):""}${(s.bullets||[]).length?"\n"+(s.bullets||[]).map(point=>`• ${point}`).join("\n"):""}${s.speakerNotes?"\n\nSpeaker notes: "+s.speakerNotes:""}`).join("\n\n")}${(deck?.sources||[]).length?`\n\nSOURCES\n${deck.sources.map((source,index)=>`${index+1}. ${source.title} — ${source.url}`).join("\n")}`:""}`;
-
-const wrapCanvasLines=(ctx,text,maxWidth)=>{
-  const words=String(text||"").split(/\s+/).filter(Boolean);const lines=[];let line="";
-  words.forEach(word=>{const test=line?line+" "+word:word;if(line&&ctx.measureText(test).width>maxWidth){lines.push(line);line=word;}else line=test;});
-  if(line)lines.push(line);return lines;
-};
-
-function drawSlideCanvas(deck,slide,index,options){
-  const width=1600,height=900,canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;const ctx=canvas.getContext("2d");
-  const palette=slidePalette(options.background,options.theme,options.textColor);const gradient=ctx.createLinearGradient(0,0,width,height);gradient.addColorStop(0,palette.bg);gradient.addColorStop(1,palette.bg2);ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-  const font=slideFontStack(options.font);
-  if(slide.isSources){
-    ctx.fillStyle=palette.accent;ctx.font=`900 82px ${font}`;ctx.fillText(slide.title||"Sources",90,430);
-    const sources=(deck.sources||[]).slice(0,10);const columns=sources.length>5?2:1;const columnWidth=columns===2?650:1310;const rows=Math.ceil(sources.length/columns);
-    sources.forEach((source,sourceIndex)=>{const column=Math.floor(sourceIndex/rows),row=sourceIndex%rows,x=98+column*(columnWidth+70),y=500+row*58;ctx.fillStyle=palette.text;ctx.beginPath();ctx.arc(x,y-7,5,0,Math.PI*2);ctx.fill();ctx.fillStyle=palette.accent;ctx.font=`800 27px ${font}`;const title=wrapCanvasLines(ctx,source.title||slideSourceDomain(source.url),columnWidth-38)[0]||"Research source";ctx.fillText(title,x+24,y);ctx.strokeStyle=palette.accent;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x+24,y+6);ctx.lineTo(x+24+Math.min(columnWidth-38,ctx.measureText(title).width),y+6);ctx.stroke();});
-    if(!sources.length){ctx.fillStyle=palette.accent;ctx.fillRect(94,492,3,130);ctx.fillStyle=palette.muted;ctx.font=`600 29px ${font}`;ctx.fillText("Add a title and URL in the editable source library.",128,552);}
-    return canvas;
-  }
-  const layout=slide.layout||"left-third";const rightContent=layout==="right-third";const fullBleed=layout==="full-bleed";const artX=rightContent?90:fullBleed?650:1090,artY=fullBleed?55:150,artW=fullBleed?850:390,artH=fullBleed?760:570;const artColors=[palette.accent,palette.muted,palette.accent,palette.accent];ctx.save();ctx.strokeStyle=palette.accent;ctx.fillStyle=palette.accent;ctx.globalAlpha=0.28;
-  const visual=slide.visualType||"signal";
-  if(visual==="hero-image"||visual==="image-cards"||visual==="takeaway-grid"){
-    const left=visual!=="hero-image",x=left?0:976,w=624;const scene=ctx.createLinearGradient(x,0,x+w,900);scene.addColorStop(0,palette.accent3);scene.addColorStop(.48,palette.accent);scene.addColorStop(1,palette.bg2);ctx.globalAlpha=.86;ctx.fillStyle=scene;ctx.fillRect(x,0,w,900);ctx.globalAlpha=.55;ctx.fillStyle=palette.bg2;ctx.beginPath();ctx.moveTo(x,900);ctx.bezierCurveTo(x+w*.15,540,x+w*.42,480,x+w*.62,610);ctx.bezierCurveTo(x+w*.78,710,x+w*.88,430,x+w,360);ctx.lineTo(x+w,900);ctx.closePath();ctx.fill();ctx.globalAlpha=.78;ctx.fillStyle=palette.accent;ctx.beginPath();ctx.moveTo(x,900);ctx.bezierCurveTo(x+w*.22,620,x+w*.42,660,x+w*.56,760);ctx.bezierCurveTo(x+w*.72,860,x+w*.84,590,x+w,520);ctx.lineTo(x+w,900);ctx.closePath();ctx.fill();ctx.globalAlpha=.92;ctx.fillStyle=palette.accent3;ctx.beginPath();ctx.arc(x+w*(left?.25:.7),150,88,0,Math.PI*2);ctx.fill();
-  }
-  else if(visual==="process"){
-    const points=(slide.bullets||[]).slice(0,3);const stages=points.length>=2?points:["Stage one","Stage two"];const radius=stages.length===3?95:126;const gap=stages.length===3?42:68;const total=stages.length*radius*2+(stages.length-1)*gap;const start=(width-total)/2+radius;ctx.globalAlpha=1;stages.forEach((point,stageIndex)=>{const cx=start+stageIndex*(radius*2+gap),cy=440;ctx.strokeStyle=palette.accent;ctx.lineWidth=12;ctx.beginPath();ctx.arc(cx,cy,radius,0,Math.PI*2);ctx.stroke();ctx.fillStyle=palette.text;ctx.lineWidth=4;ctx.beginPath();ctx.arc(cx,cy,32+stageIndex*4,0,Math.PI*2);ctx.stroke();ctx.font=`800 26px ${font}`;ctx.textAlign="center";ctx.fillStyle=palette.text;ctx.fillText(slidePointParts(point).label,cx,cy+radius+58);if(stageIndex<stages.length-1){const from=cx+radius+12,to=cx+radius+gap-12;ctx.strokeStyle=palette.accent;ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(from,cy);ctx.lineTo(to,cy);ctx.stroke();ctx.beginPath();ctx.moveTo(to-16,cy-14);ctx.lineTo(to,cy);ctx.lineTo(to-16,cy+14);ctx.stroke();}});ctx.textAlign="left";
-  }
-  else if(visual==="image-detail"){
-    ctx.globalAlpha=.82;const detail=ctx.createRadialGradient(540,420,30,540,420,480);detail.addColorStop(0,palette.accent3);detail.addColorStop(.35,palette.accent);detail.addColorStop(1,palette.bg2);ctx.fillStyle=detail;ctx.fillRect(80,245,912,560);ctx.globalAlpha=.75;ctx.fillStyle=palette.accent;ctx.beginPath();ctx.ellipse(540,500,220,160,-.15,0,Math.PI*2);ctx.fill();ctx.strokeStyle=palette.text;ctx.lineWidth=9;ctx.globalAlpha=.42;ctx.stroke();ctx.globalAlpha=.9;ctx.fillStyle=palette.accent3;ctx.beginPath();ctx.arc(555,485,62,0,Math.PI*2);ctx.fill();
-  }
-  else if(visual==="equation"){
-    ctx.globalAlpha=.3;ctx.fillStyle=palette.accent;ctx.fillRect(80,320,704,390);ctx.globalAlpha=1;ctx.fillStyle=palette.accent;ctx.font=`800 28px ${font}`;ctx.fillText(slide.visualLabel||"THE PROOF",112,378);ctx.fillStyle=palette.text;ctx.font=`500 52px Georgia,serif`;ctx.textAlign="center";const proofLines=wrapCanvasLines(ctx,slide.dataValue||String(index+1).padStart(2,"0"),620).slice(0,3);proofLines.forEach((line,lineIndex)=>ctx.fillText(line,432,455+lineIndex*66));ctx.textAlign="left";if(slide.dataLabel){ctx.fillStyle=palette.muted;ctx.font=`500 26px ${font}`;wrapCanvasLines(ctx,slide.dataLabel,630).slice(0,3).forEach((line,lineIndex)=>ctx.fillText(line,112,625+lineIndex*36));}
-  }
-  else if(visual==="icon-columns"){}
-  else if(visual==="fullbleed"){const radial=ctx.createRadialGradient(artX+artW*.42,artY+artH*.36,20,artX+artW*.42,artY+artH*.36,artW*.55);radial.addColorStop(0,palette.accent3);radial.addColorStop(.34,palette.accent);radial.addColorStop(1,"rgba(0,0,0,0)");ctx.globalAlpha=.72;ctx.fillStyle=radial;ctx.beginPath();ctx.ellipse(artX+artW*.5,artY+artH*.46,artW*.47,artH*.43,-.12,0,Math.PI*2);ctx.fill();ctx.globalAlpha=.74;ctx.lineWidth=5;ctx.strokeStyle=palette.accent;ctx.beginPath();ctx.ellipse(artX+artW*.54,artY+artH*.44,artW*.39,artH*.37,.2,0,Math.PI*2);ctx.stroke();}
-  else if(visual==="big-number"){ctx.globalAlpha=.96;ctx.fillStyle=palette.accent;ctx.font=`950 210px ${font}`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(slide.dataValue||slide.visualLabel||String(index+1).padStart(2,"0"),artX+artW/2,artY+artH*.48);ctx.textAlign="left";ctx.textBaseline="alphabetic";}
-  else if(visual==="simple-chart"){const bars=[.34,.52,.69,.9];bars.forEach((ratio,i)=>{ctx.globalAlpha=i===bars.length-1?.98:.38;ctx.fillStyle=i===bars.length-1?palette.accent:palette.muted;ctx.fillRect(artX+42+i*(artW-90)/4,artY+artH-80-ratio*(artH-130),(artW-130)/4,ratio*(artH-130));});}
-  else if(visual==="metaphor"){ctx.globalAlpha=.42;ctx.strokeStyle=palette.muted;ctx.lineWidth=16;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(artX+30,artY+100);ctx.bezierCurveTo(artX+180,artY+artH-40,artX+240,artY-20,artX+380,artY+artH*.6);ctx.bezierCurveTo(artX+480,artY+artH,artX+590,artY+60,artX+artW-50,artY+artH*.42);ctx.stroke();ctx.globalAlpha=1;ctx.strokeStyle=palette.accent;ctx.lineWidth=14;ctx.beginPath();ctx.moveTo(artX+40,artY+artH-58);ctx.lineTo(artX+artW-46,artY+56);ctx.stroke();ctx.beginPath();ctx.moveTo(artX+artW-92,artY+60);ctx.lineTo(artX+artW-45,artY+56);ctx.lineTo(artX+artW-50,artY+105);ctx.stroke();ctx.lineCap="butt";}
-  else if(visual==="constellation"){const points=[[artX+25,artY+390],[artX+105,artY+45],[artX+225,artY+180],[artX+365,artY+30],[artX+310,artY+470],[artX+140,artY+410]];ctx.globalAlpha=0.9;ctx.lineWidth=4;ctx.strokeStyle=palette.accent;ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.stroke();ctx.strokeStyle=palette.accent;ctx.beginPath();[points[1],points[5],points[2],points[4]].forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();points.forEach(([x,y],i)=>{ctx.globalAlpha=i%2?.95:.48;ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(x,y,i%2?13:9,0,Math.PI*2);ctx.fill();});}
-  else if(visual==="steps"){[0,1,2].forEach(i=>{ctx.globalAlpha=0.92;ctx.fillStyle=artColors[i];ctx.fillRect(artX+32+i*95,artY+390-i*105,112,95);});}
-  else if(visual==="comparison"){ctx.globalAlpha=0.18;ctx.fillStyle=palette.muted;ctx.fillRect(artX+8,artY+55,175,410);ctx.globalAlpha=.46;ctx.fillStyle=palette.accent;ctx.fillRect(artX+207,artY+55,175,410);ctx.globalAlpha=0.95;ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(artX+195,artY+260,18,0,Math.PI*2);ctx.fill();}
-  else if(visual==="gallery"){[-0.12,0.03,0.14].forEach((rotation,i)=>{ctx.save();ctx.translate(artX+artW/2+i*18-18,artY+artH/2+i*22-18);ctx.rotate(rotation);ctx.globalAlpha=0.34;ctx.fillStyle=artColors[i];ctx.fillRect(-145,-220,290,420);ctx.globalAlpha=0.95;ctx.strokeStyle=artColors[i];ctx.lineWidth=5;ctx.strokeRect(-145,-220,290,420);ctx.restore();});}
-  else if(visual==="spotlight"){ctx.globalAlpha=0.95;ctx.lineWidth=5;ctx.strokeStyle=palette.accent;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,184,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=.38;ctx.lineWidth=12;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,105,0,Math.PI*2);ctx.stroke();ctx.fillStyle=palette.accent;ctx.globalAlpha=0.78;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,64,0,Math.PI*2);ctx.fill();}
-  else if(options.theme==="storytelling"){ctx.translate(artX+artW/2,artY+artH/2);ctx.rotate(-0.09);ctx.fillStyle=palette.accent2;ctx.fillRect(-artW/2,-artH/2+45,artW-35,artH-75);ctx.rotate(0.16);ctx.globalAlpha=0.24;ctx.fillStyle=palette.accent3;ctx.fillRect(-artW/2+45,-artH/2+15,artW-25,artH-55);}
-  else if(options.theme==="classroom"){ctx.lineWidth=5;ctx.strokeRect(artX+30,artY+35,artW-55,artH-65);ctx.globalAlpha=0.16;ctx.fillStyle=palette.accent2;ctx.fillRect(artX+75,artY+165,artW-120,210);for(let i=0;i<4;i++){ctx.globalAlpha=0.9;ctx.fillStyle=artColors[i];ctx.beginPath();ctx.arc(artX+80+i*82,artY+70+i*23,7+i*2,0,Math.PI*2);ctx.fill();}}
-  else if(options.theme==="pitch"){ctx.lineWidth=4;ctx.strokeStyle=palette.accent;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,184,0,Math.PI*2);ctx.stroke();ctx.strokeStyle=palette.accent2;ctx.beginPath();ctx.arc(artX+artW/2,artY+artH/2,115,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=0.82;ctx.fillStyle=palette.accent3;ctx.font=`900 190px ${font}`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(String(index+1).padStart(2,"0"),artX+artW/2,artY+artH/2);ctx.textAlign="left";ctx.textBaseline="alphabetic";}
-  else{ctx.globalAlpha=0.1;ctx.fillStyle=palette.accent;ctx.fillRect(artX,artY,artW,artH);const bars=[160,310,220,405];bars.forEach((bar,i)=>{ctx.globalAlpha=i===3?.96:.36;ctx.fillStyle=i===3?palette.accent:palette.muted;ctx.fillRect(artX+54+i*75,artY+artH-68-bar,48,bar);});}
-  ctx.restore();
-  for(const item of slide.customImages||[]){
-    const image=options.imageMap?.get(item.id);if(!image)continue;const position=normalizeSlideElementPosition(item,defaultSlideElementPosition(layout,"image",slide),{image:true});const box={x:position.x/100*width,y:position.y/100*height,width:position.width/100*width,height:position.height/100*height};const contain=item.fit==="contain";const ratio=(contain?Math.min:Math.max)(box.width/image.naturalWidth,box.height/image.naturalHeight);const drawWidth=image.naturalWidth*ratio,drawHeight=image.naturalHeight*ratio,drawX=box.x+(box.width-drawWidth)/2,drawY=box.y+(box.height-drawHeight)/2;
-    ctx.save();ctx.beginPath();if(item.generated&&visual==="hero-image"){ctx.moveTo(box.x+box.width*.11,box.y);ctx.lineTo(box.x+box.width,box.y);ctx.lineTo(box.x+box.width,box.y+box.height);ctx.lineTo(box.x+box.width*.11,box.y+box.height);ctx.bezierCurveTo(box.x-box.width*.04,box.y+box.height*.76,box.x+box.width*.08,box.y+box.height*.63,box.x,box.y+box.height*.5);ctx.bezierCurveTo(box.x+box.width*.08,box.y+box.height*.35,box.x-box.width*.04,box.y+box.height*.18,box.x+box.width*.11,box.y);}
-    else if(item.generated&&(visual==="image-cards"||visual==="takeaway-grid")){ctx.moveTo(box.x,box.y);ctx.lineTo(box.x+box.width*.89,box.y);ctx.bezierCurveTo(box.x+box.width*1.04,box.y+box.height*.18,box.x+box.width*.92,box.y+box.height*.35,box.x+box.width,box.y+box.height*.5);ctx.bezierCurveTo(box.x+box.width*.92,box.y+box.height*.63,box.x+box.width*1.04,box.y+box.height*.78,box.x+box.width*.89,box.y+box.height);ctx.lineTo(box.x,box.y+box.height);ctx.closePath();}
-    else if(ctx.roundRect)ctx.roundRect(box.x,box.y,box.width,box.height,18);else ctx.rect(box.x,box.y,box.width,box.height);ctx.clip();ctx.shadowColor="rgba(0,0,0,.35)";ctx.shadowBlur=22;ctx.drawImage(image,drawX,drawY,drawWidth,drawHeight);ctx.restore();
-  }
-  if(fullBleed){ctx.fillStyle="rgba(0,0,0,.22)";ctx.fillRect(0,0,width*.56,height);ctx.shadowColor="rgba(0,0,0,.5)";ctx.shadowBlur=24;}
-  const positions=slide.elementPositions||{};const textPosition=key=>normalizeSlideElementPosition(positions[key],defaultSlideElementPosition(layout,key,slide));const drawBlock=(value,position,{fill,fontValue,lineHeight,maxLines=3,uppercase=false}={})=>{
-    const x=position.x/100*width,boxWidth=position.width/100*width,y=position.y/100*height;ctx.fillStyle=fill;ctx.font=fontValue;ctx.textAlign=rightContent?"right":"left";ctx.textBaseline="top";const lines=wrapCanvasLines(ctx,uppercase?String(value||"").toUpperCase():value,boxWidth);lines.slice(0,maxLines).forEach((line,lineIndex)=>ctx.fillText(line,rightContent?x+boxWidth:x,y+lineIndex*lineHeight));
-  };
-  const eyebrowPosition=textPosition("eyebrow");ctx.fillStyle=palette.accent;ctx.fillRect(eyebrowPosition.x/100*width,Math.max(0,eyebrowPosition.y/100*height-28),84,8);drawBlock(slide.eyebrow||deck.title||"KEY IDEA",eyebrowPosition,{fill:palette.accent,fontValue:`700 24px ${font}`,lineHeight:30,maxLines:2,uppercase:true});
-  const titleScale=slideTitleScale(slide.title)*(visual==="image-detail"?0.8:1);const canvasTitleSize=Math.max(34,Number(options.titleSize)*2.15*titleScale);
-  drawBlock(slide.title,textPosition("title"),{fill:palette.text,fontValue:`900 ${canvasTitleSize}px ${font}`,lineHeight:canvasTitleSize*1.1,maxLines:5});
-  const supporting=slideSupportingText(slide);const bodyPosition=textPosition("supportingText");const canvasBodySize=Math.max(26,Number(options.bodySize)*1.55);const bodyX=bodyPosition.x/100*width,bodyY=bodyPosition.y/100*height,bodyWidth=bodyPosition.width/100*width;const bullets=(slide.bullets||[]).slice(0,3);
-  if(visual==="icon-columns"){
-    let columnTop=bodyY;if(supporting){drawBlock(supporting,bodyPosition,{fill:palette.muted,fontValue:`500 ${canvasBodySize}px ${font}`,lineHeight:canvasBodySize*1.28,maxLines:2});columnTop+=canvasBodySize*2.8;}
-    const gap=46,columnWidth=(bodyWidth-gap*2)/3;bullets.forEach((point,pointIndex)=>{const part=slidePointParts(point),x=bodyX+pointIndex*(columnWidth+gap);ctx.strokeStyle=palette.accent;ctx.lineWidth=5;ctx.beginPath();ctx.arc(x+30,columnTop+28,24,0,Math.PI*2);ctx.stroke();ctx.fillStyle=palette.text;ctx.font=`800 ${Math.max(24,Number(options.bodySize)*1.38)}px ${font}`;wrapCanvasLines(ctx,part.label,columnWidth).slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,x,columnTop+94+lineIndex*34));ctx.fillStyle=palette.muted;ctx.font=`500 ${Math.max(21,Number(options.bodySize)*1.18)}px ${font}`;wrapCanvasLines(ctx,part.detail,columnWidth).slice(0,4).forEach((line,lineIndex)=>ctx.fillText(line,x,columnTop+166+lineIndex*31));});
-  }else if(visual==="image-cards"||visual==="takeaway-grid"){
-    let pointY=bodyY;if(supporting){ctx.fillStyle=palette.accent;ctx.fillRect(bodyX,pointY,4,86);const quote={...bodyPosition,x:bodyPosition.x+2,width:bodyPosition.width-2,y:bodyPosition.y};drawBlock(supporting,quote,{fill:palette.muted,fontValue:`500 ${canvasBodySize}px ${font}`,lineHeight:canvasBodySize*1.3,maxLines:3});pointY+=118;}
-    const twoColumn=visual==="takeaway-grid"&&bullets.length>1,cardGap=22,cardWidth=twoColumn?(bodyWidth-cardGap)/2:bodyWidth;bullets.forEach((point,pointIndex)=>{const part=slidePointParts(point),full=twoColumn&&pointIndex===2,x=full?bodyX:bodyX+(pointIndex%2)*(cardWidth+cardGap),y=full?pointY+146:pointY,w=full?bodyWidth:cardWidth,h=full?118:128;ctx.fillStyle=palette.dark?"rgba(255,255,255,.12)":"rgba(0,0,0,.07)";ctx.fillRect(x,y,w,h);ctx.fillStyle=palette.text;ctx.font=`800 ${Math.max(23,Number(options.bodySize)*1.28)}px ${font}`;ctx.fillText(part.label+(part.detail?":":""),x+22,y+38);ctx.fillStyle=palette.muted;ctx.font=`500 ${Math.max(20,Number(options.bodySize)*1.12)}px ${font}`;wrapCanvasLines(ctx,part.detail,w-44).slice(0,2).forEach((line,lineIndex)=>ctx.fillText(line,x+22,y+76+lineIndex*29));});
-  }else{
-    if(supporting)drawBlock(supporting,bodyPosition,{fill:palette.muted,fontValue:`500 ${canvasBodySize}px ${font}`,lineHeight:canvasBodySize*1.28,maxLines:3});
-    if(visual!=="process"){let pointY=bodyY+(supporting?canvasBodySize*3.15:0);bullets.forEach(point=>{ctx.fillStyle=palette.accent;ctx.beginPath();ctx.arc(rightContent?bodyX+bodyWidth-8:bodyX+8,pointY+12,7,0,Math.PI*2);ctx.fill();ctx.fillStyle=palette.text;ctx.font=`650 ${Math.max(23,Number(options.bodySize)*1.35)}px ${font}`;ctx.textAlign=rightContent?"right":"left";const lines=wrapCanvasLines(ctx,point,bodyWidth-34).slice(0,3);lines.forEach((line,lineIndex)=>ctx.fillText(line,rightContent?bodyX+bodyWidth-28:bodyX+28,pointY+lineIndex*Math.max(30,Number(options.bodySize)*1.65)));pointY+=Math.max(54,lines.length*Math.max(30,Number(options.bodySize)*1.65)+14);});}
-  }
-  const cited=(slide.sourceUrls||[]).map(url=>(deck.sources||[]).findIndex(source=>source.url===url)+1).filter(value=>value>0);if(cited.length){ctx.textAlign="right";ctx.fillStyle=palette.muted;ctx.font=`600 17px ${font}`;ctx.fillText(`Sources ${cited.join(", ")}`,width-54,height-34);}
-  ctx.textAlign="left";ctx.shadowBlur=0;
-  return canvas;
-}
 
 const slideCanvasBlob=(canvas,type,quality)=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("The slide image could not be prepared.")),type,quality));
 const loadPptxGenerator=()=>new Promise((resolve,reject)=>{
@@ -4517,8 +4076,8 @@ const prepareSlideImage=async file=>{
   const [dataUrl,historyDataUrl]=await Promise.all([compactSlideImage(file,1600,.86),compactSlideImage(file,480,.62)]);
   return {id:`slide-image-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,name:file.name||"Uploaded image",dataUrl,historyDataUrl,fit:"cover"};
 };
-const requestSlideIllustration=async(slide,index,{themeName,themePrompt})=>{
-  const response=await fetch("/api/slide-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:slide.title,direction:slide.visualDirection,theme:`${themeName}. ${themePrompt}. Keep one coherent illustrated visual world across the complete deck.`,layout:slide.layout})});
+const requestSlideIllustration=async(slide,index,{themeName,themePrompt,deckTitle="",palette=null})=>{
+  const response=await fetch("/api/slide-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:slide.title,direction:slide.visualDirection,theme:`${themeName}. ${themePrompt}. Keep one coherent illustrated visual world across the complete deck.`,layout:slide.layout,deckTitle,palette:palette?{bg:palette.bg,accent:palette.accent}:undefined})});
   const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||"The AI visual could not be created.");const dataUrl=result?.image?.dataUrl;if(!dataUrl)throw new Error("The AI visual returned no image.");
   const historyDataUrl=await compactSlideSource(dataUrl,480,.62);const position=defaultSlideElementPosition(slide.layout||"left-third","image",slide);
   return {id:`slide-ai-${Date.now()}-${index}-${Math.random().toString(36).slice(2,7)}`,name:`Illustration · ${slide.title}`,dataUrl,historyDataUrl,fit:"cover",generated:true,...normalizeSlideElementPosition(position,position,{image:true})};
@@ -4546,84 +4105,16 @@ const downloadSlideDeckImages=async(deck,design={},type="image/png")=>{
   downloadBlob(await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}}),`ghostwriterme-${extension}-slides.zip`);
 };
 
-function DraggableSlideElement({position,image=false,editing=false,selected=false,label,onSelect,onChange,onDelete,children}){
-  const elementRef=useRef(null);const actionRef=useRef(null);
-  const startAction=(mode,event)=>{
-    if(!editing)return;if(event.target?.closest?.('[contenteditable="true"]')){event.stopPropagation();onSelect?.();return;}event.preventDefault();event.stopPropagation();onSelect?.();const shell=elementRef.current?.parentElement;if(!shell)return;
-    const bounds=shell.getBoundingClientRect();actionRef.current={mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,position:{...position},width:bounds.width,height:bounds.height};event.currentTarget.setPointerCapture?.(event.pointerId);
-  };
-  const moveAction=event=>{
-    const action=actionRef.current;if(!action||action.pointerId!==event.pointerId)return;event.preventDefault();const delta={dx:event.clientX-action.startX,dy:event.clientY-action.startY,canvasWidth:action.width,canvasHeight:action.height,image};
-    onChange?.(action.mode==="resize"?resizeSlideElement(action.position,delta):moveSlideElement(action.position,delta));
-  };
-  const finishAction=event=>{if(actionRef.current?.pointerId===event.pointerId)actionRef.current=null;};
-  const onKeyDown=event=>{
-    if(!editing||event.target?.closest?.('[contenteditable="true"]'))return;const amount=event.shiftKey?5:1;const direction={ArrowLeft:[-amount,0],ArrowRight:[amount,0],ArrowUp:[0,-amount],ArrowDown:[0,amount]}[event.key];
-    if(direction){event.preventDefault();onSelect?.();onChange?.(nudgeSlideElement(position,{dx:direction[0],dy:direction[1],image}));}
-    if(image&&(event.key==="Delete"||event.key==="Backspace")){event.preventDefault();onDelete?.();}
-  };
-  return <div ref={elementRef} role={editing?"group":undefined} tabIndex={editing?0:undefined} aria-label={editing?`${label}. Drag to move. Use arrow keys for precise movement.`:undefined} onPointerDown={event=>startAction("move",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} onKeyDown={onKeyDown} onClick={event=>{if(editing){event.stopPropagation();onSelect?.();}}} style={{position:"absolute",left:`${position.x}%`,top:`${position.y}%`,width:`${position.width}%`,...(image?{height:`${position.height}%`}:{}),zIndex:image?2:3,touchAction:"none",cursor:editing?"move":"default",outline:selected?"2px solid #79BAEC":"none",outlineOffset:3,borderRadius:image?8:4,filter:selected?"drop-shadow(0 0 8px rgba(121,186,236,.55))":"none"}}>
-    {children}
-    {editing&&selected&&<><span aria-hidden="true" style={{position:"absolute",left:0,top:-27,padding:"4px 7px",borderRadius:6,background:"#79BAEC",color:"#06101a",fontSize:9,fontWeight:900,letterSpacing:".06em",textTransform:"uppercase",whiteSpace:"nowrap",pointerEvents:"none"}}>{label}</span><button type="button" aria-label={`Resize ${label}`} onPointerDown={event=>startAction("resize",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} style={{position:"absolute",right:-17,bottom:-17,width:34,height:34,borderRadius:"50%",border:"2px solid #fff",background:"#79BAEC",color:"#06101a",display:"grid",placeItems:"center",cursor:"nwse-resize",touchAction:"none",boxShadow:"0 5px 15px rgba(0,0,0,.35)"}}><GwmIcon name="expand" size={14}/></button></>}
-  </div>;
-}
-
-function SlideSourcesFrame({deck,slide,palette,font,presenting,onFullscreen,editing}){
-  const sources=deck.sources||[];
-  return <div className="studio-slide-shell" style={{width:"100%",height:presenting?"100%":undefined,background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),boxShadow:presenting?"none":"0 16px 36px rgba(0,0,0,0.28)",borderRadius:presenting?0:12}}>
-    <div style={{position:"absolute",inset:0,background:`radial-gradient(circle at 82% 26%,${palette.accent}13,transparent 36%)`,pointerEvents:"none"}}/>
-    <div style={{position:"absolute",left:"6%",right:"7%",top:"34%",bottom:"10%",zIndex:2,display:"flex",flexDirection:"column"}}>
-      <div style={{fontSize:presenting?"clamp(42px,5.5vw,84px)":"clamp(28px,5vw,50px)",lineHeight:1,fontWeight:950,letterSpacing:"-.04em",color:palette.accent}}>{slide.title||"Sources"}</div>
-      <div style={{marginTop:"5%",display:"grid",gridTemplateColumns:sources.length>5?"repeat(2,minmax(0,1fr))":"1fr",columnGap:"7%",rowGap:"clamp(8px,1.3vw,16px)",overflow:"hidden"}}>
-        {sources.slice(0,10).map((source,sourceIndex)=>{const content=<><span style={{color:palette.text,fontSize:"1.1em",lineHeight:1}}>•</span><span style={{minWidth:0,textDecoration:"underline",textDecorationThickness:"1px",textUnderlineOffset:"3px",fontWeight:800,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{source.title||slideSourceDomain(source.url)}</span></>;return editing||!/^https?:\/\//i.test(source.url)?<div key={source.id||sourceIndex} style={{display:"grid",gridTemplateColumns:"14px minmax(0,1fr)",gap:8,alignItems:"center",fontSize:"clamp(9px,1.35vw,16px)",color:palette.accent}}>{content}</div>:<a key={source.id||sourceIndex} href={source.url} target="_blank" rel="noreferrer" style={{display:"grid",gridTemplateColumns:"14px minmax(0,1fr)",gap:8,alignItems:"center",color:palette.accent,fontSize:"clamp(9px,1.35vw,16px)",textDecoration:"none"}}>{content}</a>;})}
-        {!sources.length&&<div style={{padding:"5%",borderLeft:`2px solid ${palette.accent}`,color:palette.muted,fontSize:"clamp(10px,1.5vw,16px)"}}>Open Edit deck to add a source title and URL.</div>}
-      </div>
-    </div>
-    {editing&&<div style={{position:"absolute",right:10,bottom:9,zIndex:7,padding:"5px 7px",borderRadius:7,background:"rgba(3,8,14,.78)",color:"#dceeff",fontSize:9,fontWeight:800}}>Editable source library</div>}
-    {onFullscreen&&<button type="button" aria-label="Present slides in fullscreen" title="Present fullscreen" onClick={onFullscreen} style={{position:"absolute",top:12,right:12,zIndex:8,width:44,height:44,borderRadius:11,border:"1px solid rgba(255,255,255,0.22)",background:"rgba(3,8,14,0.74)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer",backdropFilter:"blur(10px)"}}><GwmIcon name="expand" size={19}/></button>}
-  </div>;
-}
-
-function SlideBodyContent({slide,supportingText,palette,presenting,bodySize,fullBleed,editing,onUpdateSlideField,onUpdateSlideBullet}){
-  const bullets=slide.bullets||[];const visual=slide.visualType||"";const fontSize=presenting?`clamp(16px,${bodySize/10}vw,${bodySize*1.55}px)`:`clamp(10px,${bodySize/13}vw,${bodySize}px)`;
-  const editProps=(field,index)=>({contentEditable:editing,suppressContentEditableWarning:true,className:"slide-inline-copy",onClick:event=>editing&&event.stopPropagation(),onBlur:event=>{if(!editing)return;const value=event.currentTarget.textContent||"";if(field==="supportingText")onUpdateSlideField?.(field,value);else onUpdateSlideBullet?.(index,value);}});
-  const shadow=fullBleed?"0 2px 16px rgba(0,0,0,.72)":"none";
-  if(visual==="process")return supportingText?<div {...editProps("supportingText")} style={{fontSize,color:palette.muted,lineHeight:1.42,textAlign:"center",textShadow:shadow}}>{supportingText}</div>:null;
-  if(visual==="icon-columns")return <div style={{fontSize,lineHeight:1.42,textShadow:shadow}}>{supportingText&&<div {...editProps("supportingText")} style={{color:palette.muted,marginBottom:"3%",maxWidth:"74%"}}>{supportingText}</div>}<div style={{display:"grid",gridTemplateColumns:`repeat(${Math.max(1,Math.min(3,bullets.length||3))},minmax(0,1fr))`,gap:"4%"}}>{(bullets.length?bullets:["First idea","Second idea","Third idea"]).slice(0,3).map((point,pointIndex)=>{const part=slidePointParts(point);return <div key={pointIndex} style={{minWidth:0}}><span style={{display:"block",width:"clamp(24px,4vw,48px)",height:"clamp(24px,4vw,48px)",marginBottom:"8%"}}><EditorialGlyph index={pointIndex+1} color={palette.accent}/></span><div {...editProps("bullet",pointIndex)} style={{color:palette.text}}><strong style={{display:"block",fontSize:"1.08em",marginBottom:"4%"}}>{part.label}{part.detail?":" : ""}</strong>{part.detail&&<span style={{color:palette.muted,fontWeight:500}}>{part.detail}</span>}</div></div>;})}</div></div>;
-  if(visual==="image-cards"||visual==="takeaway-grid")return <div style={{fontSize,lineHeight:1.4,textShadow:shadow}}>{supportingText&&<div {...editProps("supportingText")} style={{color:palette.muted,borderLeft:`2px solid ${palette.accent}`,paddingLeft:"5%",marginBottom:"5%"}}>{supportingText}</div>}<div style={{display:"grid",gridTemplateColumns:visual==="takeaway-grid"&&bullets.length>1?"repeat(2,minmax(0,1fr))":"1fr",gap:"clamp(5px,1vw,11px)"}}>{bullets.map((point,pointIndex)=>{const part=slidePointParts(point);return <div key={pointIndex} {...editProps("bullet",pointIndex)} style={{gridColumn:visual==="takeaway-grid"&&pointIndex===2?"1 / -1":undefined,padding:"clamp(6px,1.2vw,14px)",borderRadius:7,background:palette.dark?"rgba(255,255,255,.12)":"rgba(0,0,0,.07)",border:`1px solid ${palette.accent}22`,color:palette.muted}}><strong style={{display:"block",color:palette.text,fontSize:"1.07em",marginBottom:part.detail?"3%":0}}>{part.label}{part.detail?":" : ""}</strong>{part.detail}</div>;})}</div></div>;
-  return <div style={{fontSize,lineHeight:1.42,textShadow:shadow}}>{supportingText&&<div {...editProps("supportingText")} style={{color:palette.muted,marginBottom:bullets.length?"clamp(5px,1.2vw,12px)":0}}>{supportingText}</div>}{bullets.map((point,pointIndex)=>{const part=slidePointParts(point);return <div key={pointIndex} style={{display:"grid",gridTemplateColumns:"8px minmax(0,1fr)",gap:"clamp(5px,.8vw,9px)",alignItems:"start",marginTop:pointIndex?"clamp(3px,.65vw,7px)":0,color:palette.text,fontWeight:550}}><span style={{width:6,height:6,borderRadius:"50%",background:palette.accent,marginTop:".45em"}}/><span {...editProps("bullet",pointIndex)}>{part.detail?<><strong>{part.label}:</strong> {part.detail}</>:part.label}</span></div>;})}</div>;
-}
-
-function SlideFrame({deck,slide,index,theme,palette,font,titleSize,bodySize,presenting=false,onFullscreen,editing=false,selectedElement="",onSelectElement,onUpdateElementPosition,onRemoveImage,onUpdateSlideField,onUpdateSlideBullet,onAddImages}){
-  if(slide.isSources)return <SlideSourcesFrame deck={deck} slide={slide} palette={palette} font={font} presenting={presenting} onFullscreen={onFullscreen} editing={editing}/>;
-  const layout=slide.layout||"left-third";const fullBleed=layout==="full-bleed";const supportingText=slideSupportingText(slide);const positions=slide.elementPositions||{};const titleScale=slideTitleScale(slide.title)*(slide.visualType==="image-detail"?0.8:1);const minimumTitleSize=presenting?Math.max(22,32*titleScale):Math.max(14,20*titleScale);
-  const positionFor=key=>normalizeSlideElementPosition(positions[key],defaultSlideElementPosition(layout,key,slide));
-  const updateTextPosition=(key,value)=>onUpdateElementPosition?.(key,value,false);
-  const cited=(slide.sourceUrls||[]).map(url=>(deck.sources||[]).findIndex(source=>source.url===url)+1).filter(value=>value>0);
-  const inlineProps=field=>({contentEditable:editing,suppressContentEditableWarning:true,onClick:event=>editing&&event.stopPropagation(),onBlur:event=>editing&&onUpdateSlideField?.(field,event.currentTarget.textContent||"")});
-  return <div className="studio-slide-shell" onClick={()=>editing&&onSelectElement?.("")} onDragOver={event=>editing&&onAddImages&&event.preventDefault()} onDrop={event=>{if(!editing||!onAddImages)return;event.preventDefault();onAddImages([...(event.dataTransfer?.files||[])]);}} style={{width:"100%",height:presenting?"100%":undefined,background:palette.preview,color:palette.text,fontFamily:slideFontStack(font),boxShadow:presenting?"none":"0 16px 36px rgba(0,0,0,0.28)",transition:"background 0.25s ease",borderRadius:presenting?0:12}}>
-    <div style={{position:"absolute",inset:0,background:fullBleed?"linear-gradient(90deg,rgba(0,0,0,0.34),transparent 66%)":"linear-gradient(115deg,rgba(255,255,255,0.07),transparent 34%)",pointerEvents:"none"}}/>
-    <SlideArtwork theme={theme} slide={slide} index={index} palette={palette}/>
-    {(slide.customImages||[]).map(image=>{const position=normalizeSlideElementPosition(image,defaultSlideElementPosition(layout,"image",slide),{image:true});const key=`image:${image.id}`;const organicRight=slide.visualType==="hero-image";const organicLeft=slide.visualType==="image-cards"||slide.visualType==="takeaway-grid";return <DraggableSlideElement key={image.id} position={position} image editing={editing} selected={selectedElement===key} label={image.name||"Slide image"} onSelect={()=>onSelectElement?.(key)} onChange={value=>onUpdateElementPosition?.(image.id,value,true)} onDelete={()=>onRemoveImage?.(image.id)}><img src={image.dataUrl} alt={image.name||"User-added slide visual"} draggable="false" style={{width:"100%",height:"100%",display:"block",objectFit:image.fit==="contain"?"contain":"cover",borderRadius:organicRight?"50% 0 0 50% / 18% 0 0 18%":organicLeft?"0 50% 50% 0 / 0 18% 18% 0":10,userSelect:"none",pointerEvents:"none",filter:"drop-shadow(0 12px 22px rgba(0,0,0,.3))"}}/></DraggableSlideElement>;})}
-    {(slide.eyebrow||deck.title)&&<DraggableSlideElement position={positionFor("eyebrow")} editing={editing} selected={selectedElement==="text:eyebrow"} label="Eyebrow" onSelect={()=>onSelectElement?.("text:eyebrow")} onChange={value=>updateTextPosition("eyebrow",value)}><div {...inlineProps("eyebrow")} className="slide-inline-copy" style={{fontSize:presenting?"clamp(12px,1.35vw,22px)":"clamp(8px,1.4vw,11px)",color:palette.accent,fontWeight:850,letterSpacing:"0.12em",textTransform:"uppercase",lineHeight:1.25,textShadow:fullBleed?"0 3px 18px rgba(0,0,0,.65)":"none"}}>{slide.eyebrow||deck.title}</div></DraggableSlideElement>}
-    <DraggableSlideElement position={positionFor("title")} editing={editing} selected={selectedElement==="text:title"} label="Title" onSelect={()=>onSelectElement?.("text:title")} onChange={value=>updateTextPosition("title",value)}><div {...inlineProps("title")} className="slide-inline-copy" style={{fontSize:presenting?`clamp(${minimumTitleSize}px,${titleSize/7*titleScale}vw,${titleSize*1.75*titleScale}px)`:`clamp(${minimumTitleSize}px,${titleSize/7.8*titleScale}vw,${titleSize*1.25*titleScale}px)`,lineHeight:1.08,fontWeight:900,letterSpacing:"-0.025em",overflowWrap:"anywhere",textShadow:fullBleed?"0 3px 22px rgba(0,0,0,0.58)":"none"}}>{slide.title}</div></DraggableSlideElement>
-    {(supportingText||(slide.bullets||[]).length>0)&&<DraggableSlideElement position={positionFor("supportingText")} editing={editing} selected={selectedElement==="text:supportingText"} label="Body content" onSelect={()=>onSelectElement?.("text:supportingText")} onChange={value=>updateTextPosition("supportingText",value)}><SlideBodyContent slide={slide} supportingText={supportingText} palette={palette} presenting={presenting} bodySize={bodySize} fullBleed={fullBleed} editing={editing} onUpdateSlideField={onUpdateSlideField} onUpdateSlideBullet={onUpdateSlideBullet}/></DraggableSlideElement>}
-    {cited.length>0&&<div style={{position:"absolute",right:"3%",bottom:"2.4%",zIndex:5,color:palette.muted,fontSize:"clamp(7px,.85vw,9px)",fontWeight:750}}>Sources {cited.join(", ")}</div>}
-    {editing&&<div aria-hidden="true" style={{position:"absolute",left:10,bottom:9,zIndex:7,padding:"5px 7px",borderRadius:7,background:"rgba(3,8,14,.78)",color:"#dceeff",fontSize:9,fontWeight:800,pointerEvents:"none",backdropFilter:"blur(8px)"}}>Click text to type · drag images · drop files here</div>}
-    {onFullscreen&&<button type="button" aria-label="Present slides in fullscreen" title="Present fullscreen" onClick={event=>{event.stopPropagation();onFullscreen();}} style={{position:"absolute",top:12,right:12,zIndex:8,width:44,height:44,borderRadius:11,border:"1px solid rgba(255,255,255,0.22)",background:"rgba(3,8,14,0.74)",color:"#fff",display:"grid",placeItems:"center",cursor:"pointer",backdropFilter:"blur(10px)"}}><GwmIcon name="expand" size={19}/></button>}
-  </div>;
-}
-
 function SlideGeneratorMode({user}){
-  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState("executive");const [background,setBackground]=useState("#07111d");
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState(DEFAULT_SLIDE_THEME.id);const [background,setBackground]=useState(DEFAULT_SLIDE_THEME.background);
   const [customTheme,setCustomTheme]=useState("");
   const [textColor,setTextColor]=useState("#f8fbff");
-  const [font,setFont]=useState("Cabinet Grotesk");const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");
+  const [font,setFont]=useState(DEFAULT_SLIDE_FONT);const [titleSize,setTitleSize]=useState(34);const [bodySize,setBodySize]=useState(18);const [slideCount,setSlideCount]=useState("8");const [illustration,setIllustration]=useState(null);const generationRef=useRef(0);
   const [slideHeadings,setSlideHeadings]=useState({});const [planningSlide,setPlanningSlide]=useState(0);
   const [deck,setDeck]=useState(null);const [selectedSlide,setSelectedSlide]=useState(0);const [loading,setLoading]=useState(false);const [generationStage,setGenerationStage]=useState("");const [error,setError]=useState("");
   const [presenting,setPresenting]=useState(false);const [imageExport,setImageExport]=useState(null);const [imageSelection,setImageSelection]=useState([]);const [exporting,setExporting]=useState("");const [exportNotice,setExportNotice]=useState("");const [editingDeck,setEditingDeck]=useState(false);
   const [selectedElement,setSelectedElement]=useState("");const [imageUploading,setImageUploading]=useState(false);const [aiImageLoading,setAiImageLoading]=useState(false);const [imageError,setImageError]=useState("");const [historyId,setHistoryId]=useState("");const slideImageInputRef=useRef(null);
-  const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=SLIDE_THEMES.find(x=>x.id===theme)||SLIDE_THEMES[0];const customThemeDescription=customTheme.trim();const themeName=theme==="custom"?(customThemeDescription?`Custom · ${customThemeDescription.slice(0,70)}`:"Custom Theme"):themeSystem.title;const themePrompt=theme==="custom"?(customThemeDescription||themeSystem.prompt):themeSystem.prompt;
+  const palette=slidePalette(background,theme,textColor);const textContrast=Math.min(slideContrast(textColor,palette.bg),slideContrast(textColor,palette.bg2));const currentSlide=deck?.slides?.[selectedSlide];const themeSystem=slideThemeById(theme);const customThemeDescription=customTheme.trim();const themeName=theme==="custom"?(customThemeDescription?`Custom · ${customThemeDescription.slice(0,70)}`:"Custom Theme"):themeSystem.title;const themePrompt=theme==="custom"?(customThemeDescription||themeSystem.prompt):themeSystem.prompt;
   const countResolution=resolveSlideCount(details,slideCount);const resolvedSlideCount=countResolution.count;const editorialBlueprint=buildEditorialBlueprint(topic,resolvedSlideCount);const previewPlan=editorialBlueprint[Math.min(planningSlide,editorialBlueprint.length-1)]||editorialBlueprint[0];const previewHeading=slideHeadings[planningSlide]||"";
   const previewDeck={title:topic.trim()||"Your presentation",subtitle:audience.trim()?`Designed for ${audience.trim()}`:"An illustrated editorial presentation",slides:[{eyebrow:`Slide ${planningSlide+1} · ${previewPlan?.label||"Preview"}`,title:previewHeading.trim()||(planningSlide===0?(topic.trim()||"A clear illustrated story"):(previewPlan?.label||"One clear idea")),supportingText:planningSlide===0?"A concise introduction that gives the audience context without crowding the slide.":previewPlan?.purpose||"One clear visual message.",bullets:previewPlan?.visualType==="icon-columns"?["First idea: the essential context","Second idea: the mechanism or evidence","Third idea: the useful result"]:previewPlan?.visualType==="process"?["Stage one","Stage two"]:[],visualType:previewPlan?.visualType||"hero-image",layout:previewPlan?.layout||"left-third",narrativeRole:previewPlan?.role||"hook",isHumorBeat:false,visualLabel:"",dataValue:previewPlan?.visualType==="equation"?"KEY PROOF":"",dataLabel:"",visualDirection:`A ${themeName.toLowerCase()} topic-specific editorial illustration composed around the chosen subject.`}]};
 
@@ -4647,27 +4138,51 @@ function SlideGeneratorMode({user}){
     },650);return()=>clearTimeout(timer);
   },[deck,historyId,user?.email,topic,themeName,background,theme,textColor,font,titleSize,bodySize]);
 
+  const illustrateDeck=async(startDeck,generation)=>{
+    const targets=startDeck.slides.map((slide,index)=>({slide,index})).filter(({slide})=>!slide.isSources&&slideNeedsIllustration(slide)&&!(slide.customImages||[]).length);
+    if(!targets.length){setIllustration(null);return;}
+    let done=0,failed=0;setIllustration({done,total:targets.length,failed,busy:true});
+    const queue=[...targets];
+    // Three renders at a time keeps the deck responsive while every image-led
+    // slide gets a topic-specific illustration instead of only the first few.
+    const worker=async()=>{
+      while(queue.length){
+        const {slide,index}=queue.shift();
+        if(generationRef.current!==generation)return;
+        try{
+          const image=await requestSlideIllustration(slide,index,{themeName,themePrompt,deckTitle:startDeck.title,palette});
+          if(generationRef.current!==generation)return;
+          setDeck(current=>current?{...current,slides:current.slides.map((item,itemIndex)=>itemIndex===index&&!(item.customImages||[]).length?{...item,customImages:[image]}:item)}:current);
+        }catch{failed+=1;}
+        done+=1;if(generationRef.current===generation)setIllustration({done,total:targets.length,failed,busy:done<targets.length});
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(3,targets.length)},worker));
+  };
+
   const generateSlides=async()=>{
     if(!topic.trim())return;
-    setLoading(true);setGenerationStage("Researching reliable sources");setError("");setDeck(null);setSelectedSlide(0);let stageTimer;
-    const system='You are an expert presentation researcher, editor, and art director. Research the topic before writing. Build a beautiful illustrated presentation, never a document divided into slides. Use the visual language of a premium educational magazine: confident large headings, generous dark or light negative space, a restrained accent color, precise alignment, organic-edged illustrations, clean outlined cards, simple line symbols, and varied but coherent editorial layouts. Each slide has one job. Titles use at most 12 words. supportingText uses at most 34 words. Use zero to three concise bullets; when a bullet is used in a card or column, format it as "Short label: useful explanation". Never repeat a title across slides. Do not use decorative abstractions as the main visual when a concrete topic-specific scene, object, process, place, or diagram would communicate better. visualDirection must describe an accurate concrete subject, illustration composition, viewpoint, palette, lighting, and text-safe negative space. For process slides, make bullets the named stages. For icon-columns, provide exactly three label-and-explanation bullets. For equation slides, place the equation, figure, quotation, or key proof in dataValue and its plain-language label in dataLabel. speakerNotes carry detail that does not belong on the canvas. Never invent a statistic, equation, quotation, or source. Every factual slide must list the exact source URLs it relies on in sourceUrls. Return a deduplicated sources library containing source title and exact URL. Choose visualType only from hero-image, image-cards, process, image-detail, icon-columns, equation, takeaway-grid. Choose layout only from left-third, right-third, top-third, full-bleed. Set isHumorBeat false on every slide. Return only the requested structured result.';
-    const prompt=`Research and generate exactly ${resolvedSlideCount} content slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themePrompt}. User-chosen background color: ${background}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required editorial storyboard exactly: ${editorialBlueprint.map((item,index)=>{const required=String(slideHeadings[index]||"").trim();return `${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; purpose=${item.purpose}; ${required?`requiredHeading=${JSON.stringify(required)}`:"choose a unique, topic-specific heading"}`;}).join(" ")} Any user-provided requiredHeading must be used exactly as that slide's title. Make every other heading distinct and specific to its content. Make every visualDirection ready for a consistent 16:9 editorial illustration and explain where editable text should remain clear. Keep sourceUrls exact and include every cited URL in the top-level sources array. A dedicated editable Sources card will be appended automatically, so do not count it among the ${resolvedSlideCount} content slides. Do not include markdown.`;
+    const generation=++generationRef.current;
+    setLoading(true);setGenerationStage("Researching reliable sources");setError("");setExportNotice("");setDeck(null);setSelectedSlide(0);setIllustration(null);let stageTimer;
+    const system='You are an expert presentation researcher, editor, and art director. Research the topic before writing. Build a beautiful illustrated presentation in the style of a premium editorial deck: one idea per slide, large confident headings, calm negative space, and concrete topic-specific visuals. The cover title is the deck title (at most 8 words) and its supportingText is a one-sentence subtitle of 12 to 24 words. Every other title has at most 7 words, is specific to its content, and is never repeated. supportingText is one or two sentences of at most 40 words. Bullets are cards: write every bullet as "Short label: explanation" where the label has 2 to 5 words and the explanation has 18 to 40 words of real substance. image-cards slides need exactly 2 bullets. icon-columns and takeaway-grid slides need exactly 3 bullets. process slides need 2 or 3 bullets whose labels name the stages in order. equation slides put the equation, key figure, or quotation in dataValue, its plain-language reading in dataLabel, a short card heading in visualLabel, and 2 or 3 bullets that break it down. hero-image and image-detail slides use 0 to 2 bullets. speakerNotes carry the detail that does not belong on the canvas, 60 to 120 words. visualDirection describes one concrete, topic-specific illustrated scene: the subject, setting, viewpoint, palette, lighting, and mood, with no words in the image. Never invent statistics, equations, quotations, or sources. Every factual slide lists the exact URLs it relies on in sourceUrls, and the top-level sources array lists each source once with its title and exact URL. Choose visualType only from hero-image, image-cards, process, image-detail, icon-columns, equation, takeaway-grid. Choose layout only from left-third, right-third, top-third, full-bleed. Set isHumorBeat false on every slide. Return only the requested structured result.';
+    const prompt=`Research and generate exactly ${resolvedSlideCount} content slides about: ${topic}. Audience: ${audience||"general audience"}. Theme: ${themeName} — ${themePrompt}. Details and must-include points: ${details||"none"}. The details field has priority over the selector, including its requested slide count. Follow this required editorial storyboard exactly: ${editorialBlueprint.map((item,index)=>{const required=String(slideHeadings[index]||"").trim();return `${index+1}. ${item.label}; narrativeRole=${item.role}; visualType=${item.visualType}; layout=${item.layout}; purpose=${item.purpose}; ${required?`requiredHeading=${JSON.stringify(required)}`:"choose a unique, topic-specific heading"}`;}).join(" ")} Any user-provided requiredHeading must be used exactly as that slide's title. Make every other heading distinct and specific to its content. Keep sourceUrls exact and include every cited URL in the top-level sources array. A dedicated editable Sources card will be appended automatically, so do not count it among the ${resolvedSlideCount} content slides. Do not include markdown.`;
     try{
       stageTimer=setInterval(()=>setGenerationStage(stage=>stage==="Researching reliable sources"?"Writing the slide-by-slide story":stage==="Writing the slide-by-slide story"?"Art-directing every card":"Polishing details and citations"),3000);
-      const studioResult=await callStudioAI(system,prompt,15000,[],user?.email,{mode:"slides",useSearch:true,searchDepth:6,returnMetadata:true});const result=parseStudioJson(studioResult.text);const normalized=normalizeEditorialDeck(result,editorialBlueprint);normalized.slides=normalized.slides.map((slide,index)=>String(slideHeadings[index]||"").trim()?{...slide,title:String(slideHeadings[index]).trim()}:slide);
-      if(normalized.slides.length!==resolvedSlideCount)throw new Error(`Ghosty created ${normalized.slides.length} of ${resolvedSlideCount} slides. Please generate again.`);
-      let completeDeck=withSourcesSlide(normalized,normalizeSlideSources(studioResult.sources,result.sources));
-      const illustrationTargets=completeDeck.slides.map((slide,index)=>({slide,index})).filter(({slide})=>!slide.isSources&&slideNeedsIllustration(slide)).slice(0,4);
-      if(illustrationTargets.length){
-        setGenerationStage(`Illustrating ${illustrationTargets.length} key slide${illustrationTargets.length===1?"":"s"}`);
-        const illustrations=await Promise.all(illustrationTargets.map(async({slide,index})=>{try{return {index,image:await requestSlideIllustration(slide,index,{themeName,themePrompt})};}catch{return {index,image:null};}}));
-        const illustrationMap=new Map(illustrations.filter(item=>item.image).map(item=>[item.index,item.image]));
-        completeDeck={...completeDeck,slides:completeDeck.slides.map((slide,index)=>illustrationMap.has(index)?{...slide,customImages:[illustrationMap.get(index)]}:slide)};
-      }
+      const studioResult=await callStudioAI(system,prompt,15000,[],user?.email,{mode:"slides",useSearch:true,searchDepth:6,returnMetadata:true});
+      if(generationRef.current!==generation)return;
+      const result=parseStudioJson(studioResult.text);const normalized=normalizeEditorialDeck(result,editorialBlueprint);
+      normalized.slides=normalized.slides.map((slide,index)=>String(slideHeadings[index]||"").trim()?{...slide,title:String(slideHeadings[index]).trim()}:slide);
+      if(!normalized.slides.length)throw new Error("Ghosty could not write any slides for this topic. Please generate again.");
+      const completeDeck=withSourcesSlide(normalized,normalizeSlideSources(studioResult.sources,result.sources));
+      clearInterval(stageTimer);setGenerationStage("");setLoading(false);
       setDeck(completeDeck);
-      if(user){const saved=HS.save(user.email,"slides",{title:completeDeck.title||("Slides: "+topic.slice(0,42)),input:`${resolvedSlideCount} slides + sources · ${themeName} · ${background}`,output:encodeSlideHistory(completeDeck,{theme,background,textColor,font,titleSize,bodySize})});setHistoryId(saved?.id||"");}
-    }catch(e){setError(e.message||"Something went wrong.");}finally{clearInterval(stageTimer);setGenerationStage("");setLoading(false);}
+      if(normalized.slides.length!==resolvedSlideCount)setExportNotice(`Ghosty wrote ${normalized.slides.length} of the ${resolvedSlideCount} requested slides. Edit the deck as it is, or generate again.`);
+      if(user){const saved=HS.save(user.email,"slides",{title:completeDeck.title||("Slides: "+topic.slice(0,42)),input:`${normalized.slides.length} slides + sources · ${themeName} · ${background}`,output:encodeSlideHistory(completeDeck,{theme,background,textColor,font,titleSize,bodySize})});setHistoryId(saved?.id||"");}
+      await illustrateDeck(completeDeck,generation);
+    }catch(e){if(generationRef.current===generation)setError(e.message||"Something went wrong.");}
+    finally{clearInterval(stageTimer);if(generationRef.current===generation){setGenerationStage("");setLoading(false);}}
   };
+  const retryIllustrations=()=>{if(deck&&!illustration?.busy)illustrateDeck(deck,generationRef.current);};
 
   const prepareSlideFont=async()=>{if(document.fonts?.load)await document.fonts.load(`700 32px ${slideFontStack(font)}`).catch(()=>{});};
   const openImageExport=type=>{if(!deck)return;setExportNotice("");setImageExport(type);setImageSelection([selectedSlide]);};
@@ -4687,14 +4202,6 @@ function SlideGeneratorMode({user}){
       const html=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title></head><body style="font-family:${escapeHtml(font)},Arial;color:#172535"><h1>${escapeHtml(deck.title)}</h1><p>${escapeHtml(deck.subtitle||"")}</p>${sections}</body></html>`;downloadBlob(new Blob([html],{type:"application/msword;charset=utf-8"}),"ghostwriterme-slide-deck.doc");setExportNotice("Word document downloaded with the edited slide visuals and speaker notes.");
     }catch(e){setError(e?.message||"The Word document could not be created.");}finally{setExporting("");}
   };
-
-  const exportPdfPrintFallback=()=>{
-    if(!deck)return;const win=window.open("","_blank","noopener,noreferrer");if(!win){alert("Allow pop-ups to export the PDF.");return;}
-    const slides=deck.slides.map((slide,i)=>`<section class="slide"><div class="content"><div class="eyebrow">${escapeHtml(slide.eyebrow||deck.title)}</div><h1>${escapeHtml(slide.title)}</h1><ul>${(slide.bullets||[]).map(x=>`<li>${escapeHtml(x)}</li>`).join("")}</ul></div>${slideArtworkHtml(theme,slide,i)}<div class="page">${i+1} / ${deck.slides.length}</div></section>`).join("");
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title><style>@page{size:landscape;margin:0}*{box-sizing:border-box}body{margin:0}.slide{width:100vw;height:100vh;page-break-after:always;padding:7vh 7vw;position:relative;overflow:hidden;background:linear-gradient(135deg,${palette.bg},${palette.bg2});color:${palette.text};font-family:${escapeHtml(font)},Arial,sans-serif}.content{position:relative;z-index:2;max-width:61%}.eyebrow{color:${palette.accent};font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:16px;margin-bottom:4vh}.slide h1{font-size:${titleSize*1.7}px;line-height:1.06;margin:0 0 5vh}.slide ul{font-size:${bodySize*1.32}px;line-height:1.55;color:${palette.muted};padding-left:1.3em}.slide li{margin:1.6vh 0}.page{position:absolute;right:7vw;bottom:5vh;color:${palette.muted};font-size:14px}.art{position:absolute;right:5vw;top:16vh;width:30vw;height:62vh;color:${palette.accent}}.art i,.art span{position:absolute;display:block}.executive-art{border:1px solid ${palette.accent}55;border-radius:16px;background:${palette.accent}12}.executive-art i{bottom:13%;width:12%;background:${palette.accent}88;border-radius:5px 5px 0 0}.executive-art i:nth-of-type(1){left:13%;height:29%}.executive-art i:nth-of-type(2){left:34%;height:55%}.executive-art i:nth-of-type(3){left:55%;height:39%}.executive-art i:nth-of-type(4){left:76%;height:70%;background:${palette.accent}}.art b{position:absolute;left:12%;top:12%;font-size:13px;letter-spacing:.1em;text-transform:uppercase}.art strong{position:absolute;right:10%;top:8%;font-size:76px;opacity:.18}.story-art i{inset:8% 13%;border:1px solid ${palette.accent}88;border-radius:15px;background:${palette.accent}20;transform:rotate(-6deg)}.story-art i+ i{transform:rotate(6deg);inset:17% 5% 2% 20%;background:rgba(255,255,255,.08)}.story-art b,.class-art b{top:45%;left:26%;right:12%;padding:18px;background:${palette.accent}16;border-left:4px solid ${palette.accent};line-height:1.35}.class-art{border:2px solid ${palette.accent}66;border-radius:18% 12% 16% 10%;transform:rotate(2deg)}.class-art span{width:13px;height:13px;border-radius:50%;background:${palette.accent};top:9%}.class-art span:nth-of-type(1){right:14%}.class-art span:nth-of-type(2){right:30%;top:17%;opacity:.7}.class-art span:nth-of-type(3){right:46%;top:25%;opacity:.45}.pitch-art i{inset:3%;border:1px solid ${palette.accent}88;border-radius:50%}.pitch-art i+i{inset:23%;opacity:.6}.pitch-art strong{inset:0;display:flex;align-items:center;justify-content:center;font-size:136px}.pitch-art b{top:auto;left:21%;right:21%;bottom:5%;text-align:center;background:${palette.accent};color:${palette.dark?"#130817":"#ffffff"};border-radius:999px;padding:9px 12px}@media print{.slide{break-after:page}}</style></head><body>${slides}<script>setTimeout(()=>window.print(),500)</script></body></html>`);win.document.close();
-    if(GOOGLE_SLIDE_FONTS.has(font)){const link=win.document.createElement("link");link.rel="stylesheet";link.href=`https://fonts.googleapis.com/css2?family=${encodeURIComponent(font).replace(/%20/g,"+")}:wght@400;500;600;700;800;900&display=swap`;win.document.head.appendChild(link);}
-  };
-  void exportPdfPrintFallback;
 
   const exportPdf=async()=>{
     if(!deck)return;setExporting("pdf");setError("");setExportNotice("");
@@ -4732,12 +4239,12 @@ function SlideGeneratorMode({user}){
   const addSlideImages=event=>{const files=[...(event.target.files||[])];event.target.value="";addSlideFiles(files);};
   const generateSlideVisual=async()=>{
     if(!currentSlide||currentSlide.isSources||aiImageLoading)return;setAiImageLoading(true);setImageError("");
-    try{const image=await requestSlideIllustration(currentSlide,selectedSlide,{themeName,themePrompt});setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index===selectedSlide?{...slide,customImages:[...(slide.customImages||[]).slice(0,4),image]}:slide)}));setSelectedElement(`image:${image.id}`);
+    try{const image=await requestSlideIllustration(currentSlide,selectedSlide,{themeName,themePrompt,deckTitle:deck?.title||"",palette});setDeck(current=>({...current,slides:current.slides.map((slide,index)=>index===selectedSlide?{...slide,customImages:[...(slide.customImages||[]).slice(0,4),image]}:slide)}));setSelectedElement(`image:${image.id}`);
     }catch(e){setImageError(e?.message||"The AI visual could not be created. You can still upload an image.");}finally{setAiImageLoading(false);}
   };
   const selectedImageId=selectedElement.startsWith("image:")?selectedElement.slice(6):"";const selectedTextKey=selectedElement.startsWith("text:")?selectedElement.slice(5):"";const selectedImage=(currentSlide?.customImages||[]).find(image=>image.id===selectedImageId);const selectedGeometry=selectedImage?normalizeSlideElementPosition(selectedImage,defaultSlideElementPosition(currentSlide?.layout||"left-third","image",currentSlide),{image:true}):selectedTextKey?normalizeSlideElementPosition(currentSlide?.elementPositions?.[selectedTextKey],defaultSlideElementPosition(currentSlide?.layout||"left-third",selectedTextKey,currentSlide)):null;
   const updateSelectedGeometry=(field,value)=>{if(!selectedGeometry)return;const next=normalizeSlideElementPosition({...selectedGeometry,[field]:Number(value)},selectedGeometry,{image:!!selectedImage});updateSlideElementPosition(selectedImage?.id||selectedTextKey,next,!!selectedImage);};
-  const reset=()=>{setDeck(null);setTopic("");setDetails("");setAudience("");setCustomTheme("");setSlideHeadings({});setPlanningSlide(0);setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);setSelectedElement("");setImageError("");setAiImageLoading(false);setGenerationStage("");setHistoryId("");};
+  const reset=()=>{generationRef.current+=1;setIllustration(null);setDeck(null);setTopic("");setDetails("");setAudience("");setCustomTheme("");setSlideHeadings({});setPlanningSlide(0);setSelectedSlide(0);setError("");setExportNotice("");setImageExport(null);setPresenting(false);setEditingDeck(false);setSelectedElement("");setImageError("");setAiImageLoading(false);setGenerationStage("");setHistoryId("");};
 
   return(
     <div>
@@ -4748,7 +4255,7 @@ function SlideGeneratorMode({user}){
         <div className="studio-grid-2" style={{marginBottom:12}}><FInput label="Audience (optional)" placeholder="e.g. investors, classmates" value={audience} onChange={e=>setAudience(e.target.value)} icoL="audience"/><FNumber label="Number of Slides" value={slideCount} onChange={setSlideCount} min={1} max={30} fallback={8} suffix="slides" hint="Type any number from 1 to 30."/></div>
         <FArea label="Details (optional)" placeholder="Facts, sections, data, call to action, or anything the deck must include..." value={details} onChange={e=>setDetails(e.target.value)} rows={3}/>
         {countResolution.overridden&&<div role="status" style={{margin:"-3px 0 13px",padding:"9px 11px",borderRadius:9,background:C.accentSoft,border:`1px solid ${C.blue}55`,color:C.blueText,fontSize:12,lineHeight:1.5,display:"flex",gap:7,alignItems:"flex-start"}}><GwmIcon name="info" size={15} style={{marginTop:1}}/><span>Your details request <strong>{resolvedSlideCount} slides</strong>, so that instruction overrides the number selector.</span></div>}
-        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>setTheme(x.id)} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
+        <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Theme</div><div className="studio-option-grid">{SLIDE_THEMES.map(x=><StudioChoice key={x.id} active={theme===x.id} onClick={()=>{setTheme(x.id);if(x.background)setBackground(x.background);}} icon={x.icon} title={x.title} description={x.desc}/>)}</div></div>
         {theme==="custom"&&<FArea label="Describe Your Custom Theme" placeholder="e.g. Quiet Japanese editorial style, indigo and cream, ink-wash landscapes, asymmetrical layouts, generous empty space..." value={customTheme} onChange={event=>setCustomTheme(event.target.value)} rows={3} hint="Describe the mood, imagery, era, palette, texture, and composition. Ghosty will repeat this visual language across the full deck."/>}
         <Card style={{marginBottom:13,padding:13,border:`1px solid ${C.blue}66`,boxShadow:`0 0 0 2px ${C.blueGlow}`}}>
           <div style={{display:"flex",alignItems:"flex-start",gap:9,marginBottom:11}}><span style={{width:36,height:36,borderRadius:10,display:"grid",placeItems:"center",background:C.accentSoft,color:C.blueText,flexShrink:0}}><GwmIcon name="slides" size={19}/></span><div><div style={{fontSize:13,fontWeight:900,color:C.blueText}}>Slide colors</div><div style={{fontSize:12,color:C.muted,lineHeight:1.5,marginTop:2}}>Tap either large color square to open the full color wheel.</div></div></div>
@@ -4771,7 +4278,7 @@ function SlideGeneratorMode({user}){
       </>}
 
       {deck&&currentSlide&&<div style={{animation:"fadeUp 0.3s ease"}}>
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:11,flexWrap:"wrap"}}><div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:900,color:C.text}}>{deck.title}</div>{deck.subtitle&&<div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{deck.subtitle}</div>}</div><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}><PlanBadge plan="pro"/><button type="button" onClick={()=>{const index=deck.slides.findIndex(slide=>slide.isSources);if(index>=0)setSelectedSlide(index);setEditingDeck(true);}} style={{minHeight:44,padding:"8px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}><GwmIcon name="sources" size={15}/>{(deck.sources||[]).length} sources</button><button type="button" aria-pressed={editingDeck} onClick={()=>setEditingDeck(value=>!value)} style={{minHeight:44,padding:"8px 11px",borderRadius:9,border:`1px solid ${editingDeck?C.blue:C.border}`,background:editingDeck?C.accentSoft:C.surface,color:editingDeck?C.blueText:C.muted,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}><GwmIcon name={editingDeck?"check":"edit"} size={15}/>{editingDeck?"Done editing":"Edit deck"}</button></div></div>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:11,flexWrap:"wrap"}}><div style={{minWidth:0,flex:1}}><div style={{fontSize:17,fontWeight:900,color:C.text}}>{deck.title}</div>{deck.subtitle&&<div style={{fontSize:12.5,color:C.muted,lineHeight:1.5,marginTop:3}}>{deck.subtitle}</div>}</div><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{illustration&&<span role="status" style={{display:"inline-flex",alignItems:"center",gap:6,minHeight:32,padding:"5px 10px",borderRadius:999,border:`1px solid ${illustration.busy?C.blue+"66":illustration.failed?C.yellow+"66":C.green+"55"}`,background:C.surface,color:illustration.busy?C.blueText:illustration.failed?C.yellowText:C.greenText,fontSize:11,fontWeight:850}}>{illustration.busy?<Spin size={12} color={C.blue}/>:<GwmIcon name={illustration.failed?"info":"check"} size={13}/>}{illustration.busy?`Illustrating ${illustration.done}/${illustration.total}`:illustration.failed?`${illustration.total-illustration.failed}/${illustration.total} visuals ready`:`${illustration.total} visuals ready`}{!illustration.busy&&illustration.failed>0&&<button type="button" onClick={retryIllustrations} style={{border:0,background:"transparent",color:C.blueText,fontFamily:"inherit",fontWeight:900,fontSize:11,cursor:"pointer",padding:0}}>Retry</button>}</span>}<PlanBadge plan="pro"/><button type="button" onClick={()=>{const index=deck.slides.findIndex(slide=>slide.isSources);if(index>=0)setSelectedSlide(index);setEditingDeck(true);}} style={{minHeight:44,padding:"8px 11px",borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.muted,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}><GwmIcon name="sources" size={15}/>{(deck.sources||[]).length} sources</button><button type="button" aria-pressed={editingDeck} onClick={()=>setEditingDeck(value=>!value)} style={{minHeight:44,padding:"8px 11px",borderRadius:9,border:`1px solid ${editingDeck?C.blue:C.border}`,background:editingDeck?C.accentSoft:C.surface,color:editingDeck?C.blueText:C.muted,fontFamily:"inherit",fontSize:12,fontWeight:850,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6}}><GwmIcon name={editingDeck?"check":"edit"} size={15}/>{editingDeck?"Done editing":"Edit deck"}</button></div></div>
         <div className="studio-deck-workspace" style={{marginBottom:12}}><div className="studio-deck-rail" role="tablist" aria-label="Deck slides">{deck.slides.map((slide,i)=><button className="studio-deck-thumb" key={i} type="button" role="tab" aria-selected={selectedSlide===i} aria-label={`Open ${slide.isSources?"sources":`slide ${i+1}`}: ${slide.title}`} aria-current={selectedSlide===i?"true":undefined} onClick={()=>setSelectedSlide(i)} style={{borderRadius:7,border:`1px solid ${selectedSlide===i?C.blue:C.border}`,background:palette.preview,color:palette.text,cursor:"pointer",padding:"7px",fontFamily:slideFontStack(font),fontSize:9,fontWeight:800,textAlign:"left",overflow:"hidden",boxShadow:selectedSlide===i?`0 0 0 2px ${C.blueGlow}`:"none",transition:"border-color 0.2s,box-shadow 0.2s"}}><span style={{opacity:0.75,display:"flex",alignItems:"center",gap:4,fontSize:8,marginBottom:3,color:palette.accent}}>{slide.isSources?<><GwmIcon name="sources" size={10}/>Sources</>:String(i+1).padStart(2,"0")}</span>{slide.title}</button>)}</div><div style={{minWidth:0}}><SlideFrame deck={deck} slide={currentSlide} index={selectedSlide} theme={theme} palette={palette} font={font} titleSize={titleSize} bodySize={bodySize} onFullscreen={openPresentation} editing={editingDeck} selectedElement={selectedElement} onSelectElement={setSelectedElement} onUpdateElementPosition={updateSlideElementPosition} onRemoveImage={removeSlideImage} onUpdateSlideField={updateSlideField} onUpdateSlideBullet={updateSlideBullet} onAddImages={addSlideFiles}/></div></div>
         {editingDeck&&<Card style={{marginBottom:10,padding:13,border:`1px solid ${C.blue}55`}}>
           <div style={{fontSize:11,color:C.blueText,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:850,marginBottom:10}}>Edit deck and current slide</div>
@@ -4950,7 +4457,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
       case"presentation":return <PresentationMode user={user}/>;
       case"interview":return <InterviewMode user={user}/>;
       case"slides":return <SlideGeneratorMode user={user}/>;
-      case"meeting":return <MeetingAssistMode user={user}/>;
+      case"meeting":return <MeetingAssistMode user={user} request={callStudioAI} save={entry=>HS.save(user?.email,"meeting",entry)} parseJson={parseStudioJson} ensureAI={assertAIAvailable} ui={{Card,FArea,PriBtn,ErrBox,IconLabel}}/>;
       case"academic":return <AcademicMode user={user}/>;
       case"cv":return <CVMode user={user}/>;
       case"portfolio":return <PortfolioMode user={user}/>;

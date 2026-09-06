@@ -132,6 +132,10 @@ describe("Studio AI API route",()=>{
     const payload=JSON.parse(options.body);
     expect(payload.model).toBe("claude-haiku-4-5-20251001");
     expect(payload.max_tokens).toBe(240);
+    const schema=payload.output_config.format.schema;
+    expect(schema.required).toEqual(["lines","needsReply","heard","options"]);
+    expect(schema.properties.lines.items.properties.speaker.enum).toEqual(["other","you","unclear"]);
+    expect(payload.tools).toBeUndefined();
   });
 
   test("constrains Study and Slide results to valid JSON schemas",async()=>{
