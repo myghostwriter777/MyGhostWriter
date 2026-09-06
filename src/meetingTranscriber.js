@@ -1,4 +1,4 @@
-import { resampleFloat32, wavDataUrl } from "./meetingAudio";
+import { normalizePeak, resampleFloat32, wavDataUrl } from "./meetingAudio";
 
 export class MeetingTranscriptionError extends Error{
   constructor(message,{code="transcription_failed",retryable=false,retryAfter=0,status=0}={}){
@@ -10,11 +10,16 @@ export class MeetingTranscriptionError extends Error{
 // failing for this session, so the on-device model should take over.
 export const TERMINAL_SERVER_CODES=new Set(["gateway_auth","gateway_credits","gateway_forbidden","model_unavailable"]);
 
-export async function transcribeOnServer(samples16k,{fetchImpl=typeof fetch==="function"?fetch:null,signal,language}={}){
+const LANGUAGE_CODE=/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/;
+
+export async function transcribeOnServer(samples16k,{fetchImpl=typeof fetch==="function"?fetch:null,signal,language,prompt}={}){
   if(!fetchImpl)throw new MeetingTranscriptionError("Network transcription is unavailable in this browser.",{code:"no_fetch",retryable:false});
+  const body={audio:wavDataUrl(samples16k,16000)};
+  if(typeof language==="string"&&LANGUAGE_CODE.test(language.trim()))body.language=language.trim();
+  if(typeof prompt==="string"&&prompt.trim())body.prompt=prompt.trim().slice(0,400);
   let response;
   try{
-    response=await fetchImpl("/api/transcribe",{method:"POST",headers:{"Content-Type":"application/json"},signal,body:JSON.stringify({audio:wavDataUrl(samples16k,16000),language:language||undefined})});
+    response=await fetchImpl("/api/transcribe",{method:"POST",headers:{"Content-Type":"application/json"},signal,body:JSON.stringify(body)});
   }catch(error){
     if(error?.name==="AbortError")throw error;
     throw new MeetingTranscriptionError("The transcription service could not be reached.",{code:"network",retryable:true,retryAfter:4});
@@ -58,15 +63,15 @@ export function createMeetingTranscriber({server,local,prepareLocal,onModeChange
 
   return{
     get mode(){return mode;},
-    async transcribe(samples,{sampleRate=16000,signal}={}){
-      const samples16k=resampleFloat32(samples,sampleRate,16000);
+    async transcribe(samples,{sampleRate=16000,signal,language,prompt}={}){
+      const samples16k=normalizePeak(resampleFloat32(samples,sampleRate,16000));
       if(mode==="local")return transcribeLocally(samples16k);
       if(retryNotBefore&&now()<retryNotBefore){
         const error=new MeetingTranscriptionError("Transcription is cooling down after a rate limit.",{code:"cooldown",retryable:true,retryAfter:Math.ceil((retryNotBefore-now())/1000)});
         error.skipped=true;throw error;
       }
       try{
-        const text=await server(samples16k,{signal});
+        const text=await server(samples16k,{signal,language,prompt});
         networkFailures=0;retryNotBefore=0;
         return text;
       }catch(error){

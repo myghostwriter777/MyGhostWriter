@@ -8,7 +8,9 @@ export const config = {
 // cost-efficient default for meeting/call transcription.
 const TRANSCRIPTION_MODEL = "openai/gpt-4o-mini-transcribe";
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
+const MAX_PROMPT_CHARS = 400;
 const AUDIO_DATA_URL = /^data:(audio\/(?:webm|ogg|mp4|mpeg|wav|x-m4a))(?:;[^,]*)?;base64,([A-Za-z0-9+/=\r\n]+)$/i;
+const LANGUAGE_CODE = /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/;
 let gatewayModulesPromise;
 
 function loadGatewayModules() {
@@ -18,6 +20,19 @@ function loadGatewayModules() {
     gatewayModulesPromise = Promise.all([import("ai"), import("@ai-sdk/gateway"), import("@vercel/oidc")]);
   }
   return gatewayModulesPromise;
+}
+
+// Optional hints from the client: the spoken language (stops two-second
+// segments being mis-detected as another language) and a short vocabulary
+// prompt (names spelled the way the user wrote them). Both are validated here
+// and passed through as OpenAI provider options.
+export function buildTranscriptionProviderOptions(body) {
+  const options = {};
+  const language = typeof body?.language === "string" ? body.language.trim() : "";
+  if (language && LANGUAGE_CODE.test(language)) options.language = language.split("-")[0].toLowerCase();
+  const prompt = typeof body?.prompt === "string" ? body.prompt.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim() : "";
+  if (prompt) options.prompt = prompt.slice(0, MAX_PROMPT_CHARS);
+  return Object.keys(options).length ? { openai: options } : null;
 }
 
 function classifyProviderError(error, GatewayError) {
@@ -68,8 +83,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "The audio segment is empty or too large.", code: "invalid_audio_size", retryable: false });
   }
 
+  let GatewayError = { isInstance: () => false };
   try {
-    const [{ transcribe }, { createGateway, gateway, GatewayError }, { getVercelOidcToken }] = await loadGatewayModules();
+    const [{ transcribe }, gatewayModule, { getVercelOidcToken }] = await loadGatewayModules();
+    const { createGateway, gateway } = gatewayModule;
+    GatewayError = gatewayModule.GatewayError || GatewayError;
     // A manually configured AI_GATEWAY_API_KEY always takes precedence in the
     // SDK, even when it is restricted or invalid. Production Vercel Functions
     // receive a short-lived OIDC token, so select it explicitly for this route.
@@ -81,15 +99,28 @@ export default async function handler(req, res) {
       try { oidcToken = await getVercelOidcToken(); } catch {}
     }
     const transcriptionGateway = oidcToken ? createGateway({ apiKey: oidcToken }) : gateway;
-    const result = await transcribe({
+    const audio = Buffer.from(base64, "base64");
+    const providerOptions = buildTranscriptionProviderOptions(body);
+    const run = options => transcribe({
       model: transcriptionGateway.transcriptionModel(TRANSCRIPTION_MODEL),
-      audio: Buffer.from(base64, "base64"),
+      audio,
       maxRetries: 0,
+      ...(options ? { providerOptions: options } : {}),
     });
+    let result;
+    try {
+      result = await run(providerOptions);
+    } catch (error) {
+      // If the provider rejects the hints themselves, the audio is still fine:
+      // transcribe it once more without them rather than dropping the segment.
+      const status = Number(GatewayError.isInstance(error) ? error.statusCode : error?.statusCode || error?.cause?.statusCode) || 0;
+      const invalid = status === 400 || error?.type === "invalid_request_error";
+      if (!providerOptions || !invalid) throw error;
+      console.warn("Meeting transcription hints rejected; retrying without them", { providerMessage: typeof error?.message === "string" ? error.message.slice(0, 200) : undefined });
+      result = await run(null);
+    }
     return res.status(200).json({ text: String(result?.text || "").trim() });
   } catch (error) {
-    let GatewayError = { isInstance: () => false };
-    try { ({ GatewayError } = await import("@ai-sdk/gateway")); } catch {}
     const failure = classifyProviderError(error, GatewayError);
     console.error("Meeting transcription provider error", {
       code: failure.code,

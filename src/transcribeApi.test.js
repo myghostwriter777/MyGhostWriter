@@ -11,7 +11,7 @@ jest.mock("@ai-sdk/gateway", () => ({
 }));
 jest.mock("@vercel/oidc", () => ({ getVercelOidcToken: (...args) => mockGetVercelOidcToken(...args) }));
 
-import handler from "../api/transcribe";
+import handler, { buildTranscriptionProviderOptions } from "../api/transcribe";
 
 function mockResponse(){
   const res={statusCode:200,body:null};
@@ -21,18 +21,19 @@ function mockResponse(){
 }
 
 describe("meeting transcription API",()=>{
-  let consoleError;
+  let consoleError;let consoleWarn;
   beforeEach(()=>{
     mockTranscription.mockImplementation(model=>({modelId:model}));
     mockCreateGateway.mockImplementation(()=>({transcriptionModel:(...args)=>mockTranscription(...args)}));
     mockGetVercelOidcToken.mockResolvedValue("");
     consoleError=jest.spyOn(console,"error").mockImplementation(()=>{});
+    consoleWarn=jest.spyOn(console,"warn").mockImplementation(()=>{});
   });
-  afterEach(()=>{consoleError.mockRestore();jest.clearAllMocks();});
+  afterEach(()=>{consoleError.mockRestore();consoleWarn.mockRestore();jest.clearAllMocks();});
 
   test("sends a bounded WebM segment through Vercel AI Gateway",async()=>{
     mockTranscribe.mockResolvedValue({text:"Could you send the updated timeline?"});
-    const req={method:"POST",body:{audio:"data:audio/webm;codecs=opus;base64,aGVsbG8=",language:"en"}};
+    const req={method:"POST",body:{audio:"data:audio/webm;codecs=opus;base64,aGVsbG8="}};
     const res=mockResponse();
 
     await handler(req,res);
@@ -44,6 +45,36 @@ describe("meeting transcription API",()=>{
     expect(request.model).toEqual({modelId:"openai/gpt-4o-mini-transcribe"});
     expect(Array.from(request.audio)).toEqual([104,101,108,108,111]);
     expect(request.maxRetries).toBe(0);
+    expect(request).not.toHaveProperty("providerOptions");
+  });
+
+  test("passes validated language and vocabulary hints to the provider",async()=>{
+    mockTranscribe.mockResolvedValue({text:"Tell me about Acme."});
+    const res=mockResponse();
+    await handler({method:"POST",body:{audio:"data:audio/wav;base64,aGVsbG8=",language:"en-US",prompt:"Job interview.  Names: Acme.  "}},res);
+    expect(res.statusCode).toBe(200);
+    expect(mockTranscribe.mock.calls[0][0].providerOptions).toEqual({openai:{language:"en",prompt:"Job interview. Names: Acme."}});
+    expect(buildTranscriptionProviderOptions({language:"nonsense words",prompt:""})).toBeNull();
+    expect(buildTranscriptionProviderOptions({prompt:"x".repeat(1000)}).openai.prompt).toHaveLength(400);
+  });
+
+  test("retries once without hints when the provider rejects them",async()=>{
+    mockTranscribe.mockRejectedValueOnce({gatewayError:true,statusCode:400,type:"invalid_request_error"}).mockResolvedValue({text:"Recovered without hints"});
+    const res=mockResponse();
+    await handler({method:"POST",body:{audio:"data:audio/wav;base64,aGVsbG8=",language:"en"}},res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.text).toBe("Recovered without hints");
+    expect(mockTranscribe).toHaveBeenCalledTimes(2);
+    expect(mockTranscribe.mock.calls[1][0]).not.toHaveProperty("providerOptions");
+  });
+
+  test("does not retry a rejected segment that carried no hints",async()=>{
+    mockTranscribe.mockRejectedValue({gatewayError:true,statusCode:400,type:"invalid_request_error"});
+    const res=mockResponse();
+    await handler({method:"POST",body:{audio:"data:audio/wav;base64,aGVsbG8="}},res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual(expect.objectContaining({code:"audio_rejected",retryable:false}));
+    expect(mockTranscribe).toHaveBeenCalledTimes(1);
   });
 
   test("returns a terminal, truthful error when Gateway credits are unavailable",async()=>{

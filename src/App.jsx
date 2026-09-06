@@ -1186,7 +1186,7 @@ const TAROT_TOOLS=[
   {id:"presentation",name:"Presentation",tier:"Pro",  desc:"Builds timed group scripts, smooth handoffs, and helpful feedback for a friend's draft."},
   {id:"interview",name:"Interview Coach",tier:"Pro",  desc:"Turns your CV and job requirements into a tailored, spoken practice interview."},
   {id:"slides",  name:"Slide Generator",tier:"Pro",   desc:"Creates a designed slide story with live previews and flexible export formats."},
-  {id:"meeting", name:"Meeting Assist",tier:"Master", comingSoon:true,desc:"Listens only to shared meeting audio and prepares concise, useful reply suggestions."},
+  {id:"meeting", name:"Meeting Assist",tier:"Master", comingSoon:true,desc:"Listens to the interviewer or meeting, waits for them to finish, and prepares three answers you can say next."},
   {id:"academic",name:"Academic",     tier:"Master", desc:"Provides feedback on your writing and offers research guidance."},
   {id:"portfolio",name:"Portfolio", tier:"Pro", desc:"Creates university application portfolios from your details and photos, or reviews a PDF with scores and follow-up coaching."},
   {id:"cv",      name:"CV / Resume",  tier:"Pro",     desc:"Builds a professional, recruiter-ready CV or resume with ease."},

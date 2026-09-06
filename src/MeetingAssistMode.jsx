@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import GwmIcon from "./GwmIcon";
 import { buildRemoteMeetingAudioStream, cleanMeetingTranscriptSegment, detectMeetingCaptureProfile, isBrowserTabMeetingShare, isUsefulMeetingTranscript, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
-import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, voiceSimilarity } from "./meetingAudio";
+import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, isLikelySpeech, isVoiceChange, resampleFloat32, voiceSimilarity } from "./meetingAudio";
 import { createMeetingTranscriber, transcribeOnServer } from "./meetingTranscriber";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
-import { buildMeetingPrompt, meetingSessionAsText, MEETING_SITUATIONS, MEETING_VOICE_PROFILE_KEY, meetingSituation, normalizeMeetingReply, speakerLabel } from "./meetingAssist";
+import { buildMeetingPrompt, buildTranscriptionHint, MEETING_LANGUAGE_KEY, MEETING_LANGUAGES, meetingSessionAsText, MEETING_SITUATIONS, MEETING_VOICE_PROFILE_KEY, meetingSituation, mergeUtteranceText, normalizeMeetingReply, speakerLabel } from "./meetingAssist";
 
 const C={
   text:"var(--gwm-text)",muted:"var(--gwm-muted)",border:"var(--gwm-border)",surface:"var(--gwm-surface)",card:"var(--gwm-card)",
@@ -17,14 +17,27 @@ const C={
 const VOICE_SAMPLE_SECONDS=6;
 const VOICE_SAMPLE_LINE="Thanks for having me today. I'm looking forward to talking about this role and how my experience fits the team.";
 const LEVEL_BARS=14;
+// How long the other person has to stay quiet before their turn counts as
+// finished and answers are prepared. Chunks are transcribed during the turn.
+const TURN_END_SILENCE_MS=2000;
+const TRANSCRIBE_CONCURRENCY=2;
+const ATTRIBUTION_WATCHDOG_MS=75000;
+const ATTRIBUTION_RETRY_DELAY_MS=2500;
+const MICROPHONE_CONSTRAINTS={audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true,channelCount:1},video:false};
 
 const loadVoiceProfile=email=>{try{const raw=localStorage.getItem(MEETING_VOICE_PROFILE_KEY(email));const parsed=raw?JSON.parse(raw):null;return parsed?.pitchHz?parsed:null;}catch{return null;}};
 const storeVoiceProfile=(email,profile)=>{try{if(profile)localStorage.setItem(MEETING_VOICE_PROFILE_KEY(email),JSON.stringify(profile));else localStorage.removeItem(MEETING_VOICE_PROFILE_KEY(email));}catch{}};
+const loadLanguage=email=>{try{const value=localStorage.getItem(MEETING_LANGUAGE_KEY(email))||"";return MEETING_LANGUAGES.some(item=>item.value===value)?value:"";}catch{return"";}};
+const storeLanguage=(email,value)=>{try{if(value)localStorage.setItem(MEETING_LANGUAGE_KEY(email),value);else localStorage.removeItem(MEETING_LANGUAGE_KEY(email));}catch{}};
 
 const stopStream=stream=>{try{stream?.getTracks?.().forEach(track=>track.stop());}catch{}};
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const average=values=>{const list=values.filter(value=>value!=null&&Number.isFinite(value));return list.length?Math.round(list.reduce((sum,value)=>sum+value,0)/list.length*100)/100:null;};
 
 // Web Audio capture shared by live sessions and the voice sample: one graph
-// from the stream into a script processor whose PCM frames are copied out.
+// from the stream through a high-pass (drops rumble, handling noise and mains
+// hum that otherwise inflate the level and trigger the detector) and a gentle
+// low-pass into a script processor whose PCM frames are copied out.
 // ScriptProcessorNode is deprecated but still ships everywhere, including
 // Android WebViews, and needs no separately hosted worklet module.
 async function openAudioGraph(stream){
@@ -33,17 +46,28 @@ async function openAudioGraph(stream){
   const context=new Context();
   try{await context.resume();}catch{}
   const source=context.createMediaStreamSource(stream);
+  const nodes=[source];
+  const filter=(type,frequency)=>{try{const node=context.createBiquadFilter();node.type=type;node.frequency.value=frequency;node.Q.value=0.707;nodes.push(node);}catch{}};
+  filter("highpass",85);filter("lowpass",7600);
   const processor=context.createScriptProcessor(4096,1,1);
   const sink=context.createGain();sink.gain.value=0;
+  let closed=false;
+  // Mobile browsers can suspend a context when the app is backgrounded during
+  // a long pause; wake it again instead of silently hearing nothing.
+  const onStateChange=()=>{if(!closed&&context.state==="suspended")context.resume().catch(()=>{});};
+  try{context.addEventListener("statechange",onStateChange);}catch{}
   return {
     sampleRate:context.sampleRate,
     start(onFrame){
       processor.onaudioprocess=event=>{const input=event.inputBuffer.getChannelData(0);onFrame(new Float32Array(input),context.sampleRate);};
-      source.connect(processor);processor.connect(sink);sink.connect(context.destination);
+      for(let index=0;index+1<nodes.length;index+=1)nodes[index].connect(nodes[index+1]);
+      nodes[nodes.length-1].connect(processor);processor.connect(sink);sink.connect(context.destination);
     },
     close(){
+      closed=true;
+      try{context.removeEventListener("statechange",onStateChange);}catch{}
       try{processor.onaudioprocess=null;processor.disconnect();}catch{}
-      try{source.disconnect();sink.disconnect();}catch{}
+      try{nodes.forEach(node=>node.disconnect());sink.disconnect();}catch{}
       try{context.close();}catch{}
     },
   };
@@ -68,16 +92,19 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const email=user?.email||"guest";
   const [situation,setSituation]=useState("interview");
   const [source,setSource]=useState("microphone");
+  const [language,setLanguage]=useState(()=>loadLanguage(email));
   const [context,setContext]=useState("");
   const [consent,setConsent]=useState(false);
   const [active,setActive]=useState(false);
   const [paused,setPaused]=useState(false);
   const [starting,setStarting]=useState(false);
   const [level,setLevel]=useState(0);
-  const [processingCount,setProcessingCount]=useState(0);
+  const [phase,setPhase]=useState("idle");
+  const [transcribing,setTranscribing]=useState(0);
   const [thinking,setThinking]=useState(false);
   const [lines,setLines]=useState([]);
   const [answer,setAnswer]=useState(null);
+  const [answerNote,setAnswerNote]=useState("");
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
   const [engine,setEngine]=useState("server");
@@ -93,17 +120,22 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const sourceRef=useRef("microphone");
   const situationRef=useRef("interview");
   const contextRef=useRef("");
+  const languageRef=useRef(language);
   const sessionRef=useRef(0);
   const graphRef=useRef(null);
   const streamRef=useRef(null);
   const segmenterRef=useRef(null);
   const transcriberRef=useRef(null);
-  const queueRef=useRef(Promise.resolve());
+  const utterancesRef=useRef(new Map());
+  const inFlightRef=useRef(0);
+  const waitingRef=useRef([]);
   const linesRef=useRef([]);
   const lineIdRef=useRef(0);
   const attributionBusyRef=useRef(false);
+  const attributionStartedRef=useRef(0);
   const attributionDirtyRef=useRef(false);
   const levelTickRef=useRef(0);
+  const phaseRef=useRef("idle");
   const voiceProfileRef=useRef(voiceProfile);
   const overlayWindowRef=useRef(null);
   const sampleRef=useRef(null);
@@ -115,9 +147,10 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const canStart=consent&&(source==="tab"?canShareTab:canUseMicrophone);
 
   useEffect(()=>{voiceProfileRef.current=voiceProfile;},[voiceProfile]);
-  useEffect(()=>{setVoiceProfile(loadVoiceProfile(email));},[email]);
+  useEffect(()=>{setVoiceProfile(loadVoiceProfile(email));setLanguage(loadLanguage(email));},[email]);
   useEffect(()=>{situationRef.current=situation;},[situation]);
   useEffect(()=>{contextRef.current=context;},[context]);
+  useEffect(()=>{languageRef.current=language;},[language]);
   useEffect(()=>()=>{
     activeRef.current=false;sessionRef.current+=1;
     graphRef.current?.close?.();stopStream(streamRef.current);sampleRef.current?.close?.();
@@ -125,7 +158,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   },[]);
 
   const setLinesState=next=>{linesRef.current=next;setLines(next);};
-  const bumpProcessing=delta=>setProcessingCount(count=>Math.max(0,count+delta));
+  const updatePhase=value=>{if(phaseRef.current!==value){phaseRef.current=value;setPhase(value);}};
 
   const ensureTranscriber=()=>{
     if(transcriberRef.current)return transcriberRef.current;
@@ -138,76 +171,186 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
     return transcriberRef.current;
   };
 
+  // Runs at most TRANSCRIBE_CONCURRENCY transcriptions at once, in submission
+  // order, so the short tail of a turn is never stuck behind a long chunk.
+  const runLimited=task=>new Promise((resolve,reject)=>{
+    const start=()=>{
+      inFlightRef.current+=1;setTranscribing(inFlightRef.current);
+      Promise.resolve().then(task).then(resolve,reject).finally(()=>{
+        inFlightRef.current=Math.max(0,inFlightRef.current-1);setTranscribing(inFlightRef.current);
+        const next=waitingRef.current.shift();if(next)next();
+      });
+    };
+    if(inFlightRef.current<TRANSCRIBE_CONCURRENCY)start();else waitingRef.current.push(start);
+  });
+
+  const requestReply=async({pending,history,nudge=""})=>{
+    ensureAI?.();
+    const {system,user:userPrompt}=buildMeetingPrompt({situation:situationRef.current,source:sourceRef.current,context:contextRef.current,history,newLines:pending});
+    const raw=await request(system,userPrompt+nudge,700,[],user?.email,{mode:"meeting",timeoutMs:40000});
+    return normalizeMeetingReply(parseJson(raw),pending.length);
+  };
+
+  const applyReply=(reply,pending)=>{
+    const remoteOnly=sourceRef.current==="tab";
+    const pendingIds=new Map(pending.map((line,index)=>[line.id,index]));
+    setLinesState(linesRef.current.map(line=>{
+      if(!pendingIds.has(line.id))return line;
+      const label=reply.labels[pendingIds.get(line.id)];
+      return {...line,reviewed:true,speaker:remoteOnly?"other":(label||"unclear")};
+    }));
+    if(reply.needsReply){setAnswer({heard:reply.heard,options:reply.options,at:Date.now()});setCopiedIndex(-1);setError("");setAnswerNote("");}
+    else setAnswerNote(reply.labels.length&&reply.labels.every(label=>label==="you")?"That was you speaking, so no new answers were prepared.":`Nothing new from ${scene.other} in that line. Answers appear as soon as they speak.`);
+  };
+
   const runAttribution=async session=>{
-    if(attributionBusyRef.current)return;
-    attributionBusyRef.current=true;
+    const startedAt=Date.now();
+    // A run that never returned (a hung request) must not block every later
+    // question for the rest of the session.
+    if(attributionBusyRef.current&&startedAt-attributionStartedRef.current<ATTRIBUTION_WATCHDOG_MS)return;
+    attributionBusyRef.current=true;attributionStartedRef.current=startedAt;
     try{
       while(attributionDirtyRef.current&&sessionRef.current===session){
         attributionDirtyRef.current=false;
-        const pending=linesRef.current.filter(line=>!line.reviewed);
+        const pending=linesRef.current.filter(line=>line.complete&&!line.reviewed);
         if(!pending.length)break;
-        const history=linesRef.current.filter(line=>line.reviewed).slice(-14);
+        const history=linesRef.current.filter(line=>line.reviewed).slice(-12);
         setThinking(true);
         try{
-          ensureAI?.();
-          const {system,user:userPrompt}=buildMeetingPrompt({situation:situationRef.current,source:sourceRef.current,context:contextRef.current,history,newLines:pending});
-          const raw=await request(system,userPrompt,900,[],user?.email,{mode:"meeting",timeoutMs:45000});
+          let reply=null;
+          for(let attempt=0;attempt<2&&!reply;attempt+=1){
+            try{reply=await requestReply({pending,history});}
+            catch(replyError){
+              if(sessionRef.current!==session||attempt===1)throw replyError;
+              await wait(ATTRIBUTION_RETRY_DELAY_MS);
+            }
+          }
           if(sessionRef.current!==session)break;
-          const reply=normalizeMeetingReply(parseJson(raw),pending.length);
           const remoteOnly=sourceRef.current==="tab";
-          const pendingIds=new Map(pending.map((line,index)=>[line.id,index]));
-          setLinesState(linesRef.current.map(line=>{
-            if(!pendingIds.has(line.id))return line;
-            const label=reply.labels[pendingIds.get(line.id)];
-            return {...line,reviewed:true,speaker:remoteOnly?"other":(label||"unclear")};
-          }));
-          if(reply.needsReply){setAnswer({heard:reply.heard,options:reply.options,at:Date.now()});setCopiedIndex(-1);setError("");}
+          const otherIndexes=reply.labels.map((label,index)=>(remoteOnly||label==="other")?index:-1).filter(index=>index>=0);
+          if(!reply.needsReply&&otherIndexes.length){
+            // The model labelled a line as the other party but skipped the
+            // options. Ask once more with that contradiction spelled out.
+            const nudge=`\n\nLine(s) ${otherIndexes.join(", ")} were spoken by the other party, so needsReply must be true with exactly three options responding to the most recent of them.`;
+            try{const second=await requestReply({pending,history,nudge});if(second.needsReply)reply={...second,labels:second.labels.map((label,index)=>label||reply.labels[index])};}catch{}
+            if(sessionRef.current!==session)break;
+          }
+          applyReply(reply,pending);
         }catch(replyError){
           if(sessionRef.current!==session)break;
-          setLinesState(linesRef.current.map(line=>line.reviewed?line:{...line,reviewed:true,speaker:sourceRef.current==="tab"?"other":(line.speaker==="pending"?"unclear":line.speaker)}));
+          setLinesState(linesRef.current.map(line=>line.reviewed||!line.complete?line:{...line,reviewed:true,speaker:sourceRef.current==="tab"?"other":(line.speaker==="pending"?"unclear":line.speaker)}));
           setError("Ghosty heard the line but could not prepare answers yet. "+(replyError?.message||"Try again shortly."));
         }finally{setThinking(false);}
       }
     }finally{attributionBusyRef.current=false;}
   };
 
-  const processSegment=async(segment,session)=>{
-    if(sessionRef.current!==session)return;
-    bumpProcessing(1);
+  const newLineRecord=()=>{lineIdRef.current+=1;return {id:lineIdRef.current,chunks:[],closed:false,finished:false,at:Date.now()};};
+
+  const getUtterance=id=>{
+    let utterance=utterancesRef.current.get(id);
+    if(!utterance){
+      const line=newLineRecord();
+      utterance={id,ended:false,lines:[line],current:line,chain:Promise.resolve()};
+      utterancesRef.current.set(id,utterance);
+      if(utterancesRef.current.size>40){const oldest=utterancesRef.current.keys().next().value;utterancesRef.current.delete(oldest);}
+    }
+    return utterance;
+  };
+
+  const upsertLine=(record,text,complete)=>{
+    const existing=linesRef.current.find(line=>line.id===record.id);
+    const entry={id:record.id,text,speaker:existing?.speaker||(sourceRef.current==="tab"?"other":"pending"),reviewed:false,voiceMatch:average(record.chunks.map(chunk=>chunk.match)),at:existing?.at||record.at,complete};
+    setLinesState(existing?linesRef.current.map(line=>line.id===record.id?entry:line):[...linesRef.current,entry]);
+  };
+
+  const removeLine=record=>{if(linesRef.current.some(line=>line.id===record.id))setLinesState(linesRef.current.filter(line=>line.id!==record.id));};
+
+  // Shows the words heard so far while the person is still talking.
+  const showPartial=record=>{
+    const ordered=[...record.chunks].sort((a,b)=>a.index-b.index);
+    const prefix=[];for(const chunk of ordered){if(!chunk.done)break;prefix.push(chunk.text);}
+    const text=mergeUtteranceText(prefix);
+    if(text)upsertLine(record,text,false);
+  };
+
+  // A line is complete once its turn closed and every chunk has come back.
+  const finishLine=(record,session)=>{
+    if(record.finished||!record.closed||record.chunks.some(chunk=>!chunk.done))return;
+    record.finished=true;
+    const text=cleanMeetingTranscriptSegment(mergeUtteranceText([...record.chunks].sort((a,b)=>a.index-b.index).map(chunk=>chunk.text)));
+    if(!isUsefulMeetingTranscript(text)){removeLine(record);return;}
+    const previous=linesRef.current.filter(line=>line.id!==record.id).at(-1);
+    if(previous&&previous.text.toLocaleLowerCase()===text.toLocaleLowerCase()){removeLine(record);return;}
+    upsertLine(record,text,true);
+    setSaved(false);setNotice("");
+    attributionDirtyRef.current=true;
+    runAttribution(session);
+  };
+
+  const closeLine=(record,session)=>{record.closed=true;finishLine(record,session);};
+
+  const transcribeChunk=async(record,chunk,session)=>{
     try{
-      const features=voiceProfileRef.current&&sourceRef.current==="microphone"?analyzeVoice(segment.audio,segment.sampleRate):null;
-      const voiceMatch=features?voiceSimilarity(voiceProfileRef.current,features):null;
+      const samples=chunk.samples16k;chunk.samples16k=null;
       let text="";
-      try{text=await ensureTranscriber().transcribe(segment.audio,{sampleRate:segment.sampleRate});}
-      catch(transcriptionError){
+      try{
+        text=await runLimited(()=>ensureTranscriber().transcribe(samples,{sampleRate:16000,language:languageRef.current||undefined,prompt:buildTranscriptionHint({situation:situationRef.current,context:contextRef.current})}));
+      }catch(transcriptionError){
         if(sessionRef.current!==session)return;
-        if(transcriptionError?.skipped)return;
-        if(transcriptionError?.retryable){setNotice(`${transcriptionError.message} Ghosty keeps listening.`);return;}
-        throw transcriptionError;
+        if(transcriptionError?.skipped){/* cooling down after a rate limit; nothing to show */}
+        else if(transcriptionError?.retryable)setNotice(`${transcriptionError.message} Ghosty keeps listening.`);
+        else throw transcriptionError;
       }
       if(sessionRef.current!==session)return;
-      const cleaned=cleanMeetingTranscriptSegment(text);
-      if(!isUsefulMeetingTranscript(cleaned))return;
-      const previous=linesRef.current.at(-1);
-      if(previous&&previous.text.toLocaleLowerCase()===cleaned.toLocaleLowerCase())return;
-      lineIdRef.current+=1;
-      const line={id:lineIdRef.current,text:cleaned,speaker:sourceRef.current==="tab"?"other":"pending",reviewed:false,voiceMatch,at:Date.now()};
-      setLinesState([...linesRef.current,line]);setSaved(false);setNotice("");
-      attributionDirtyRef.current=true;
-      runAttribution(session);
+      chunk.text=cleanMeetingTranscriptSegment(text);chunk.done=true;
+      showPartial(record);
+      finishLine(record,session);
     }catch(segmentError){
+      chunk.text="";chunk.done=true;
       if(sessionRef.current!==session)return;
+      finishLine(record,session);
       const message=segmentError?.message||"This part of the conversation could not be transcribed.";
       if(segmentError?.code==="local_unavailable"){setError(message+" Meeting Assist stopped because no transcription engine is available.");stopSession();}
       else setError(message);
-    }finally{bumpProcessing(-1);}
+    }
+  };
+
+  const handleChunk=(segment,session)=>{
+    const utterance=getUtterance(segment.utteranceId);
+    utterance.chain=utterance.chain.then(()=>{
+      if(sessionRef.current!==session)return;
+      const samples16k=resampleFloat32(segment.audio,segment.sampleRate,16000);
+      const features=analyzeVoice(samples16k,16000);
+      const chunk={index:segment.index,text:"",done:false,match:null,samples16k};
+      if(!isLikelySpeech(features)){
+        // Keyboard clatter, a door, a cough: keep the turn's bookkeeping but
+        // never send it to the transcription model.
+        chunk.done=true;utterance.current.chunks.push(chunk);finishLine(utterance.current,session);return;
+      }
+      chunk.match=voiceProfileRef.current&&sourceRef.current==="microphone"?voiceSimilarity(voiceProfileRef.current,features):null;
+      const current=utterance.current;
+      if(current.chunks.length&&isVoiceChange(average(current.chunks.map(item=>item.match)),chunk.match)){
+        // The other party stopped and the user began answering inside the
+        // two-second window: close the question now and start a new line.
+        closeLine(current,session);
+        utterance.current=newLineRecord();utterance.lines.push(utterance.current);
+      }
+      const record=utterance.current;record.chunks.push(chunk);
+      transcribeChunk(record,chunk,session);
+    }).catch(()=>{});
+  };
+
+  const handleUtteranceEnd=({utteranceId},session)=>{
+    const utterance=utterancesRef.current.get(utteranceId);
+    if(!utterance)return;
+    utterance.chain=utterance.chain.then(()=>{utterance.ended=true;closeLine(utterance.current,session);}).catch(()=>{});
   };
 
   const stopSession=()=>{
-    activeRef.current=false;setActive(false);setPaused(false);pausedRef.current=false;setLevel(0);
-    const segmenter=segmenterRef.current;const session=sessionRef.current;
-    const tail=segmenter?.flush?.();
-    if(tail)queueRef.current=queueRef.current.then(()=>processSegment(tail,session)).catch(()=>{});
+    // Flush first so anything the other person just said is still answered.
+    try{segmenterRef.current?.flush();}catch{}
+    activeRef.current=false;setActive(false);setPaused(false);pausedRef.current=false;setLevel(0);updatePhase("idle");
     graphRef.current?.close?.();graphRef.current=null;
     stopStream(streamRef.current);streamRef.current=null;
     segmenterRef.current=null;
@@ -215,7 +358,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
 
   const startSession=async()=>{
     if(!canStart||starting||active)return;
-    setError("");setNotice("");setStarting(true);
+    setError("");setNotice("");setAnswerNote("");setStarting(true);
     let stream=null;
     try{
       ensureAI?.();
@@ -238,27 +381,32 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
         // Echo cancellation is deliberately off: it would strip the other
         // person's voice whenever the call plays through this device's speakers,
         // which is exactly the voice Meeting Assist needs to hear.
-        stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true,channelCount:1},video:false});
+        stream=await navigator.mediaDevices.getUserMedia(MICROPHONE_CONSTRAINTS);
         streamRef.current=stream;
         stream.getAudioTracks()[0]?.addEventListener("ended",()=>stopSession(),{once:true});
       }
       sessionRef.current+=1;const session=sessionRef.current;
       sourceRef.current=source;
-      queueRef.current=Promise.resolve();
-      attributionDirtyRef.current=false;
+      utterancesRef.current=new Map();waitingRef.current=[];
+      attributionDirtyRef.current=false;attributionBusyRef.current=false;
       const graph=await openAudioGraph(stream);
-      const segmenter=createSpeechSegmenter({sampleRate:graph.sampleRate,onSegment:segment=>{if(!activeRef.current||sessionRef.current!==session)return;queueRef.current=queueRef.current.then(()=>processSegment(segment,session)).catch(()=>{});}});
+      const segmenter=createSpeechSegmenter({
+        sampleRate:graph.sampleRate,
+        endSilenceMs:TURN_END_SILENCE_MS,
+        onSegment:segment=>{if(!activeRef.current||sessionRef.current!==session)return;handleChunk(segment,session);},
+        onUtteranceEnd:info=>{if(!activeRef.current||sessionRef.current!==session)return;handleUtteranceEnd(info,session);},
+      });
       segmenterRef.current=segmenter;
       graph.start(frame=>{
-        if(!activeRef.current||sessionRef.current!==session)return;
-        if(pausedRef.current){segmenter.reset();return;}
+        if(!activeRef.current||sessionRef.current!==session||pausedRef.current)return;
         segmenter.push(frame);
+        updatePhase(segmenter.utteranceOpen?(segmenter.quietMs>=300?"waiting":"hearing"):"listening");
         const now=performance.now();
         if(now-levelTickRef.current>90){levelTickRef.current=now;setLevel(segmenter.level);}
       });
       graphRef.current=graph;
-      activeRef.current=true;setActive(true);setSaved(false);
-      setNotice(source==="tab"?"Listening to the shared meeting tab only. Your microphone is not open.":`Listening through the microphone. Ghosty separates ${scene.other} from you${voiceProfile?" using your voice sample and the conversation":" from the conversation"}.`);
+      activeRef.current=true;setActive(true);setSaved(false);updatePhase("listening");
+      setNotice(source==="tab"?"Listening to the shared meeting tab only. Your microphone is not open.":`Listening through the microphone. Ghosty waits until ${scene.other} pauses for two seconds, then prepares answers${voiceProfile?", using your voice sample to skip your own words":""}.`);
     }catch(startError){
       stopStream(stream);stopStream(streamRef.current);streamRef.current=null;
       activeRef.current=false;setActive(false);
@@ -268,18 +416,26 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
     }finally{setStarting(false);}
   };
 
-  const togglePause=()=>{const next=!pausedRef.current;pausedRef.current=next;setPaused(next);if(next)setLevel(0);};
+  // Pausing is itself a signal that the other person finished: the open turn
+  // is flushed immediately so its answers arrive while the user is talking.
+  const togglePause=()=>{
+    const next=!pausedRef.current;
+    if(next){try{segmenterRef.current?.flush();}catch{}}
+    pausedRef.current=next;setPaused(next);
+    if(next){setLevel(0);updatePhase("paused");}
+    else{setAnswerNote("");updatePhase("listening");}
+  };
 
   const recordVoiceSample=async()=>{
     if(sampling||active||!canUseMicrophone)return;
     setError("");
     let stream=null;
     try{
-      stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:true,autoGainControl:true,channelCount:1},video:false});
+      stream=await navigator.mediaDevices.getUserMedia(MICROPHONE_CONSTRAINTS);
       const chunks=[];
       const graph=await openAudioGraph(stream);const rate=graph.sampleRate;
       sampleRef.current=graph;graph.start(frame=>chunks.push(frame));
-      for(let remaining=VOICE_SAMPLE_SECONDS;remaining>0;remaining-=1){setSampling(remaining);await new Promise(resolve=>setTimeout(resolve,1000));}
+      for(let remaining=VOICE_SAMPLE_SECONDS;remaining>0;remaining-=1){setSampling(remaining);await wait(1000);}
       graph.close();sampleRef.current=null;stopStream(stream);stream=null;
       const total=chunks.reduce((sum,chunk)=>sum+chunk.length,0);const audio=new Float32Array(total);let offset=0;for(const chunk of chunks){audio.set(chunk,offset);offset+=chunk.length;}
       const profile=buildVoiceProfile(analyzeVoice(audio,rate));
@@ -292,8 +448,9 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   };
 
   const removeVoiceSample=()=>{storeVoiceProfile(email,null);setVoiceProfile(null);};
+  const chooseLanguage=value=>{setLanguage(value);storeLanguage(email,value);};
 
-  const clearSession=()=>{sessionRef.current+=1;setLinesState([]);setAnswer(null);setError("");setNotice("");setSaved(false);setCopiedIndex(-1);};
+  const clearSession=()=>{sessionRef.current+=1;utterancesRef.current=new Map();setLinesState([]);setAnswer(null);setAnswerNote("");setError("");setNotice("");setSaved(false);setCopiedIndex(-1);};
 
   const saveSession=()=>{
     if(!lines.length||!user)return;
@@ -317,21 +474,30 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
     }catch(overlayError){if(overlayError?.name!=="NotAllowedError")setError("The floating answer panel could not open. Try again from this screen.");}
   };
 
-  const processing=processingCount>0;
-  const latestOther=[...lines].reverse().find(line=>line.speaker==="other");
-  const statusText=!active?(processing||thinking?"Finishing the last answer":"Not listening"):paused?"Paused while you speak":thinking?"Preparing answers":processing?"Transcribing":"Listening";
+  const processing=transcribing>0;
+  const otherName=speakerLabel("other",situation);
+  const statusText=!active
+    ?(processing||thinking?"Finishing the last answer":"Not listening")
+    :paused?"Paused while you speak"
+    :thinking?"Preparing answers"
+    :phase==="hearing"?(source==="tab"?`${otherName} is talking…`:"Hearing speech…")
+    :phase==="waiting"?"Waiting for the speaker to finish…"
+    :processing?"Transcribing"
+    :"Listening";
 
   const pauseButton=(dark=false)=><button type="button" onClick={togglePause} aria-pressed={paused} style={{minHeight:46,borderRadius:10,border:`1px solid ${paused?C.yellow:dark?"rgba(255,255,255,0.22)":C.border}`,background:paused?"rgba(245,200,66,0.14)":dark?"rgba(255,255,255,0.06)":C.surface,color:paused?C.yellowText:dark?"#fff":C.text,fontFamily:"inherit",fontSize:13,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%"}}><GwmIcon name={paused?"mic":"eyeOff"} size={16}/>{paused?"Resume listening":"I'm speaking · pause"}</button>;
 
   const answerPanel=(dark=false,compact=false)=><div style={{display:"grid",gap:9}}>
-    {answer?.heard&&<div style={{padding:compact?"9px 11px":"11px 12px",borderRadius:10,borderLeft:`3px solid ${C.magenta}`,background:dark?"rgba(255,255,255,0.05)":C.surface,color:dark?"#dbeafe":C.text,fontSize:compact?12.5:13.5,lineHeight:1.55}}><span style={{display:"block",fontSize:10,letterSpacing:".12em",textTransform:"uppercase",color:dark?"#f9a8d4":C.magentaText,fontWeight:900,marginBottom:4}}>{speakerLabel("other",situation)} asked</span>{answer.heard}</div>}
-    {answer?.options?.length?answer.options.map((option,index)=><OptionCard key={`${answer.at}-${index}`} option={option} index={index} accent={dark?"#f9a8d4":C.magentaText} dark={dark} copied={copiedIndex===index} onCopy={()=>copyOption(option,index)} compact={compact}/>):<div style={{padding:compact?"14px 12px":"18px 14px",borderRadius:11,border:`1px dashed ${dark?"rgba(255,255,255,0.2)":C.border}`,color:dark?"#8eacc4":C.muted,fontSize:12.5,lineHeight:1.6,textAlign:"center"}}>{active?`Three answer options appear here as soon as ${scene.other} asks something.`:"Start listening and Ghosty will place three copy-ready answers here."}</div>}
+    {thinking&&<div role="status" style={{fontSize:11.5,fontWeight:800,color:dark?"#f9a8d4":C.magentaText,display:"flex",alignItems:"center",gap:6}}><span style={{width:7,height:7,borderRadius:"50%",background:C.magenta,boxShadow:`0 0 10px ${C.magenta}`}}/>Preparing three answers…</div>}
+    {answer?.heard&&<div style={{padding:compact?"9px 11px":"11px 12px",borderRadius:10,borderLeft:`3px solid ${C.magenta}`,background:dark?"rgba(255,255,255,0.05)":C.surface,color:dark?"#dbeafe":C.text,fontSize:compact?12.5:13.5,lineHeight:1.55}}><span style={{display:"block",fontSize:10,letterSpacing:".12em",textTransform:"uppercase",color:dark?"#f9a8d4":C.magentaText,fontWeight:900,marginBottom:4}}>{otherName} said</span>{answer.heard}</div>}
+    {answer?.options?.length?answer.options.map((option,index)=><OptionCard key={`${answer.at}-${index}`} option={option} index={index} accent={dark?"#f9a8d4":C.magentaText} dark={dark} copied={copiedIndex===index} onCopy={()=>copyOption(option,index)} compact={compact}/>):<div style={{padding:compact?"14px 12px":"18px 14px",borderRadius:11,border:`1px dashed ${dark?"rgba(255,255,255,0.2)":C.border}`,color:dark?"#8eacc4":C.muted,fontSize:12.5,lineHeight:1.6,textAlign:"center"}}>{active?`Three answer options appear here about five seconds after ${scene.other} stops talking.`:"Start listening and Ghosty will place three copy-ready answers here."}</div>}
+    {answerNote&&!thinking&&<div role="status" style={{fontSize:11.5,color:dark?"#8eacc4":C.muted,lineHeight:1.5}}>{answerNote}</div>}
   </div>;
 
   return(
     <div>
       <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Hear the other side. Answer with confidence.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>Ghosty listens for whole questions, works out who is speaking, and writes three answers you can say next. Your own words are recognised and never turned into suggestions.</div></div></div>
+        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Hear the other side. Answer with confidence.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>Ghosty listens to the whole question, waits two seconds after the speaker finishes, works out who was talking, and writes three answers you can say next. Your own words are recognised and never turned into suggestions.</div></div></div>
       </Card>
 
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Situation</div>
@@ -344,6 +510,11 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
           {id:"tab",icon:"meeting",title:"Meeting tab audio",desc:canShareTab?"Desktop Chrome or Edge. Captures only the remote voices from a Meet, Teams, or Zoom tab.":"Needs desktop Chrome or Edge with a browser-tab meeting.",available:canShareTab},
         ].map(item=><button key={item.id} type="button" disabled={active||!item.available} aria-pressed={source===item.id} onClick={()=>setSource(item.id)} style={{minHeight:74,padding:"10px 11px",borderRadius:10,border:`1px solid ${source===item.id?C.magenta:C.border}`,background:source===item.id?C.magentaSoft:C.surface,color:C.text,fontFamily:"inherit",textAlign:"left",display:"flex",gap:9,alignItems:"flex-start",cursor:active||!item.available?"default":"pointer",opacity:item.available?1:0.55}}><span style={{width:30,height:30,borderRadius:9,display:"grid",placeItems:"center",background:source===item.id?"rgba(244,114,182,0.18)":C.card,color:source===item.id?C.magentaText:C.muted,flexShrink:0}}><GwmIcon name={item.icon} size={16}/></span><span><span style={{display:"block",fontSize:13,fontWeight:850,color:source===item.id?C.magentaText:C.text}}>{item.title}{item.id==="microphone"&&<span style={{marginLeft:6,fontSize:9.5,fontWeight:900,letterSpacing:".1em",color:C.greenText}}>RECOMMENDED</span>}</span><span style={{display:"block",fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:3}}>{item.desc}</span></span></button>)}
       </div>
+
+      <label style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 11px",marginBottom:13,borderRadius:10,border:`1px solid ${C.border}`,background:C.surface}}>
+        <span style={{minWidth:0}}><span style={{display:"block",fontSize:12.5,fontWeight:850,color:C.text}}>Conversation language</span><span style={{display:"block",fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:2}}>Fixing the language makes short sentences transcribe more accurately. Leave on auto for mixed-language calls.</span></span>
+        <select aria-label="Conversation language" value={language} disabled={active} onChange={event=>chooseLanguage(event.target.value)} style={{minHeight:36,padding:"6px 10px",borderRadius:8,border:`1px solid ${language?C.magenta:C.border}`,background:C.card,color:C.text,fontFamily:"inherit",fontSize:12.5,fontWeight:700,flexShrink:0}}>{MEETING_LANGUAGES.map(item=><option key={item.value||"auto"} value={item.value}>{item.label}</option>)}</select>
+      </label>
 
       {source==="microphone"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"10px 11px",marginBottom:13,borderRadius:10,border:`1px solid ${voiceProfile?"rgba(61,219,164,0.32)":C.border}`,background:voiceProfile?"rgba(61,219,164,0.07)":C.surface}}>
         <div style={{minWidth:0}}><div style={{fontSize:12.5,fontWeight:850,color:voiceProfile?C.greenText:C.text}}>{sampling?`Read the line below aloud… ${sampling}s`:voiceProfile?"Your voice sample is ready":"Teach Ghosty your voice (optional)"}</div><div style={{fontSize:11.5,color:C.muted,lineHeight:1.45,marginTop:2}}>{sampling?<em style={{color:C.text}}>“{VOICE_SAMPLE_LINE}”</em>:voiceProfile?"Stored only on this device. Helps Ghosty tell your voice apart from the other speaker; the conversation itself is still the main signal.":"A six-second sample helps Ghosty recognise when you are the one speaking, so your answers are never turned into suggestions."}</div></div>
@@ -360,7 +531,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
         ?<PriBtn onClick={startSession} loading={starting} disabled={!canStart||starting} variant="violet"><IconLabel name={source==="tab"?"meeting":"mic"}>{source==="tab"?"Start with meeting tab audio":"Start listening"}</IconLabel></PriBtn>
         :<div style={{display:"grid",gap:8}}>{pauseButton(false)}<button type="button" onClick={stopSession} style={{width:"100%",minHeight:46,borderRadius:9,border:`1px solid ${C.red}`,background:"rgba(240,107,107,0.1)",color:C.redText,fontFamily:"inherit",fontSize:14,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}><GwmIcon name="stop" size={16}/>Stop listening</button></div>}
       <button type="button" onClick={openMeetingOverlay} disabled={!canUseOverlay} title={canUseOverlay?"Open an always-on-top answer panel over Meet, Zoom, or Teams.":"Requires current desktop Chrome or Edge."} style={{width:"100%",minHeight:42,marginTop:8,borderRadius:9,border:`1px solid ${canUseOverlay?C.magenta:C.border}`,background:canUseOverlay?C.magentaSoft:C.surface,color:canUseOverlay?C.magentaText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:850,cursor:canUseOverlay?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",gap:7,opacity:canUseOverlay?1:0.65}}><GwmIcon name="ghost" size={16}/>{overlayWindow?"Floating answer panel is open":"Open floating answer panel"}</button>
-      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. {source==="tab"?"Choose the meeting tab and enable its audio; the microphone stays closed.":"Tap “I'm speaking” while you answer if you want to be certain your words are skipped."}</div>
+      <div style={{fontSize:11.5,color:C.muted,textAlign:"center",lineHeight:1.55,marginTop:8}}>Nothing is captured until you press Start. {source==="tab"?"Choose the meeting tab and enable its audio; the microphone stays closed.":"Tap “I'm speaking” when you start answering: it skips your words and prepares answers for the question straight away."}</div>
 
       {notice&&<div role="status" style={{marginTop:10,padding:"10px 12px",background:"rgba(61,219,164,0.07)",border:"1px solid rgba(61,219,164,0.24)",borderRadius:8,fontSize:12.5,color:C.greenText,lineHeight:1.55,display:"flex",gap:8,alignItems:"flex-start"}}><GwmIcon name="info" size={15} color={C.greenText} style={{marginTop:2,flexShrink:0}}/><span>{notice}{engine==="local"&&engineProgress?` (${engineProgress})`:""}</span></div>}
       {error&&<ErrBox msg={error}/>}
@@ -375,9 +546,8 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
         <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 6px"}}>Live transcript</div>
         <div aria-live="polite" style={{maxHeight:260,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 11px",display:"grid",gap:6}}>
           {lines.length===0&&<div style={{fontSize:13,color:C.muted,lineHeight:1.6,padding:"6px 0"}}>{active?(paused?"Paused. Ghosty ignores everything until you resume.":"Waiting for someone to speak…"):"The conversation appears here with each speaker labelled."}</div>}
-          {lines.map(line=>{const you=line.speaker==="you";const pending=!line.reviewed;return <div key={line.id} style={{display:"grid",gridTemplateColumns:"auto minmax(0,1fr)",gap:9,alignItems:"start",opacity:you?0.62:1}}><span style={{minWidth:74,marginTop:2,padding:"2px 7px",borderRadius:999,fontSize:9.5,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase",textAlign:"center",background:pending?"rgba(142,172,196,0.14)":you?"rgba(245,200,66,0.14)":line.speaker==="other"?C.magentaSoft:"rgba(142,172,196,0.14)",color:pending?C.muted:you?C.yellowText:line.speaker==="other"?C.magentaText:C.muted}}>{pending?"listening":speakerLabel(line.speaker,situation)}</span><span style={{fontSize:13.5,lineHeight:1.6,color:you?C.muted:C.text}}>{line.text}</span></div>;})}
+          {lines.map(line=>{const you=line.speaker==="you";const pending=!line.reviewed;return <div key={line.id} style={{display:"grid",gridTemplateColumns:"auto minmax(0,1fr)",gap:9,alignItems:"start",opacity:you?0.62:1}}><span style={{minWidth:74,marginTop:2,padding:"2px 7px",borderRadius:999,fontSize:9.5,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase",textAlign:"center",background:pending?"rgba(142,172,196,0.14)":you?"rgba(245,200,66,0.14)":line.speaker==="other"?C.magentaSoft:"rgba(142,172,196,0.14)",color:pending?C.muted:you?C.yellowText:line.speaker==="other"?C.magentaText:C.muted}}>{pending?(line.complete?"heard":"hearing"):speakerLabel(line.speaker,situation)}</span><span style={{fontSize:13.5,lineHeight:1.6,color:you?C.muted:C.text,fontStyle:line.complete?"normal":"italic"}}>{line.text}{line.complete?"":" …"}</span></div>;})}
         </div>
-        {latestOther&&!answer?.options?.length&&thinking&&<div style={{fontSize:11.5,color:C.magentaText,marginTop:8}}>Preparing three answers…</div>}
         {lines.length>0&&<div style={{display:"flex",gap:8,marginTop:11,flexWrap:"wrap"}}><button type="button" onClick={saveSession} disabled={!user} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:saved?C.greenText:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}><GwmIcon name={saved?"check":"save"} size={14}/>{saved?"Saved to History":"Save session"}</button>{!active&&<button type="button" onClick={clearSession} style={{padding:"7px 11px",borderRadius:7,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontFamily:"inherit",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>Clear</button>}</div>}
       </Card>}
 
