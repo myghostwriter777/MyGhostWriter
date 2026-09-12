@@ -1,5 +1,8 @@
 jest.mock("ai",()=>({generateImage:jest.fn(),generateText:jest.fn()}));
+const mockSharpToBuffer=jest.fn();
+jest.mock("sharp",()=>jest.fn(()=>({rotate:jest.fn().mockReturnThis(),resize:jest.fn().mockReturnThis(),jpeg:jest.fn().mockReturnThis(),toBuffer:mockSharpToBuffer})));
 import {generateImage,generateText} from "ai";
+import sharp from "sharp";
 const handler=require("../api/manga-image");
 const fs=require("fs");
 
@@ -86,6 +89,56 @@ describe("Manga image API",()=>{
     expect(res.body.error).toContain("Vercel AI Gateway received");
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(generateImage).not.toHaveBeenCalled();
+  });
+
+  test("asks Gemini for a 1K portrait and retries without the sizing options when the provider rejects them",async()=>{
+    generateText
+      .mockRejectedValueOnce(Object.assign(new Error("Unknown field imageConfig"),{statusCode:400}))
+      .mockResolvedValueOnce({files:[{base64:"aGVsbG8=",mediaType:"image/png"}]});
+    const req={method:"POST",body:{prompt:"A portrait comic page."}};const res=mockResponse();
+    await handler(req,res);
+    expect(res.statusCode).toBe(200);
+    expect(generateText).toHaveBeenCalledTimes(2);
+    const first=generateText.mock.calls[0][0];const second=generateText.mock.calls[1][0];
+    expect(first.model).toBe("google/gemini-3-pro-image");
+    expect(first.providerOptions.google).toEqual({responseModalities:["TEXT","IMAGE"],imageConfig:{aspectRatio:"2:3",imageSize:"1K"}});
+    expect(first.abortSignal).toBeDefined();
+    expect(second.model).toBe("google/gemini-3-pro-image");
+    expect(second.providerOptions.google).toBeUndefined();
+    expect(generateImage).not.toHaveBeenCalled();
+  });
+
+  test("recompresses a page that would exceed the serverless response limit",async()=>{
+    const huge=Buffer.alloc(3*1024*1024,1).toString("base64");
+    generateText.mockResolvedValue({files:[{base64:huge,mediaType:"image/png"}]});
+    // CRA resets mock implementations before every test, so the sharp chain is rebuilt here.
+    mockSharpToBuffer.mockResolvedValue(Buffer.from("small-jpeg"));
+    sharp.mockImplementation(()=>({rotate:jest.fn().mockReturnThis(),resize:jest.fn().mockReturnThis(),jpeg:jest.fn().mockReturnThis(),toBuffer:mockSharpToBuffer}));
+    const req={method:"POST",body:{prompt:"A portrait comic page."}};const res=mockResponse();
+    await handler(req,res);
+    expect(res.statusCode).toBe(200);
+    expect(sharp).toHaveBeenCalledTimes(1);
+    expect(res.body.image.mediaType).toBe("image/jpeg");
+    expect(res.body.image.dataUrl).toBe("data:image/jpeg;base64,"+Buffer.from("small-jpeg").toString("base64"));
+  });
+
+  test("returns a page that already fits without touching sharp",async()=>{
+    generateText.mockResolvedValue({files:[{base64:"aGVsbG8=",mediaType:"image/png"}]});
+    const req={method:"POST",body:{prompt:"A portrait comic page."}};const res=mockResponse();
+    await handler(req,res);
+    expect(res.statusCode).toBe(200);
+    expect(sharp).not.toHaveBeenCalled();
+    expect(res.body.image.dataUrl).toBe("data:image/png;base64,aGVsbG8=");
+  });
+
+  test("explains a timeout when every illustrator runs out of time",async()=>{
+    const abort=()=>Object.assign(new Error("The operation was aborted"),{name:"AbortError"});
+    generateText.mockImplementation(()=>Promise.reject(abort()));
+    generateImage.mockImplementation(()=>Promise.reject(abort()));
+    const req={method:"POST",body:{prompt:"A portrait comic page."}};const res=mockResponse();
+    await handler(req,res);
+    expect(res.statusCode).toBe(504);
+    expect(res.body.error).toContain("took too long");
   });
 
   test("rejects unsupported reference images before generation",async()=>{

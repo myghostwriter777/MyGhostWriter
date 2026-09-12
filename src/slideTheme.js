@@ -2,11 +2,11 @@
 // PDF, PNG, PPTX, Word) reads the same palette so exports match the screen.
 
 export const SLIDE_THEMES=[
-  {id:"editorial",icon:"slides",title:"Editorial",desc:"Deep navy, soft pink headings & illustrated cards",accent:"#efa9f3",background:"#0f1140",prompt:"vibrant hand-drawn editorial illustration with clean confident ink linework, flat colour with soft dimensional shading, lush natural detail, warm light, and calm negative space"},
-  {id:"executive",icon:"briefcase",title:"Executive",desc:"Quiet authority & decisive data",accent:"#79BAEC",background:"#07111d",prompt:"restrained corporate editorial illustration, cool blues and graphite, precise geometry, one decisive focal object, disciplined negative space"},
-  {id:"storytelling",icon:"story",title:"Storytelling",desc:"Cinematic scenes & human tension",accent:"#f6bd75",background:"#140f1c",prompt:"cinematic painterly scenes with emotionally legible people, golden-hour light, layered depth, and strong narrative pacing"},
-  {id:"classroom",icon:"academic",title:"Classroom",desc:"Concrete ideas & simple diagrams",accent:"#5eead4",background:"#0a1a1f",prompt:"friendly textbook illustration, clear labelled subjects, bright clean colour, simple readable shapes, one learning idea at a time"},
-  {id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Bold contrast & memorable proof",accent:"#f472b6",background:"#0b0b14",prompt:"bold high-contrast product illustration, saturated accent lighting, confident silhouettes, one proof point per scene"},
+  {id:"editorial",icon:"slides",title:"Editorial",desc:"Deep navy, soft pink headings & illustrated cards",accent:"#efa9f3",background:"#0f1140",prompt:"vivid editorial energy: deep indigo and violet grounds, luminous pink and magenta accents, glowing highlights, lush organic detail, and one confident hero subject per scene"},
+  {id:"executive",icon:"briefcase",title:"Executive",desc:"Quiet authority & decisive data",accent:"#79BAEC",background:"#07111d",prompt:"cool authority: steel blue, graphite and ice-white palette, precise engineered forms, a single decisive hero object, sharp directional light"},
+  {id:"storytelling",icon:"story",title:"Storytelling",desc:"Cinematic scenes & human tension",accent:"#f6bd75",background:"#140f1c",prompt:"cinematic drama: warm amber and dusk-purple palette, emotionally legible people, golden rim light, deep layered depth, and a charged story moment"},
+  {id:"classroom",icon:"academic",title:"Classroom",desc:"Concrete ideas & simple diagrams",accent:"#5eead4",background:"#0a1a1f",prompt:"bright explanatory clarity: teal, aqua and sunlit yellow palette, one unmistakable subject shown large and dissected into readable parts"},
+  {id:"pitch",icon:"trendUp",title:"Pitch Deck",desc:"Bold contrast & memorable proof",accent:"#f472b6",background:"#0b0b14",prompt:"high-voltage contrast: hot pink and electric cyan against near-black, radiant accent lighting, bold silhouettes, one proof point per scene"},
   {id:"custom",icon:"spark",title:"Custom Theme",desc:"Describe your own visual world",accent:"#c084fc",background:"#0f0c1c",prompt:"a distinctive user-defined visual system with consistent mood, imagery, palette, and composition"},
 ];
 export const DEFAULT_SLIDE_THEME=SLIDE_THEMES[0];

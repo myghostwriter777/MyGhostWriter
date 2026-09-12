@@ -17,7 +17,8 @@ export function normalizeSlideSources(...groups){
     try{fallback=new URL(url).hostname.replace(/^www\./,"");}catch{}
     sources.push({id:String(source?.id||sourceId(key,index)),title:String(source?.title||fallback).trim().slice(0,180)||fallback,url});
   });
-  return sources.slice(0,16);
+  // Research links plus one citation per sourced photo.
+  return sources.slice(0,28);
 }
 
 export function slideSourceDomain(url){

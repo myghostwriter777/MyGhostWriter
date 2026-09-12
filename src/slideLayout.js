@@ -8,6 +8,7 @@ import { defaultSlideElementPosition, normalizeSlideElementPosition, slideTitleS
 import { pickGlyph, pickGlyphSet } from "./slideGlyphs";
 import { DEFAULT_SLIDE_FONT, slideFontStack, slidePointParts, slideSerifStack, withAlpha } from "./slideTheme";
 import { slideSourceDomain } from "./slideSources";
+import { photoCreditLine } from "./slidePhotos";
 
 export const STAGE={width:1600,height:900};
 const W=STAGE.width,H=STAGE.height;
@@ -92,7 +93,7 @@ export function organicClipPath(kind,w,h,radius=18){
 export const imageClipKind=(slide,image,box)=>{
   const visual=slide?.visualType||"";
   if(slide?.layout==="full-bleed"||(box&&box.w>=W*0.98&&box.h>=H*0.98))return "none";
-  if(image&&!image.generated)return "round";
+  if(image&&!image.generated&&!image.photo)return "round";
   if(!ILLUSTRATED_VISUALS.has(visual))return "round";
   if(box&&box.h<H*0.9)return "round";
   const centre=box?box.x+box.w/2:W*0.75;
@@ -135,20 +136,19 @@ export function layoutSlide(deck,slide,index,options={}){
 
   // Sources card: heading plus an underlined reference list.
   if(visual==="sources"){
-    const body=bodyBase;
-    const sources=(deck?.sources||[]).slice(0,10);
+    const allSources=(deck?.sources||[]);const sources=allSources.slice(0,16);const body=allSources.length>10?Math.round(bodyBase*0.78):allSources.length>6?Math.round(bodyBase*0.9):bodyBase;
     const titleBox=toStage(normalizeSlideElementPosition(positions.title,{x:6,y:36,width:88}));
     const titleBlock=text(slide?.title||"Sources",{x:0,y:0,w:titleBox.w,size:Math.round(titleSetting*2.4),weight:800,color:palette.heading,lineHeight:1.05,maxLines:2,field:"title"});
     layout.groups.title={key:"title",box:titleBox,percent:normalizeSlideElementPosition(positions.title,{x:6,y:36,width:88}),blocks:[titleBlock]};
     const listBox=toStage(normalizeSlideElementPosition(positions.supportingText,{x:6,y:Math.min(60,36+(titleBlock.h/H*100)+5),width:88}));
-    const columns=sources.length>5?2:1;const columnGap=64;const columnWidth=(listBox.w-(columns-1)*columnGap)/columns;const rows=Math.ceil(sources.length/columns);
+    const columns=sources.length>5?2:1;const columnGap=48;const columnWidth=(listBox.w-(columns-1)*columnGap)/columns;const rows=Math.ceil(sources.length/columns);
     const blocks=[];let rowHeights=[];
     sources.forEach((source,sourceIndex)=>{
       const column=Math.floor(sourceIndex/rows),row=sourceIndex%rows;
       const y=rowHeights.slice(0,row).reduce((sum,value)=>sum+value,0);
       const bullet={kind:"circle",cx:column*(columnWidth+columnGap)+8,cy:y+body*0.72,r:5,fill:palette.text};
       const link=text(source.title||slideSourceDomain(source.url),{x:column*(columnWidth+columnGap)+30,y,w:columnWidth-30,size:body,weight:700,color:palette.accent,underline:true,href:source.url,maxLines:1,lineHeight:1.3});
-      if(column===0)rowHeights.push(link.h+18);
+      if(column===0)rowHeights.push(link.h+(allSources.length>10?10:18));
       blocks.push(bullet,link);
     });
     if(!sources.length)blocks.push({kind:"rect",x:0,y:0,w:3,h:body*2.8,fill:palette.accent},text("Open Edit deck to add a source title and URL.",{x:24,y:body*0.4,w:listBox.w-24,size:body,weight:500,color:palette.muted}));
@@ -163,7 +163,7 @@ export function layoutSlide(deck,slide,index,options={}){
   if(images.length){
     images.forEach(image=>{
       const position=normalizeSlideElementPosition(image,imageDefault,{image:true});const box=toStage(position);
-      layout.images.push({kind:"image",id:image.id,name:image.name,src:image.dataUrl,fit:image.fit==="contain"?"contain":"cover",generated:!!image.generated,clip:imageClipKind(slide,image,box),percent:position,...box});
+      layout.images.push({kind:"image",id:image.id,name:image.name,src:image.dataUrl,fit:image.fit==="contain"?"contain":"cover",generated:!!image.generated,photo:!!image.photo,credit:image.photo&&image.credit?image.credit:null,clip:imageClipKind(slide,image,box),percent:position,...box});
     });
   }else if(ILLUSTRATED_VISUALS.has(visual)||fullBleed){
     const box=toStage(normalizeSlideElementPosition(null,imageDefault,{image:true}));
@@ -297,8 +297,30 @@ export function layoutSlide(deck,slide,index,options={}){
   while(bodyBottom(bodyBlocks)>H-54&&bodyFit>0.66){bodyFit-=0.08;layout.decor=layout.decor.filter(block=>!block.bodyDecor);bodyBlocks=buildBody(bodyFit);}
   if(bodyBlocks.length||supporting||bullets.length)layout.groups.body={key:"supportingText",box:bodyBox,percent:{...bodyPercent,y:bodyBox.y/H*100},blocks:bodyBlocks};
 
-  layout.footer=cover?[]:footerBlocks(deck,slide,index,total,palette,family,[...layout.panels,...layout.images]);
+  layout.footer=[...(cover?[]:footerBlocks(deck,slide,index,total,palette,family,[...layout.panels,...layout.images])),...photoCreditBlocks(layout.images,measure,family)];
   return layout;
+}
+
+// A small attribution pill inside each sourced photo, kept clear of the
+// organic edge so it never spills outside the picture. Exported with the deck
+// because the same layout feeds every export.
+export function photoCreditBlocks(images,measure,family){
+  const blocks=[];
+  images.forEach(image=>{
+    if(!image?.credit)return;
+    const line=photoCreditLine(image.credit);if(!line)return;
+    const size=15,padX=14,height=30;
+    const inset=image.clip==="curve-left"||image.clip==="curve-right"?Math.max(24,image.w*0.14):20;
+    const maxWidth=Math.min(image.w-inset-20,640);if(maxWidth<150)return;
+    const lines=wrapRuns(measure,[{text:line,weight:600,color:"#ffffff"}],{width:maxWidth-padX*2,size,family,letterSpacing:0.3,maxLines:1});
+    const text=lineText(lines[0]||[]);if(!text)return;
+    const width=Math.min(maxWidth,measure(text,size,600,family,0.3)+padX*2);
+    const x=image.clip==="curve-left"?image.x+image.w-inset-width:image.x+inset;
+    const y=image.y+image.h-height-16;
+    blocks.push({kind:"rect",x,y,w:width,h:height,fill:"rgba(6,10,18,0.66)",radius:8,credit:true});
+    blocks.push({kind:"text",x:x+padX,y:y+(height-size*1.3)/2,w:width-padX*2,size,weight:600,color:"#ffffff",lineHeight:1.3,maxLines:1,align:"left",letterSpacing:0.3,family,italic:false,text,runs:[{text,weight:600,color:"#ffffff"}],lines:[[{text,weight:600,color:"#ffffff"}]],h:size*1.3,href:image.credit.pageUrl,credit:true});
+  });
+  return blocks;
 }
 
 function footerBlocks(deck,slide,index,total,palette,family,occupied=[]){

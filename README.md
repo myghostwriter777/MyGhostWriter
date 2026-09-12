@@ -14,6 +14,8 @@ Humanize → Analyze AI content assesses either the pasted text or the humanized
 
 ## Meeting Assist
 
+Meeting Assist is released to every Master subscriber (September 2026). Manga Studio remains behind the admin-tester gate in `src/featureAvailability.js`.
+
 Meeting Assist listens to a live conversation and prepares three spoken-style answer options every time the other party finishes a turn.
 
 - **Audio sources:** the **Microphone** (default; works on phones, in person, and with any meeting app) hears the room or the device's speakers, with echo cancellation deliberately off so a remote voice playing through the speakers is not stripped out. The capture graph adds a high-pass (85 Hz) and low-pass (7.6 kHz) filter before analysis. **Meeting tab audio** (desktop Chrome/Edge) captures only the remote participants of a Meet, Teams or Zoom browser tab.
@@ -24,7 +26,18 @@ Meeting Assist listens to a live conversation and prepares three spoken-style an
 
 ## Slide Generator rendering
 
-Every slide surface (studio preview, fullscreen, PDF, PNG/JPEG, PPTX and Word previews) renders the same block layout produced by `src/slideLayout.js` on a fixed 1600×900 stage; the preview scales that stage to fit, so exports match the screen. Layouts follow an editorial deck: cover with a curved image panel, evidence cards, process circles, icon columns, an equation card, a takeaway grid, and an editable Sources card. Copy that would overflow is fitted automatically. Illustrations are generated progressively for every image-led slide via `/api/slide-image` (Gateway: Gemini image models first, then Flux and GPT Image), and the deck is shown as soon as the text is ready; failed illustrations can be retried per deck or replaced per slide.
+Every slide surface (studio preview, fullscreen, PDF, PNG/JPEG, PPTX and Word previews) renders the same block layout produced by `src/slideLayout.js` on a fixed 1600×900 stage; the preview scales that stage to fit, so exports match the screen. Layouts follow an editorial deck: cover with a curved image panel, evidence cards, process circles, icon columns, an equation card, a takeaway grid, and an editable Sources card. Copy that would overflow is fitted automatically. The deck is shown as soon as the text is ready and visuals arrive progressively for every image-led slide; failed visuals can be retried per deck or replaced per slide.
+
+**Slide visuals.** The generator form offers two sources:
+
+- **Web photos (default):** `/api/slide-photo` builds a query from the slide title, the deck topic and (for generic titles) the visual direction, then searches **Google Images** through the Custom Search JSON API when `GOOGLE_SEARCH_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` are set, falling back to **Wikimedia Commons** (no key; results carry a licence and author) when Google is not configured, over quota, or empty. Tiny, vector, over-sized and already-used pictures are skipped, the best landscape candidate is downloaded server-side, resized to 1600 px JPEG with sharp (so the export canvas is never tainted by a cross-origin image) and returned with its **source**: page URL, title, domain, licence and author. The photo is attached to the slide, its page is added to the deck's editable Sources card and to the slide's footer citation ("Sources 1, 4"), and a small "Photo: author · licence · domain" credit pill is drawn inside the picture on every surface (preview, fullscreen, PDF, PNG/JPEG, PPTX, Word). Removing the photo removes the citation when no other slide uses it. A slide with no suitable photo receives an AI illustration instead. Google's free tier allows 100 image queries per day; each generated deck uses one query per image-led slide.
+- **AI illustrations:** `/api/slide-image` (Gateway: Gemini 3 Pro Image first for finish, then Gemini 3.1 Flash Image, Flux and GPT Image). Every visual is rendered in one fixed house style modelled on the reference art the owner supplied: inked graphic-novel artwork with varied-weight black outlines, cel shading plus hatching and stippling, high-chroma colour with glowing cores and rim light, and dense detail with no empty flat regions. The deck theme now supplies mood and palette only and cannot override that style, and photorealism, 3D renders, stock photos, clip art, pastel washes and thin uniform outlines are excluded explicitly. The route asks for a landscape 1K image through Google provider options (retried once without them on a 400), enforces per-attempt deadlines inside a 54 s budget, and recompresses any visual that would exceed Vercel's 4.5 MB response cap.
+
+In the editor, **Web photo** and **AI visual** buttons fetch a visual for the selected slide; each listed photo links to its source page.
+
+## Manga Studio image pipeline
+
+`/api/manga-image` renders one portrait page per request (Gemini 3 Pro Image, then Gemini 3.1 Flash Image, then Flux and GPT Image through the AI Gateway). The route keeps every attempt inside Vercel's 60 s function limit with per-model deadlines (38 s for the first attempt, remaining budget for the rest; models are skipped when under 9 s remain) and reports a clear timeout instead of an HTML gateway error. Gemini is asked for a 1K 2:3 page through Google provider options and retried once without them if the provider rejects them. Any page whose data URL would exceed Vercel's 4.5 MB response limit is recompressed with sharp to a 1536 px JPEG before it is returned. On the device, reference images (up to 12 MB each) are downscaled to 1280 px JPEG before upload, the page-one continuity image sent for later pages is downscaled to 1024 px, each page request has a 90 s client timeout, and HTTP 413/500/504 responses from the platform map to actionable messages.
 
 ## University Portfolio
 
