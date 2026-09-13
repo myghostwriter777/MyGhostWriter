@@ -1,9 +1,10 @@
 import React, { useEffect, useRef } from "react";
+import starTexture from "./assets/starfield-reference.webp";
 
-// A fixed, full-viewport sky behind the landing page and app: twinkling
-// stars in a faint diagonal band and occasional falling stars with trails.
+// The supplied sky photograph provides the dense, fine-grained star field.
+// A sparse canvas foreground adds subtle twinkles and falling-star trails.
 //
-// The isolated theme root keeps the z-index -1 canvas above the body background
+// The isolated theme root keeps the z-index -1 sky above the body background
 // and below page content. Screen roots stay transparent; the body carries the
 // theme colour, and cards keep their solid surfaces for readability.
 //
@@ -32,8 +33,7 @@ export function createRandom(seed) {
   };
 }
 
-// Enough stars to feel like the reference on a laptop, capped so a phone at
-// 2x pixel density never draws more than it can animate smoothly.
+// Bound the animated foreground independently of the static sky texture.
 export function starCount(width, height, density = 1) {
   const area = Math.max(0, width) * Math.max(0, height);
   return Math.round(Math.min(900, Math.max(140, area / 2800)) * Math.max(0, density));
@@ -60,13 +60,13 @@ export function createStars(width, height, { seed = 1, density = 1 } = {}) {
       y = center.y + (random() + random() - 1) * height * 0.16;
     }
     const tier = random();
-    const bright = tier >= 0.95;
-    const radius = tier < 0.72 ? 0.55 + random() * 0.45 : bright ? 1.5 + random() * 1.1 : 1 + random() * 0.6;
+    const bright = tier >= 0.985;
+    const radius = tier < 0.8 ? 0.2 + random() * 0.25 : bright ? 0.85 + random() * 0.55 : 0.45 + random() * 0.35;
     stars.push({
       x, y, radius, band, bright,
-      base: 0.42 + random() * 0.5,
-      amp: 0.1 + random() * 0.3,
-      speed: 0.4 + random() * 1.4,
+      base: bright ? 0.6 + random() * 0.25 : 0.15 + random() * 0.25,
+      amp: 0.04 + random() * 0.08,
+      speed: 0.3 + random() * 0.6,
       phase: random() * Math.PI * 2,
     });
   }
@@ -110,7 +110,7 @@ export function drawStars(ctx, stars, palette, time, animate = true) {
   const { r, g, b, alphaScale } = palette;
   for (const star of stars) {
     const flicker = animate ? star.amp * Math.sin(time * star.speed + star.phase) : 0;
-    const alpha = Math.min(1, Math.max(0.08, (star.base + flicker) * alphaScale));
+    const alpha = Math.min(1, Math.max(0.04, (star.base + flicker) * alphaScale));
     ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
     if (star.bright) {
       ctx.beginPath();
@@ -151,7 +151,7 @@ export function drawShootingStar(ctx, shooter, palette) {
   ctx.fill();
 }
 
-export default function StarField({ theme = "dark", density = 1 }) {
+export default function StarField({ theme = "dark", density = 0.2 }) {
   const canvasRef = useRef(null);
   // One seed per mount keeps the layout identical when the theme flips.
   const seedRef = useRef(Math.floor(Math.random() * 0xffffffff));
@@ -261,12 +261,20 @@ export default function StarField({ theme = "dark", density = 1 }) {
   }, [theme, density]);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
       aria-hidden="true"
       data-testid="starfield"
       data-theme={theme}
-      style={{ position: "fixed", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: -1 }}
-    />
+      style={{ position: "fixed", inset: 0, width: "100%", height: "100%", overflow: "hidden", pointerEvents: "none", zIndex: -1 }}
+    >
+      <img
+        src={starTexture}
+        alt=""
+        draggable={false}
+        decoding="async"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", filter: theme === "light" ? "grayscale(1) invert(1)" : "grayscale(1)", opacity: theme === "light" ? 0.72 : 1 }}
+      />
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}/>
+    </div>
   );
 }

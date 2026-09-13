@@ -65,8 +65,8 @@ describe("star field geometry", () => {
     expect(average(band)).toBeLessThan(average(stars.filter(star => !star.band)) * 0.6);
     // A few bright stars, mostly faint pinpricks.
     const bright = stars.filter(star => star.bright).length / stars.length;
-    expect(bright).toBeGreaterThan(0.02);
-    expect(bright).toBeLessThan(0.1);
+    expect(bright).toBeGreaterThan(0.005);
+    expect(bright).toBeLessThan(0.03);
     expect(createStars(width, height, { seed: 7 })).toEqual(stars);
   });
 
@@ -138,15 +138,15 @@ describe("StarField component", () => {
     jest.restoreAllMocks();
   });
 
-  test("renders a decorative, click-through canvas behind the page", () => {
+  test("renders a decorative, click-through sky behind the page", () => {
     window.matchMedia = jest.fn(() => ({ matches: true }));
     render(<StarField theme="light" />);
-    const canvas = screen.getByTestId("starfield");
-    expect(canvas).toHaveAttribute("aria-hidden", "true");
-    expect(canvas).toHaveAttribute("data-theme", "light");
-    expect(canvas.style.pointerEvents).toBe("none");
-    expect(canvas.style.position).toBe("fixed");
-    expect(canvas.style.zIndex).toBe("-1");
+    const sky = screen.getByTestId("starfield");
+    expect(sky).toHaveAttribute("aria-hidden", "true");
+    expect(sky).toHaveAttribute("data-theme", "light");
+    expect(sky.style.pointerEvents).toBe("none");
+    expect(sky.style.position).toBe("fixed");
+    expect(sky.style.zIndex).toBe("-1");
   });
 
   test("with reduced motion it draws the sky once and never animates", () => {
