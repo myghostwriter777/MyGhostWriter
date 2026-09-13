@@ -10,6 +10,7 @@ import { speak, stopSpeak } from "./voiceApi";
 import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
 import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
 import AiDetectionPanel from "./AiDetectionPanel";
+import StarField from "./StarField";
 import PortfolioStudio from "./PortfolioMode";
 import { AI_DETECTION_SYSTEM } from "./aiDetection";
 import { loadPdfJs, preparePresentationPdf, PRESENTATION_PDF_MAX_MB, presentationSourceInstructions } from "./presentationPdf";
@@ -95,8 +96,8 @@ select{-webkit-appearance:none;appearance:none;}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 html{scroll-behavior:smooth;max-width:100%;overflow-x:hidden;}
 html,body,#root{min-height:100%;width:100%;}
-body{background:var(--gwm-bg);max-width:100%;overflow-x:hidden;}
-.gwm-theme-root{min-height:100dvh;width:100%;max-width:100%;overflow-x:clip;background:var(--gwm-bg);color:var(--gwm-text);transition:background-color 240ms ease,color 180ms ease;}
+body{background:var(--gwm-bg);max-width:100%;overflow-x:hidden;transition:background-color 240ms ease;}
+.gwm-theme-root{min-height:100dvh;width:100%;max-width:100%;overflow-x:clip;isolation:isolate;background:transparent;color:var(--gwm-text);transition:color 180ms ease;}
 .gwm-card{box-shadow:var(--gwm-card-shadow);transition:background-color 220ms ease,border-color 220ms ease,box-shadow 220ms ease;}
 .gwm-theme-toggle{width:44px;height:44px;border-radius:12px;border:1px solid var(--gwm-border);background:var(--gwm-surface);color:var(--gwm-muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:color 180ms ease,border-color 180ms ease,background-color 220ms ease,transform 180ms ease,box-shadow 180ms ease;}
 .gwm-theme-toggle:hover{color:var(--gwm-blue-text);border-color:rgba(121,186,236,0.65);transform:translateY(-1px);box-shadow:0 7px 20px rgba(46,99,135,0.14);}
@@ -137,8 +138,11 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .ink2{stroke-dasharray:70;animation:inkDraw 2s ease-in-out 0.4s infinite;}
 .ink3{stroke-dasharray:70;animation:inkDraw 2s ease-in-out 0.8s infinite;}
 .cinematic-hero{min-height:100svh;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:clamp(40px,7vh,76px) 0 72px;text-align:center;isolation:isolate;}
-.cinematic-hero::before{content:"";position:absolute;inset:0 50%;width:100vw;transform:translateX(-50%);background:radial-gradient(circle at 50% 33%,rgba(121,186,236,0.13),transparent 30%),radial-gradient(circle at 50% 70%,rgba(121,186,236,0.05),transparent 38%),linear-gradient(180deg,#000 0%,#03070b 72%,#070b12 100%);z-index:-2;pointer-events:none;}
-.cinematic-hero::after{content:"";position:absolute;inset:auto 50% 0;width:100vw;height:160px;transform:translateX(-50%);background:linear-gradient(180deg,transparent,#070b12);z-index:-1;pointer-events:none;}
+.cinematic-hero::before{content:"";position:absolute;inset:0 50%;width:100vw;transform:translateX(-50%);background:radial-gradient(circle at 50% 33%,rgba(121,186,236,0.13),transparent 30%),radial-gradient(circle at 50% 70%,rgba(121,186,236,0.05),transparent 38%);z-index:-2;pointer-events:none;}
+.cinematic-hero::after{content:"";position:absolute;inset:auto 50% 0;width:100vw;height:160px;transform:translateX(-50%);background:linear-gradient(180deg,transparent,var(--gwm-bg));z-index:-1;pointer-events:none;}
+.landing-theme-toggle{position:absolute;top:16px;right:0;z-index:3;}
+.gwm-theme-root[data-gwm-theme="light"] .hero-kicker{background:var(--gwm-surface);color:var(--gwm-blue-text);box-shadow:var(--gwm-card-shadow);}
+.tarot-section,.tool-showcase-backdrop{color-scheme:dark;--gwm-text:#fff;--gwm-muted:#8eacc4;--gwm-yellow-text:#f5c842;}
 .hero-copy{width:min(100%,460px);position:relative;z-index:2;}
 .hero-kicker{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:6px 14px;border-radius:999px;background:rgba(8,13,20,0.78);border:1px solid rgba(121,186,236,0.28);box-shadow:0 8px 30px rgba(0,0,0,0.35);font-size:12px;color:${C.blue};font-weight:800;letter-spacing:0.02em;}
 .hero-kicker-dot{width:7px;height:7px;border-radius:50%;background:${C.blue};box-shadow:0 0 14px rgba(121,186,236,0.8);flex:0 0 auto;}
@@ -160,13 +164,13 @@ button:focus-visible,select:focus-visible,[role="button"]:focus-visible{outline:
 .hero-ghost-playground:hover .hero-cursor-glow,.hero-ghost-playground.is-hovering .hero-cursor-glow{opacity:1;transform:translate3d(var(--hero-cursor-x,0px),var(--hero-cursor-y,0px),0) scale(1);}
 .hero-reaction-spark{position:absolute;z-index:7;left:50%;top:51%;width:7px;height:7px;margin:-3px;border:1px solid ${C.accent};background:rgba(121,186,236,0.5);box-shadow:0 0 13px rgba(121,186,236,0.9);opacity:0;pointer-events:none;transform:rotate(45deg);}
 .hero-ghost-playground.is-reacting .hero-reaction-spark{animation:heroSparkBurst 660ms cubic-bezier(0.16,1,0.3,1) both;}
-.hero-title{font-size:clamp(42px,7vw,68px);font-weight:900;color:#fff;letter-spacing:-0.055em;line-height:0.98;text-wrap:balance;}
+.hero-title{font-size:clamp(42px,7vw,68px);font-weight:900;color:${C.text};letter-spacing:-0.055em;line-height:0.98;text-wrap:balance;}
 .hero-signature{font-size:12px;color:${C.muted};letter-spacing:0.24em;margin-top:10px;font-weight:800;text-transform:uppercase;}
-.hero-intro{margin:18px auto 24px;font-size:clamp(17px,2vw,20px);color:${C.accent};font-weight:700;line-height:1.5;}
+.hero-intro{margin:18px auto 24px;font-size:clamp(17px,2vw,20px);color:${C.accentText};font-weight:700;line-height:1.5;}
 .hero-intro span{display:inline-block;color:${C.muted};font-weight:500;font-size:15px;margin-top:3px;}
 .hero-trust{margin-top:14px;font-size:12px;color:${C.muted};line-height:1.5;}
 .hero-scroll-cue{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:8px 14px;border:0;background:transparent;color:${C.muted};font-size:12px;font-weight:700;letter-spacing:0.03em;cursor:pointer;transition:color 200ms ease,background 200ms ease;border-color 200ms ease;border-radius 200ms ease;}
-.hero-scroll-cue:hover{color:#fff;background:rgba(121,186,236,0.08);border-radius:999px;}
+.hero-scroll-cue:hover{color:${C.text};background:rgba(121,186,236,0.08);border-radius:999px;}
 .hero-scroll-cue svg{transition:transform 200ms ease;}
 .hero-scroll-cue:hover svg{transform:translateY(3px);}
 .tarot-section{scroll-margin-top:16px;margin:0 -20px;padding:clamp(60px,8vw,96px) 20px clamp(52px,7vw,82px);background:radial-gradient(ellipse at 50% -4%,rgba(201,162,39,0.11),transparent 34%),radial-gradient(ellipse at 86% 26%,rgba(116,89,166,0.1),transparent 28%),linear-gradient(180deg,#060a10,#080b12 68%,#05070b);border-top:1px solid rgba(201,162,39,0.18);border-bottom:1px solid rgba(201,162,39,0.12);position:relative;overflow:hidden;isolation:isolate;}
@@ -1053,7 +1057,7 @@ function SafetyScreen({onAccept}){
   const [c1,setC1]=useState(false);const [c2,setC2]=useState(false);const [c3,setC3]=useState(false);
   const all=c1&&c2&&c3;
   const CheckRow=({checked,set,children})=>(<button type="button" onClick={set} style={{width:"100%",display:"flex",alignItems:"flex-start",gap:10,padding:"12px",background:checked?C.accentSoft:C.surface,border:`1px solid ${checked?C.blue:C.border}`,borderRadius:9,cursor:"pointer",transition:"all 0.15s",marginBottom:8,textAlign:"left",fontFamily:"inherit"}}><span style={{width:18,height:18,borderRadius:5,border:`2px solid ${checked?C.blue:C.border}`,background:checked?C.blue:"transparent",color:"#071019",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all 0.15s"}}>{checked&&<GwmIcon name="check" size={11} strokeWidth={2.4}/>}</span><span style={{fontSize:13,color:checked?C.text:C.muted,lineHeight:1.6,transition:"color 0.15s"}}>{children}</span></button>);
-  return(<div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}><div style={{textAlign:"center",marginBottom:24}}><div style={{width:68,height:68,borderRadius:22,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",animation:"glow 3s ease infinite"}}><GwmIcon name="shield" size={34}/></div><div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.01em",marginBottom:6}}>Before You Begin</div><div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Read and accept all three conditions to continue.</div></div><div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"11px 13px",marginBottom:18,display:"flex",gap:8}}><GwmIcon name="alert" size={17} color={C.yellow} style={{marginTop:1}}/><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>Generated content is created under <strong>your direction</strong>. You are solely responsible for how it is used.</div></div><CheckRow checked={c1} set={()=>setC1(!c1)}><strong style={{color:c1?C.text:C.muted}}>I take full responsibility</strong> for all content I generate. GhostwriterMe is not liable.</CheckRow><CheckRow checked={c2} set={()=>setC2(!c2)}><strong style={{color:c2?C.text:C.muted}}>I will not use this tool</strong> to create harmful, illegal, or deceptive content.</CheckRow><CheckRow checked={c3} set={()=>setC3(!c3)}><strong style={{color:c3?C.text:C.muted}}>I understand generated output may contain errors</strong> and I will verify content before use.</CheckRow><div style={{display:"flex",gap:4,marginBottom:16,marginTop:4}}>{[c1,c2,c3].map((c,i)=><div key={i} style={{height:2,flex:1,borderRadius:1,background:c?C.blue:C.border,transition:"background 0.3s"}}/>)}</div><button onClick={onAccept} disabled={!all} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:all?`linear-gradient(135deg,${C.blue},${C.accent})`:C.card,color:all?"#000":C.muted,fontSize:14,fontWeight:800,cursor:all?"pointer":"not-allowed",transition:"all 0.3s",fontFamily:"inherit",boxShadow:all?`0 4px 20px ${C.blueGlow}`:"none"}}>{all?"I Agree — Enter GhostwriterMe →":"Accept "+[c1,c2,c3].filter(x=>!x).length+" more to continue"}</button></div></div>);
+  return(<div style={{minHeight:"100vh",background:"transparent",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}><div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}><div style={{textAlign:"center",marginBottom:24}}><div style={{width:68,height:68,borderRadius:22,background:C.accentSoft,color:C.blue,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",animation:"glow 3s ease infinite"}}><GwmIcon name="shield" size={34}/></div><div style={{fontSize:20,fontWeight:900,color:C.text,letterSpacing:"-0.01em",marginBottom:6}}>Before You Begin</div><div style={{fontSize:13,color:C.muted,lineHeight:1.6}}>Read and accept all three conditions to continue.</div></div><div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.2)",borderRadius:9,padding:"11px 13px",marginBottom:18,display:"flex",gap:8}}><GwmIcon name="alert" size={17} color={C.yellow} style={{marginTop:1}}/><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>Generated content is created under <strong>your direction</strong>. You are solely responsible for how it is used.</div></div><CheckRow checked={c1} set={()=>setC1(!c1)}><strong style={{color:c1?C.text:C.muted}}>I take full responsibility</strong> for all content I generate. GhostwriterMe is not liable.</CheckRow><CheckRow checked={c2} set={()=>setC2(!c2)}><strong style={{color:c2?C.text:C.muted}}>I will not use this tool</strong> to create harmful, illegal, or deceptive content.</CheckRow><CheckRow checked={c3} set={()=>setC3(!c3)}><strong style={{color:c3?C.text:C.muted}}>I understand generated output may contain errors</strong> and I will verify content before use.</CheckRow><div style={{display:"flex",gap:4,marginBottom:16,marginTop:4}}>{[c1,c2,c3].map((c,i)=><div key={i} style={{height:2,flex:1,borderRadius:1,background:c?C.blue:C.border,transition:"background 0.3s"}}/>)}</div><button onClick={onAccept} disabled={!all} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:all?`linear-gradient(135deg,${C.blue},${C.accent})`:C.card,color:all?"#000":C.muted,fontSize:14,fontWeight:800,cursor:all?"pointer":"not-allowed",transition:"all 0.3s",fontFamily:"inherit",boxShadow:all?`0 4px 20px ${C.blueGlow}`:"none"}}>{all?"I Agree — Enter GhostwriterMe →":"Accept "+[c1,c2,c3].filter(x=>!x).length+" more to continue"}</button></div></div>);
 }
 
 // === GHOST LOGO (from app icon) ===
@@ -1515,7 +1519,7 @@ function ToolShowcaseModal({tool,onClose,onGetStarted}){
   );
 }
 
-function LandingScreen({onGetStarted,onSignIn}){
+function LandingScreen({onGetStarted,onSignIn,theme,onToggleTheme}){
   const [faqOpen,setFaqOpen]=useState(null);
   const [showcaseTool,setShowcaseTool]=useState(null);
   const [ghostVisible,setGhostVisible]=useState(false);
@@ -1617,8 +1621,8 @@ function LandingScreen({onGetStarted,onSignIn}){
 
   const SectionTitle=({kicker,title,sub,ghostMessage,ghostMood="curious"})=>(
     <div className="scroll-reveal scroll-scene-title" data-ghost-message={ghostMessage} data-ghost-mood={ghostMood} style={{textAlign:"center",marginBottom:20}}>
-      {kicker&&<div style={{fontSize:12,letterSpacing:"0.18em",color:C.blue,fontWeight:800,textTransform:"uppercase",marginBottom:7}}>{kicker}</div>}
-      <h2 style={{fontSize:24,fontWeight:900,color:"#fff",letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h2>
+      {kicker&&<div style={{fontSize:12,letterSpacing:"0.18em",color:C.blueText,fontWeight:800,textTransform:"uppercase",marginBottom:7}}>{kicker}</div>}
+      <h2 style={{fontSize:24,fontWeight:900,color:C.text,letterSpacing:"-0.02em",lineHeight:1.15}}>{title}</h2>
       {sub&&<div style={{fontSize:14,color:C.muted,marginTop:8,lineHeight:1.6,maxWidth:380,margin:"8px auto 0"}}>{sub}</div>}
     </div>
   );
@@ -1628,7 +1632,7 @@ function LandingScreen({onGetStarted,onSignIn}){
       <button onClick={onGetStarted} style={{width:"100%",padding:"16px",borderRadius:12,border:"none",background:C.blue,color:"#000",fontSize:16,fontWeight:900,cursor:"pointer",fontFamily:"inherit",letterSpacing:"0.01em",transition:"transform 0.15s,background 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.background=C.accent;e.currentTarget.style.transform="scale(1.02)";}} onMouseLeave={e=>{e.currentTarget.style.background=C.blue;e.currentTarget.style.transform="scale(1)";}}>
         Get Started — It's Free →
       </button>
-      <button onClick={onSignIn} style={{width:"100%",padding:"14px",borderRadius:12,background:"transparent",border:"1px solid #1e2e3d",color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"border-color 0.15s,color 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color="#fff";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e2e3d";e.currentTarget.style.color=C.muted;}}>
+      <button onClick={onSignIn} style={{width:"100%",padding:"14px",borderRadius:12,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"border-color 0.15s,color 0.15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=C.blue;e.currentTarget.style.color=C.text;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>
         Already have an account? Sign In
       </button>
     </div>
@@ -1640,12 +1644,13 @@ function LandingScreen({onGetStarted,onSignIn}){
     <>
     {showcaseTool&&<ToolShowcaseModal tool={showcaseTool} onClose={()=>setShowcaseTool(null)} onGetStarted={onGetStarted}/>}
     <ScrollGhosty visible={ghostVisible&&!showcaseTool} message={ghostCue.message} mood={ghostCue.mood} direction={ghostDirection}/>
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
+    <div style={{minHeight:"100vh",background:"transparent",fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text,overflowX:"hidden"}}>
       <div style={{maxWidth:1040,margin:"0 auto",padding:"0 20px 48px",position:"relative"}}>
         <div style={{position:"relative",zIndex:1}}>
 
           {/* HERO */}
           <section className="cinematic-hero" aria-labelledby="landing-title">
+            <div className="landing-theme-toggle"><ThemeToggle theme={theme} onToggle={onToggleTheme}/></div>
             <div className="hero-copy" style={{animation:"fadeUp 0.5s ease both"}}>
               <div className="hero-kicker">
                 <span className="hero-kicker-dot"/>
@@ -1714,10 +1719,10 @@ function LandingScreen({onGetStarted,onSignIn}){
                 {p.popular&&<div style={{position:"absolute",top:-1,right:14,background:`linear-gradient(135deg,${C.blue},${C.accent})`,color:"#000",fontSize:10,fontWeight:900,letterSpacing:"0.08em",padding:"3px 10px",borderRadius:"0 0 6px 6px"}}>MOST POPULAR</div>}
                 <div style={{fontSize:12,letterSpacing:"0.12em",color:p.color,textTransform:"uppercase",fontWeight:800,marginBottom:6}}>{p.name}</div>
                 <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                  <span style={{fontSize:30,fontWeight:900,color:"#fff",letterSpacing:"-0.02em"}}>{p.price}</span>
+                  <span style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em"}}>{p.price}</span>
                   <span style={{fontSize:13,color:C.muted}}>{p.per}</span>
                 </div>
-                {p.note&&<div style={{fontSize:12,color:C.green,marginTop:2}}>{p.note}</div>}
+                {p.note&&<div style={{fontSize:12,color:C.greenText,marginTop:2}}>{p.note}</div>}
                 <ul style={{listStyle:"none",margin:"12px 0 14px",display:"flex",flexDirection:"column",gap:6}}>
                   {p.feats.map(f=>(<li key={f} style={{fontSize:13,color:C.text,display:"flex",gap:7,alignItems:"flex-start"}}><GwmIcon name="check" size={14} color={p.color}/>{f}</li>))}
                 </ul>
@@ -1737,7 +1742,7 @@ function LandingScreen({onGetStarted,onSignIn}){
               return(
                 <div key={i} style={{background:C.card,border:`1px solid ${open?C.blue:C.border}`,borderRadius:10,overflow:"hidden",transition:"border-color 0.2s"}}>
                   <button onClick={()=>setFaqOpen(open?null:i)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"13px 14px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
-                    <span style={{fontSize:14,fontWeight:700,color:open?"#fff":C.text}}>{f.q}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:C.text}}>{f.q}</span>
                     <span style={{fontSize:18,color:open?C.blue:C.muted,flexShrink:0,transform:open?"rotate(45deg)":"none",transition:"transform 0.2s"}}>+</span>
                   </button>
                   {open&&<div style={{padding:"0 14px 14px",fontSize:13,color:C.muted,lineHeight:1.65,animation:"fadeUp 0.2s ease"}}>{f.a}</div>}
@@ -1757,7 +1762,7 @@ function LandingScreen({onGetStarted,onSignIn}){
                   <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",color:u.tagColor,background:u.tagColor+"1a",padding:"2px 7px",borderRadius:4,textTransform:"uppercase"}}>{u.tag}</span>
                   <span style={{fontSize:12,color:C.muted}}>{u.date}</span>
                 </div>
-                <div style={{fontSize:14,fontWeight:800,color:"#fff",marginBottom:3}}>{u.title}</div>
+                <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:3}}>{u.title}</div>
                 <div style={{fontSize:13,color:C.muted,lineHeight:1.55}}>{u.text}</div>
               </div>
             ))}
@@ -1769,8 +1774,8 @@ function LandingScreen({onGetStarted,onSignIn}){
           <SectionTitle kicker="Contact" title="Help us shape GhostwriterMe" sub="We're constantly improving. Share questions, ideas, suggestions, or partnership opportunities — we'd love to hear from you." ghostMessage="Tell us what Ghosty should learn next." ghostMood="warm"/>
           <div className="scroll-reveal"><Card>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:C.accentSoft,border:"1px solid rgba(121,186,236,0.22)",borderRadius:8,padding:"9px 12px",marginBottom:14}}>
-              <div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.05em"}}>EMAIL US</div><div style={{fontSize:13,fontWeight:700,color:C.blue}}>{CONTACT_EMAIL}</div></div>
-              <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blue,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+              <div><div style={{fontSize:11,color:C.muted,letterSpacing:"0.05em"}}>EMAIL US</div><div style={{fontSize:13,fontWeight:700,color:C.blueText}}>{CONTACT_EMAIL}</div></div>
+              <button onClick={()=>navigator.clipboard.writeText(CONTACT_EMAIL)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid rgba(121,186,236,0.3)",color:C.blueText,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               <div style={{marginBottom:11}}>
@@ -1884,7 +1889,7 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
   const handleAvatarUpload=async event=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;setAvatarLoading(true);setAvatarError("");try{setAvatar(await prepareProfileImage(file));}catch(error){setAvatarError(error?.message||"The profile picture could not be prepared.");}finally{setAvatarLoading(false);}};
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text}}>
+    <div style={{minHeight:"100vh",background:"transparent",fontFamily:"'Cabinet Grotesk',sans-serif",color:C.text}}>
       <div className="app-chrome" style={{position:"sticky",top:0,zIndex:50,background:C.chrome,backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
         <button aria-label="Back to writing tools" onClick={onBack} style={{width:36,height:36,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.muted,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><GwmIcon name="arrowLeft" size={17}/></button>
         <div style={{fontSize:16,fontWeight:900,color:C.text}}>Settings</div>
@@ -2100,7 +2105,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:null,plan:"free"});},1300);};
   return(
     <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:"transparent",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:22,animation:"fadeUp 0.4s ease"}}>
         <div style={{display:"flex",justifyContent:"center",marginBottom:2}}><GhostLogo size={78}/></div>
         <div style={{fontSize:26,fontWeight:900,letterSpacing:"-0.02em",color:C.text,lineHeight:1}}>GhostwriterMe</div>
@@ -2172,7 +2177,7 @@ function PricingScreen({user,onSelect,onContact,onBack,initialTab="pro"}){
   const handleCTA=()=>{if(tab==="free"){onSelect("free",null);return;}onSelect(tab,tab==="pro"?proBill:stuBill);};
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"transparent",padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:440}}>
         {onBack&&<button onClick={onBack} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit",padding:0}}><GwmIcon name="arrowLeft" size={14}/>Back to app</button>}
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,animation:"fadeUp 0.4s ease"}}>
@@ -2378,7 +2383,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
   };
 
   if(step==="success")return(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:C.bg,fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px",background:"transparent",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
         <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
         <div style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
@@ -2389,7 +2394,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
   );
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"transparent",padding:"24px 14px 80px",display:"flex",flexDirection:"column",alignItems:"center",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:420}}>
         {onBack&&<button onClick={onBack} disabled={loading} style={{background:"none",border:"none",color:C.muted,fontSize:13,cursor:loading?"default":"pointer",marginBottom:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit",padding:0,opacity:loading?0.5:1}}><GwmIcon name="arrowLeft" size={14}/>Back to plans</button>}
         <div style={{marginBottom:18}}>
@@ -4574,7 +4579,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
   }
 
   return(
-    <div style={{minHeight:"100dvh",background:C.bg,color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",display:"flex",flexDirection:"column",minWidth:0,maxWidth:"100%",overflowX:"clip"}}>
+    <div style={{minHeight:"100dvh",background:"transparent",color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",display:"flex",flexDirection:"column",minWidth:0,maxWidth:"100%",overflowX:"clip"}}>
       {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
       {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
       {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
@@ -4694,7 +4699,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
 // already unlocks their plan cross-device, which we ARE allowed to say.
 function TwaSubscriptionNotice({onBack}){
   return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"transparent",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:420,animation:"fadeUp 0.4s ease"}}>
         <Card style={{textAlign:"center",padding:"30px 22px"}}>
           <div style={{display:"flex",justifyContent:"center",marginBottom:14}}><GhostLogo size={92}/></div>
@@ -4717,7 +4722,7 @@ function TwaSubscriptionNotice({onBack}){
 
 function LegalPage({title,sections}){
   return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"transparent",display:"flex",flexDirection:"column",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{background:"rgba(0,0,0,0.98)",borderBottom:`1px solid ${C.border}`,padding:"13px 16px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <img src={GHOSTY_ICON} alt="Ghosty" width={26} height={26} style={{borderRadius:7,display:"block"}}/>
         <div style={{fontSize:15,fontWeight:800,color:"#fff"}}>{title} — GhostwriterMe</div>
@@ -4741,7 +4746,7 @@ function DeleteAccountPage(){
     +"?subject="+encodeURIComponent("Account Deletion Request — GhostwriterMe")
     +"&body="+encodeURIComponent("Please delete my GhostwriterMe account and associated data.\n\nAccount email (the one I sign in with): \n\nI understand this is permanent.");
   return(
-    <div style={{minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:"transparent",display:"flex",flexDirection:"column",alignItems:"center",padding:"24px 16px",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{width:"100%",maxWidth:560}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
           <img src={GHOSTY_ICON} alt="Ghosty" width={30} height={30} style={{borderRadius:8,display:"block"}}/>
@@ -4839,11 +4844,11 @@ function MainApp(){
 
   useEffect(()=>{
     try{localStorage.setItem(THEME_KEY,theme);}catch(e){}
-    document.body.style.background=screen==="landing"?"#000000":theme==="light"?"#f3f7fa":"#000000";
-  },[theme,screen]);
+    document.body.style.background=theme==="light"?"#f3f7fa":"#000000";
+  },[theme]);
 
   const toggleTheme=()=>setTheme(t=>t==="light"?"dark":"light");
-  const themed=node=><div className="gwm-theme-root" data-gwm-theme={theme}>{node}</div>;
+  const themed=node=><div className="gwm-theme-root" data-gwm-theme={theme}><StarField theme={theme}/>{node}</div>;
 
   // Persist the session on every change (login, sign-out, plan upgrade, trial
   // start, profile edit, etc). Needs [user] as its dependency to actually catch
@@ -5074,7 +5079,7 @@ function MainApp(){
     setScreen("app");
   };
 
-  if(screen==="landing")return <LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn}/>;
+  if(screen==="landing")return themed(<LandingScreen onGetStarted={handleGetStarted} onSignIn={handleSignIn} theme={theme} onToggleTheme={toggleTheme}/>);
   if(screen==="auth")return themed(<AuthScreen onAuth={handleAuth} defaultTab={authTab}/>);
   if(screen==="safety")return themed(<SafetyScreen onAccept={handleSafetyAccept}/>);
   // TWA gate: EVERY path into checkout (upgrade buttons, Change Plan, the
