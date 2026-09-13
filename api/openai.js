@@ -1,9 +1,9 @@
-import { createHash } from "crypto";
-import mammoth from "mammoth";
-import mcpServersLib from "../lib/mcp/servers.js";
-import supabaseRest from "../lib/supabaseRest.js";
+const { createHash } = require("crypto");
+const mammoth = require("mammoth");
+const mcpServersLib = require("../lib/mcp/servers.js");
+const supabaseRest = require("../lib/supabaseRest.js");
 
-export const config = {
+const config = {
   api: {
     bodyParser: {
       sizeLimit: "12mb",
@@ -316,7 +316,7 @@ function extractWebSources(responses) {
   return [...sources.values()].slice(0, 30);
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -496,3 +496,6 @@ export default async function handler(req, res) {
   }
   return res.status(200).json({ output_text: outputText });
 }
+
+module.exports = handler;
+module.exports.config = config;

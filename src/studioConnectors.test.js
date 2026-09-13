@@ -1,6 +1,6 @@
 // The Studio route attaches a user's connected MCP servers to the Claude call.
-// supabaseRest is mocked so no database is needed; api/openai.js imports it as
-// a CommonJS default binding, which is what these tests exercise.
+// supabaseRest is mocked so no database is needed; the route and tests load
+// the same CommonJS module.
 jest.mock("../lib/supabaseRest", () => ({ select: jest.fn(), insert: jest.fn(), update: jest.fn(), remove: jest.fn() }));
 
 import handler from "../api/openai";

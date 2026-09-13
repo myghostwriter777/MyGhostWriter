@@ -1,4 +1,4 @@
-export const config = {
+const config = {
   api: { bodyParser: { sizeLimit: "6mb" } },
   maxDuration: 30,
 };
@@ -15,7 +15,7 @@ let gatewayModulesPromise;
 
 function loadGatewayModules() {
   if (!gatewayModulesPromise) {
-    // Vercel compiles this API file to CommonJS. These packages are ESM-only,
+    // This API file uses CommonJS. These packages are ESM-only,
     // so they must stay behind native dynamic imports at function runtime.
     gatewayModulesPromise = Promise.all([import("ai"), import("@ai-sdk/gateway"), import("@vercel/oidc")]);
   }
@@ -26,7 +26,7 @@ function loadGatewayModules() {
 // segments being mis-detected as another language) and a short vocabulary
 // prompt (names spelled the way the user wrote them). Both are validated here
 // and passed through as OpenAI provider options.
-export function buildTranscriptionProviderOptions(body) {
+function buildTranscriptionProviderOptions(body) {
   const options = {};
   const language = typeof body?.language === "string" ? body.language.trim() : "";
   if (language && LANGUAGE_CODE.test(language)) options.language = language.split("-")[0].toLowerCase();
@@ -64,7 +64,7 @@ function classifyProviderError(error, GatewayError) {
   return { status: 502, code: "transcription_failed", retryable: false, error: "This audio segment could not be transcribed. Restart Meeting Assist and try again." };
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   let body = req.body;
@@ -137,3 +137,7 @@ export default async function handler(req, res) {
     });
   }
 }
+
+module.exports = handler;
+module.exports.config = config;
+module.exports.buildTranscriptionProviderOptions = buildTranscriptionProviderOptions;

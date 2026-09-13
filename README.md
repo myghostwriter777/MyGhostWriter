@@ -2,6 +2,10 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## Node.js and Vercel runtime
+
+Use Node.js 24.x locally and in Vercel Project Settings. The root `package.json` pins this version for builds and functions. API routes, shared server helpers, and `scripts/build.js` use CommonJS; keep their `require` / `module.exports` format. ESM-only AI SDK packages load through native dynamic `import()` calls. Do not add `"type": "module"` at the project root without migrating the existing CommonJS files.
+
 ## Voice playback
 
 Listen buttons and spoken interview questions use the speech engine built into the user's browser or device. No third-party text-to-speech key is required.

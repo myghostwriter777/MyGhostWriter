@@ -1,4 +1,4 @@
-export const config = {
+const config = {
   api: {
     bodyParser: {
       sizeLimit: "10mb",
@@ -25,7 +25,7 @@ const ALLOWED_MODELS = new Set([
 ]);
 const MAX_TOKENS_CAP = 8192;
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   // CORS — required for mobile browsers
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -112,3 +112,6 @@ export default async function handler(req, res) {
 
   return res.status(response.status).json(data);
 }
+
+module.exports = handler;
+module.exports.config = config;
