@@ -39,6 +39,28 @@ In the editor, **Web photo** and **AI visual** buttons fetch a visual for the se
 
 `/api/manga-image` renders one portrait page per request (Gemini 3 Pro Image, then Gemini 3.1 Flash Image, then Flux and GPT Image through the AI Gateway). The route keeps every attempt inside Vercel's 60 s function limit with per-model deadlines (38 s for the first attempt, remaining budget for the rest; models are skipped when under 9 s remain) and reports a clear timeout instead of an HTML gateway error. Gemini is asked for a 1K 2:3 page through Google provider options and retried once without them if the provider rejects them. Any page whose data URL would exceed Vercel's 4.5 MB response limit is recompressed with sharp to a 1536 px JPEG before it is returned. On the device, reference images (up to 12 MB each) are downscaled to 1280 px JPEG before upload, the page-one continuity image sent for later pages is downscaled to 1024 px, each page request has a 90 s client timeout, and HTTP 413/500/504 responses from the platform map to actionable messages.
 
+## Connectors (MCP)
+
+Admin testing only. `canUseConnectors()` in `src/featureAvailability.js` controls what the Settings screen shows, and every server route re-reads `role`/`all_features` from the database on each call, so the gate cannot be lifted from the browser. Run `supabase/connectors.sql` once in the Supabase SQL Editor before using either direction.
+
+### GhostwriterMe as a connector (outbound)
+
+`/api/mcp` is a Model Context Protocol server over Streamable HTTP. Users add the URL in Claude, ChatGPT, Cursor or VS Code and their assistant can then call six tools: `search_history` and `get_history_item` (read the account's own saved work), `write_essay`, `humanize_writing`, `outline_slide_deck` and `check_ai_content`. The read-only pair carry `readOnlyHint`, so clients can tell which calls are safe to make unattended. No tool writes to History.
+
+The server is stateless: it issues no `Mcp-Session-Id`, answers JSON (never SSE), and returns 405 to `GET` because it offers no server-initiated stream. Protocol versions 2025-06-18, 2025-03-26 and 2024-11-05 are accepted and echoed back; anything else is answered with the newest. A tool that fails returns `isError` inside a normal result so the calling model can read the reason, and JSON-RPC errors are reserved for malformed requests.
+
+Auth is a connector token (`gwm_<id>_<secret>`) minted in Settings and sent as `Authorization: Bearer`. A `?token=` query parameter also works for connector UIs that accept only a URL, which is why the settings screen offers the header form first: a token in a URL ends up in logs and browser history. Only a SHA-256 hash of the secret half is stored, so a database leak cannot be replayed against the endpoint, and each token is shown exactly once at creation.
+
+### Connecting other apps into GhostwriterMe (inbound)
+
+Settings → Connectors → Connected apps registers remote MCP servers (Notion, Drive, GitHub, an internal tool). Study Pack and Slide Generator requests then send them to Claude through Anthropic's MCP connector, which needs both halves — `mcp_servers` plus a matching `mcp_toolset` tool and the `mcp-client-2025-11-20` beta — so `buildConnectorPayload()` always emits them together. GhostwriterMe never calls these servers itself; Anthropic's API does. URLs must be public https, and private and link-local hosts are rejected. If the lookup fails the generation still runs, just without the user's own sources.
+
+An access token supplied for a connected app is stored in `user_mcp_servers.auth_token` in plaintext, readable by anyone holding the service-role key, and is never returned to the browser. Treat that column as sensitive when granting database access.
+
+### Why management routes need a Google sign-in
+
+A connector token can read an account's whole History, so `/api/connector-tokens` and `/api/mcp-servers` will not act on an email address alone. The browser fetches a fresh Google access token with the same client and scope the sign-in screen uses, and the server verifies it against Google's userinfo endpoint before doing anything. Accounts created with email sign-in rather than Google cannot manage connectors yet.
+
 ## University Portfolio
 
 Pro → Portfolio has two workflows (also included in Master):

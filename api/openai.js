@@ -1,5 +1,7 @@
 import { createHash } from "crypto";
 import mammoth from "mammoth";
+import mcpServersLib from "../lib/mcp/servers.js";
+import supabaseRest from "../lib/supabaseRest.js";
 
 export const config = {
   api: {
@@ -402,15 +404,43 @@ export default async function handler(req, res) {
     };
   }
 
+  // Connected apps (MCP connector). Anthropic rejects mcp_servers unless a
+  // matching mcp_toolset tool is sent too, so buildConnectorPayload always
+  // returns both halves. A failure here must never break the generation
+  // itself: the request simply runs without the user's own sources.
+  const extraHeaders = {};
+  if (body.use_connectors === true && typeof body.user_id === "string" && body.user_id.trim()) {
+    try {
+      const email = body.user_id.trim().toLowerCase();
+      const rows = await supabaseRest.select(
+        mcpServersLib.SERVER_TABLE,
+        `?email=eq.${encodeURIComponent(email)}&enabled=is.true&select=id,name,url,auth_token,enabled&order=created_at.asc`
+      );
+      const connectors = mcpServersLib.buildConnectorPayload(rows);
+      if (connectors) {
+        requestBody.mcp_servers = connectors.mcp_servers;
+        requestBody.tools = [...(requestBody.tools || []), ...connectors.tools];
+        extraHeaders["anthropic-beta"] = connectors.beta;
+      }
+    } catch (error) {
+      console.error("Connected apps could not be attached", {
+        message: String(error?.message || error).slice(0, 200),
+      });
+    }
+  }
+
+  const requestHeaders = {
+    "Content-Type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": "2023-06-01",
+    ...extraHeaders,
+  };
+
   let response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: requestHeaders,
       body: JSON.stringify(requestBody),
     });
   } catch {
@@ -434,11 +464,7 @@ export default async function handler(req, res) {
     try {
       response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
+        headers: requestHeaders,
         body: JSON.stringify(continuationBody),
       });
       data = await response.json().catch(() => null);

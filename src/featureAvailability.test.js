@@ -1,4 +1,4 @@
-import { isAdminTester, isComingSoonForUser } from "./featureAvailability";
+import { canUseConnectors, isAdminTester, isComingSoonForUser } from "./featureAvailability";
 
 describe("coming-soon feature access", () => {
   test("holds Manga for normal users regardless of their paid plan", () => {
@@ -20,6 +20,13 @@ describe("coming-soon feature access", () => {
   test("does not grant preview access from either admin flag alone", () => {
     expect(isComingSoonForUser("manga", { isAdmin: true, allFeatures: false })).toBe(true);
     expect(isComingSoonForUser("manga", { isAdmin: false, allFeatures: true })).toBe(true);
+  });
+
+  test("connectors stay with admin testers while they are finalised", () => {
+    expect(canUseConnectors({ plan: "student", isAdmin: false, allFeatures: false })).toBe(false);
+    expect(canUseConnectors({ isAdmin: true, allFeatures: false })).toBe(false);
+    expect(canUseConnectors(null)).toBe(false);
+    expect(canUseConnectors({ isAdmin: true, allFeatures: true })).toBe(true);
   });
 
   test("does not affect released modes", () => {
