@@ -9,8 +9,8 @@ GhostwriterMe PWA.
 - Compile SDK: Android 16 / API 36
 - Target SDK: Android 16 / API 36
 - Minimum SDK: API 23
-- Version code: `3`
-- Version name: `1.0.2`
+- Version code: `4`
+- Version name: `1.0.3`
 - Production host: `www.ghostwriterofficial.com`
 
 The wrapper trusts the canonical `www` host. Before testing an updated build,
@@ -24,10 +24,16 @@ by Git and must never be committed.
 
 ## Future releases
 
-1. Increment both `appVersionCode` and `appVersion` in `twa-manifest.json`.
+1. Increment `versionCode` and `versionName` in `app/build.gradle`, and keep
+   `appVersionCode` and `appVersion` in `twa-manifest.json` in sync. The new
+   code must be higher than every code in Play Console's App bundle explorer.
+   Codes 1 and 2 were used by PWABuilder packages that target API 35, and a
+   local API 36 build also used 2, so the first API 36 release uses code 4.
 2. Regenerate the project with a current Bubblewrap release if the web manifest
    or TWA configuration changes.
-3. Build with JDK 17, Android SDK Platform 36, and Android Build Tools 36.1.0:
+3. Build with JDK 17, Android SDK Platform 36, and Android Build Tools 35.0.0
+   (the default for Android Gradle Plugin 8.9.1). Android Studio's bundled
+   Java 25 is too new for Gradle 8.11.1.
 
    ```powershell
    .\gradlew.bat bundleRelease assembleRelease
@@ -35,7 +41,15 @@ by Git and must never be committed.
 
 4. Sign the generated bundle with the existing upload key. Supply passwords
    through environment variables or a secure prompt; do not place them in
-   Gradle files or source control.
+   Gradle files or source control. With `KS_PASS` and `KEY_PASS` set:
+
+   ```powershell
+   jarsigner -sigalg SHA256withRSA -digestalg SHA-256 -keystore signing.keystore `
+     -storepass:env KS_PASS -keypass:env KEY_PASS `
+     -signedjar GhostwriterMe-v4-api36.aab `
+     app\build\outputs\bundle\release\app-release.aab ghostwriterme
+   ```
+
 5. Upload the signed AAB to an internal test track first, verify the core app
    flow on Android 16, then promote it to production.
 
