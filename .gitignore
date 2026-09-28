@@ -28,6 +28,7 @@ yarn-error.log*
 *.aab
 *.apk
 signing-key-info*
+*Google Play package*.zip
 /android/.gradle/
 /android/app/build/
 /android/local.properties
