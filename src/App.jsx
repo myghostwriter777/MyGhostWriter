@@ -435,6 +435,7 @@ const SOCIAL_PROVIDERS = [
 
 const SESSION_KEY="gwm_session_v1";
 const THEME_KEY="gwm_theme_v1";
+const STAR_EFFECT_KEY="gwm_star_effect_v1";
 const LANGUAGE_KEY="gwm_lang";
 const AI_SHUTDOWN_KEY="gwm_ai_shutdown_v1";
 const TRIAL_DURATION_MS=3*24*60*60*1000; // 3 days, used for the cardless trial clock
@@ -495,10 +496,10 @@ const TERMS_CONTENT = [
 ];
 
 const PRIVACY_CONTENT = [
-  {h:"1. Information We Collect",b:"Your name, email, Google profile photo (if you sign in with Google), and any profile picture you choose to add. Content you enter into AI tools is sent to our AI provider to generate responses. When you manually start Meeting Assist, meeting audio is transcribed on your device. The resulting text context—not the meeting audio—is sent to our AI provider to generate reply suggestions. Payment details are handled entirely by Stripe — we never see or store your card number."},
+  {h:"1. Information We Collect",b:"Your name, email, Google profile photo (if you sign in with Google), and any profile picture you choose to add. Text, files, and images you enter into AI tools are sent to our AI providers to generate responses, illustrations, and slide visuals. When you manually start Meeting Assist, short segments of the audio your microphone or meeting tab captures are sent to our transcription provider to be converted to text, and that text is sent to our AI provider to prepare reply suggestions. If the transcription service is unavailable, audio is transcribed on your device instead. An optional voice sample you record for speaker recognition is reduced to pitch and tone measurements and stays in your browser. Payment details are handled entirely by Stripe — we never see or store your card number."},
   {h:"2. How We Use Your Information",b:"To provide and improve the Service, process subscriptions and billing through Stripe, and respond to support requests you send us. Listen playback uses the speech engine built into your device or browser."},
-  {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is processed locally in short segments and is not uploaded or added to History. A meeting transcript and suggestion are saved only if you press Save session."},
-  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, and AI providers to generate content. Each operates under its own privacy policy."},
+  {h:"3. History & Meeting Data",b:"Writing history is cached in your browser and, when sync is available, stored in our secured history database so it can appear on your devices. Meeting audio is sent for transcription only while a session is running and is not stored by GhostwriterMe or added to History. A meeting transcript and suggestion are saved only if you press Save session."},
+  {h:"4. Third-Party Services",b:"We use Stripe for payment processing, Google for sign-in, Supabase to store synced history, and Vercel to host the Service. AI features are provided by Anthropic (writing), and by OpenAI, Google, and Black Forest Labs through the Vercel AI Gateway (transcription and image generation). When the Slide Generator finds web photos, short search words based on your slide are sent to Google Search or Wikimedia Commons. Each provider operates under its own privacy policy."},
   {h:"5. Data Retention",b:"Account information is retained while your account is active. You may request deletion by contacting us at "+CONTACT_EMAIL+"."},
   {h:"6. Your Rights",b:"You may request access to, correction of, or deletion of your personal data at any time by emailing "+CONTACT_EMAIL+"."},
   {h:"7. Children's Privacy",b:"The Service is not directed at children under 13. Users under 18 require parental or guardian consent, as stated in our Terms."},
@@ -1856,7 +1857,7 @@ const Row=({icon,label,children,onClick,danger,last})=>(
 );
 
 // === SETTINGS SCREEN ===
-function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme}){
+function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onShowPrivacy,onChangePlan,onCancelPlan,theme,onToggleTheme,starEffect=true,onToggleStarEffect}){
   const [displayName,setDisplayName]=useState(user.name||"");
   const [avatar,setAvatar]=useState(user.avatar||null);const [avatarError,setAvatarError]=useState("");const [avatarLoading,setAvatarLoading]=useState(false);const avatarInputRef=useRef(null);
   const [language,setLanguage]=useState(()=>localStorage.getItem(LANGUAGE_KEY)||"en");
@@ -1921,12 +1922,19 @@ function SettingsScreen({user,onBack,onSignOut,onSave,onContact,onShowTerms,onSh
         </Section>
 
         <Section title="Appearance">
-          <Row icon={<GwmIcon name={theme==="light"?"sun":"moon"} size={15}/>} label="Color Theme" last>
+          <Row icon={<GwmIcon name={theme==="light"?"sun":"moon"} size={15}/>} label="Color Theme">
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:12,color:C.muted}}>{theme==="light"?"Light":"Dark"}</span>
               <Toggle on={theme==="light"} set={onToggleTheme} label={theme==="light"?"Use dark mode":"Use light mode"}/>
             </div>
           </Row>
+          <Row icon={<GwmIcon name="spark" size={15}/>} label="Star Effect" last>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:12,color:C.muted}}>{starEffect?"On":"Off"}</span>
+              <Toggle on={starEffect} set={onToggleStarEffect} label={starEffect?"Turn off star effect":"Turn on star effect"}/>
+            </div>
+          </Row>
+          <div style={{padding:"0 14px 13px",fontSize:12,color:C.muted,lineHeight:1.55}}>The starry sky and falling stars behind the app, in both light and dark mode.</div>
         </Section>
 
         <Section title="Language">
@@ -4395,7 +4403,7 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   );
 }
 
-function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan,theme,onToggleTheme}){
+function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan,theme,onToggleTheme,starEffect,onToggleStarEffect}){
   const [showContact,setShowContact]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showTerms,setShowTerms]=useState(false);
@@ -4495,6 +4503,8 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           onCancelPlan={onCancelPlan}
           theme={theme}
           onToggleTheme={onToggleTheme}
+          starEffect={starEffect}
+          onToggleStarEffect={onToggleStarEffect}
         />
         {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
       </>
@@ -4749,6 +4759,11 @@ function MainApp(){
   const [theme,setTheme]=useState(()=>{
     try{return localStorage.getItem(THEME_KEY)==="light"?"light":"dark";}catch{return "dark";}
   });
+  // The star sky is on by default in both themes. Like the theme, the
+  // choice is kept on this device, so it also applies to the landing page.
+  const [starEffect,setStarEffect]=useState(()=>{
+    try{return localStorage.getItem(STAR_EFFECT_KEY)!=="off";}catch{return true;}
+  });
 
   // Restore session on startup
   const [user,setUser]=useState(()=>{
@@ -4770,8 +4785,14 @@ function MainApp(){
     document.body.style.background=theme==="light"?"#f3f7fa":"#000000";
   },[theme]);
 
+  useEffect(()=>{
+    try{localStorage.setItem(STAR_EFFECT_KEY,starEffect?"on":"off");}catch(e){}
+  },[starEffect]);
+
   const toggleTheme=()=>setTheme(t=>t==="light"?"dark":"light");
-  const themed=node=><div className="gwm-theme-root" data-gwm-theme={theme}><StarField theme={theme}/>{node}</div>;
+  const toggleStarEffect=()=>setStarEffect(on=>!on);
+  // Unmounting StarField also stops its animation loop, so "off" costs nothing.
+  const themed=node=><div className="gwm-theme-root" data-gwm-theme={theme}>{starEffect&&<StarField theme={theme}/>}{node}</div>;
 
   // Persist the session on every change (login, sign-out, plan upgrade, trial
   // start, profile edit, etc). Needs [user] as its dependency to actually catch
@@ -5015,7 +5036,7 @@ function MainApp(){
 
   return themed(
     <>
-      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>openPricing(user?.plan==="student"?"student":"pro")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme}/>
+      <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>openPricing(user?.plan==="student"?"student":"pro")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme} starEffect={starEffect} onToggleStarEffect={toggleStarEffect}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
       {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>
