@@ -439,6 +439,14 @@ const STAR_EFFECT_KEY="gwm_star_effect_v1";
 const LANGUAGE_KEY="gwm_lang";
 const AI_SHUTDOWN_KEY="gwm_ai_shutdown_v1";
 const TRIAL_DURATION_MS=3*24*60*60*1000; // 3 days, used for the cardless trial clock
+// Trial/subscription predicates shared by the pricing and trial handlers (DRY).
+const isPaidPlan=plan=>plan==="pro"||plan==="student";
+// trialPlan covers sessions stored before the trialUsed flag existed.
+const hasUsedTrial=u=>!!(u&&(u.trialUsed||u.trialPlan));
+// A paid plan with no trial attached came from Stripe (get-subscription) or an
+// admin grant, never from a local cardless trial.
+const hasRealSubscription=u=>!!(u&&isPaidPlan(u.plan)&&!u.trialPlan);
+const isTrialExpired=(u,now=Date.now())=>!!(u&&u.trialPlan&&u.trialEndsAt&&new Date(u.trialEndsAt).getTime()<=now);
 
 const OUTPUT_LANGUAGES=[
   {value:"en",label:"English",prompt:"English",speech:"en-US"},
@@ -615,6 +623,20 @@ async function callHumanizePass(system,user,maxTokens){
     const error=new Error("The rewrite ended before it was complete.");error.code="HUMANIZE_RESPONSE_INCOMPLETE";throw error;
   }
   return parseHumanizeResponse(response.text);
+}
+
+// Parses the JSON object out of a model reply (shared by every JSON mode — DRY).
+// Edge cases: strips ``` / ```json fences; tolerates stray prose before or after
+// the object (models occasionally add a preamble); a reply cut off by max_tokens
+// or otherwise not JSON throws a readable message instead of "Unexpected token".
+function parseModelJSON(raw){
+  const cleaned=String(raw||"").replace(/```(?:json)?/gi,"").trim();
+  try{return JSON.parse(cleaned);}catch{/* fall through to extraction */}
+  const start=cleaned.indexOf("{"),end=cleaned.lastIndexOf("}");
+  if(start!==-1&&end>start){
+    try{return JSON.parse(cleaned.slice(start,end+1));}catch{/* fall through */}
+  }
+  throw new Error("The AI returned an unexpected format. Please try again.");
 }
 
 // The studio tools use Anthropic's document API through a dedicated
@@ -920,7 +942,7 @@ function FInput({label,type="text",placeholder,value,onChange,error,icoL,icoR,on
 function FArea({label,placeholder,value,onChange,rows=4,hint,voice}){
   const [f,setF]=useState(false);
   const hasText=String(value||"").length>0;
-  return(<div style={{marginBottom:12}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:5}}>{label?<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase"}}>{label}</label>:<span/>}{hasText&&<button type="button" aria-label={`Clear all ${label||"text"}`} onClick={()=>onChange({target:{value:""}})} style={{border:0,background:"transparent",color:C.redText,fontFamily:"inherit",fontSize:11.5,fontWeight:800,cursor:"pointer",padding:"4px 1px",display:"inline-flex",alignItems:"center",gap:5}}><GwmIcon name="trash" size={13}/>Clear all</button>}</div><div style={{position:"relative"}}><textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",paddingRight:voice?52:13,color:C.text,fontSize:14,lineHeight:1.7,resize:"vertical",fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}/>{voice&&<div style={{position:"absolute",bottom:7,right:7}}><MicBtn onResult={t=>onChange({target:{value:value+(value?"\\n":"")+t}})} sm/></div>}</div>{hint&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{hint}</div>}</div>);
+  return(<div style={{marginBottom:12}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:5}}>{label?<label style={{fontSize:11,letterSpacing:"0.08em",color:C.muted,textTransform:"uppercase"}}>{label}</label>:<span/>}{hasText&&<button type="button" aria-label={`Clear all ${label||"text"}`} onClick={()=>onChange({target:{value:""}})} style={{border:0,background:"transparent",color:C.redText,fontFamily:"inherit",fontSize:11.5,fontWeight:800,cursor:"pointer",padding:"4px 1px",display:"inline-flex",alignItems:"center",gap:5}}><GwmIcon name="trash" size={13}/>Clear all</button>}</div><div style={{position:"relative"}}><textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} onFocus={()=>setF(true)} onBlur={()=>setF(false)} style={{width:"100%",background:C.surface,border:`1px solid ${f?C.blue:C.border}`,borderRadius:8,padding:"11px 13px",paddingRight:voice?52:13,color:C.text,fontSize:14,lineHeight:1.7,resize:"vertical",fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s",boxShadow:f?`0 0 0 3px ${C.blueGlow}`:"none"}}/>{voice&&<div style={{position:"absolute",bottom:7,right:7}}><MicBtn onResult={t=>onChange({target:{value:value+(value?"\n":"")+t}})} sm/></div>}</div>{hint&&<div style={{fontSize:12,color:C.muted,marginTop:3}}>{hint}</div>}</div>);
 }
 
 function FNumber({label,value,onChange,min=1,max=30,fallback=min,suffix="items",hint}){
@@ -2065,7 +2087,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
   const [name,setName]=useState("");const [email,setEmail]=useState("");const [pw,setPw]=useState("");
   const [age,setAge]=useState("");const [showPw,setShowPw]=useState(false);
   const [agreed,setAgreed]=useState(false);const [loading,setLoading]=useState(null);
-  const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);
+  const [errs,setErrs]=useState({});const [showTC,setShowTC]=useState(false);const [showPP,setShowPP]=useState(false);
   const handleSocial=id=>{
   if(id==="email"){setShowEmail(true);return;}
   if(id==="google"){
@@ -2089,7 +2111,11 @@ function AuthScreen({onAuth,defaultTab="signup"}){
           const profileRes=await fetch("https://www.googleapis.com/oauth2/v3/userinfo",{
             headers:{Authorization:"Bearer "+tokenResponse.access_token},
           });
+          // Edge case: an expired/revoked token returns a non-2xx error body
+          // with no email — never create a session keyed on `undefined`.
+          if(!profileRes.ok)throw new Error("userinfo "+profileRes.status);
           const profile=await profileRes.json();
+          if(!profile.email)throw new Error("no email on Google profile");
           setLoading(null);
           fetch("/api/upsert-user",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:profile.email,name:profile.name||profile.given_name||"User",googleId:profile.sub})}).catch(()=>{});
           onAuth({
@@ -2111,7 +2137,7 @@ function AuthScreen({onAuth,defaultTab="signup"}){
 };
   const handleSubmit=()=>{const e={};if(!email.includes("@"))e.email="Enter a valid email";if(pw.length<6)e.pw="6+ characters";if(tab==="signup"){if(!name.trim())e.name="Required";const n=parseInt(age,10);if(!age||isNaN(n)||n<1||n>120)e.age="Enter valid age";else if(n<13)e.age="Must be 13 or older";if(!agreed)e.terms="Required";}if(Object.keys(e).length){setErrs(e);return;}setLoading("email");setTimeout(()=>{setLoading(null);onAuth({name:tab==="signup"?name:"Demo User",email,avatar:null,plan:"free"});},1300);};
   return(
-    <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}
+    <>{showTC&&<TermsModal onClose={()=>setShowTC(false)}/>}{showPP&&<PrivacyModal onClose={()=>setShowPP(false)}/>}
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 16px",background:"transparent",fontFamily:"'Cabinet Grotesk',sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:22,animation:"fadeUp 0.4s ease"}}>
         <div style={{display:"flex",justifyContent:"center",marginBottom:2}}><GhostLogo size={78}/></div>
@@ -2135,11 +2161,11 @@ function AuthScreen({onAuth,defaultTab="signup"}){
             <FInput label="Email" type="email" placeholder="you@email.com" value={email} onChange={e=>setEmail(e.target.value)} error={errs.email} icoL="mail"/>
             <FInput label="Password" type={showPw?"text":"password"} placeholder="••••••••" value={pw} onChange={e=>setPw(e.target.value)} error={errs.pw} icoL="lock" icoR={showPw?"eye":"eyeOff"} onIcoR={()=>setShowPw(!showPw)}/>
             {tab==="signin"&&<div style={{textAlign:"right",marginTop:-5,marginBottom:12}}><span style={{fontSize:13,color:C.blue,cursor:"pointer"}}>Forgot password?</span></div>}
-            {tab==="signup"&&(<div style={{marginBottom:12}}><div onClick={()=>{setAgreed(!agreed);if(errs.terms)setErrs({...errs,terms:""});}} style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px",background:agreed?C.accentSoft:C.surface,border:`1px solid ${errs.terms?C.red:agreed?C.blue:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s"}}><div style={{width:16,height:16,borderRadius:3,border:`2px solid ${agreed?C.blue:errs.terms?C.red:C.border}`,background:agreed?C.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{agreed&&<GwmIcon name="check" size={11} color="#071018" strokeWidth={2.5}/>}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>I agree to the{" "}<span onClick={e=>{e.stopPropagation();setShowTC(true);}} style={{color:C.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Terms & Conditions</span>{" "}and{" "}<span style={{color:C.blue,fontWeight:700,cursor:"pointer"}}>Privacy Policy</span></div></div>{errs.terms&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.terms}</div>}</div>)}
+            {tab==="signup"&&(<div style={{marginBottom:12}}><div onClick={()=>{setAgreed(!agreed);if(errs.terms)setErrs({...errs,terms:""});}} style={{display:"flex",alignItems:"flex-start",gap:9,padding:"10px 12px",background:agreed?C.accentSoft:C.surface,border:`1px solid ${errs.terms?C.red:agreed?C.blue:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s"}}><div style={{width:16,height:16,borderRadius:3,border:`2px solid ${agreed?C.blue:errs.terms?C.red:C.border}`,background:agreed?C.blue:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{agreed&&<GwmIcon name="check" size={11} color="#071018" strokeWidth={2.5}/>}</div><div style={{fontSize:13,color:C.muted,lineHeight:1.5}}>I agree to the{" "}<span onClick={e=>{e.stopPropagation();setShowTC(true);}} style={{color:C.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Terms & Conditions</span>{" "}and{" "}<span onClick={e=>{e.stopPropagation();setShowPP(true);}} style={{color:C.blue,fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>Privacy Policy</span></div></div>{errs.terms&&<div style={{fontSize:12,color:C.red,marginTop:3}}>{errs.terms}</div>}</div>)}
             <PriBtn loading={loading==="email"} onClick={handleSubmit}>{tab==="signin"?"Sign In →":"Create Account →"}</PriBtn>
           </div>
         )}
-        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:14,lineHeight:1.6}}>By continuing you agree to our{" "}<span onClick={()=>setShowTC(true)} style={{color:C.blue,cursor:"pointer"}}>Terms</span>{" "}&amp;{" "}<span style={{color:C.blue,cursor:"pointer"}}>Privacy</span></div>
+        <div style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:14,lineHeight:1.6}}>By continuing you agree to our{" "}<span onClick={()=>setShowTC(true)} style={{color:C.blue,cursor:"pointer"}}>Terms</span>{" "}&amp;{" "}<span onClick={()=>setShowPP(true)} style={{color:C.blue,cursor:"pointer"}}>Privacy</span></div>
       </div>
     </div></>
   );
@@ -2394,7 +2420,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
       <div style={{textAlign:"center",maxWidth:320,animation:"fadeUp 0.5s ease"}}>
         <div style={{width:82,height:82,borderRadius:28,background:isStudent?C.magentaSoft:C.accentSoft,color:isStudent?C.magentaText:C.blueText,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",animation:"pulse 2s ease infinite"}}><GwmIcon name="celebrate" size={42}/></div>
         <div style={{fontSize:30,fontWeight:900,color:C.text,letterSpacing:"-0.02em",marginBottom:6}}>You're in!</div>
-        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isPlanChange?`${isStudent?"Master":"Pro"} plan upgrade complete!`:isStudent?"Master plan activated!":"3-day free trial started."}<br/>All included features are unlocked.</div>
+        <div style={{fontSize:14,color:C.muted,lineHeight:1.7,marginBottom:22}}>{isPlanChange?`${isStudent?"Master":"Pro"} plan upgrade complete!`:skipTrial?(isStudent?"Master plan activated!":"Pro plan activated!"):"3-day free trial started."}<br/>All included features are unlocked.</div>
         <PriBtn onClick={onComplete} variant={isStudent?"violet":"blue"}>Enter the App →</PriBtn>
       </div>
     </div>
@@ -2412,7 +2438,7 @@ function StripeCardForm({user,billing,targetPlan,skipTrial,onComplete,onBack,the
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontSize:15,fontWeight:800,color:C.text}}>GhostwriterMe {isStudent?"Master":"Pro"}</div>
-              <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · {isPlanChange?"plan change":"after 3-day trial"}</div>
+              <div style={{fontSize:13,color:C.muted,marginTop:1}}>{billing} · {isPlanChange?"plan change":skipTrial?"billed today":"after 3-day trial"}</div>
               {introNote&&<div style={{fontSize:12,color:C.green,marginTop:4}}>{introNote}</div>}
             </div>
             <div style={{textAlign:"right"}}>
@@ -2757,7 +2783,7 @@ function ReplyMode({user,isPro,onUpgradeClick}){
     setLoading(true);setError("");setReplies([]);
     const t=TONES.find(x=>x.id===tone);
     const sys="You are GhostwriterMe — witty, socially calibrated. No em-dashes. "+(noDesp?"Strip ALL clingy energy. Unbothered only. ":"")+"Tone: "+t.label+" — "+t.desc+". Return ONLY valid JSON: {\"replies\":[{\"option\":1,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":2,\"text\":\"...\",\"vibe\":\"one-word\"},{\"option\":3,\"text\":\"...\",\"vibe\":\"one-word\"}]}";
-    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=JSON.parse(raw.replace(/```json|```/g,"").trim());setReplies(p.replies||[]);setUsed(u=>{const n=u+1;try{localStorage.setItem(usageKey,String(n));}catch{}return n;});if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:fmtRepliesHistory(p.replies)});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
+    try{const raw=await callClaude(sys,'Message:\n"'+msg+'"',1000,imgData,imgType);const p=parseModelJSON(raw);setReplies(p.replies||[]);setUsed(u=>{const n=u+1;try{localStorage.setItem(usageKey,String(n));}catch{}return n;});if(user&&p.replies?.[0])HS.save(user.email,"reply",{title:"Reply to: "+msg.slice(0,40),input:msg,output:fmtRepliesHistory(p.replies)});setTimeout(()=>ref.current?.scrollIntoView({behavior:"smooth"}),80);}
     catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return(
@@ -2813,13 +2839,13 @@ function EmailMode({user}){
   const [kp,setKp]=useState("");const [tone,setTone]=useState("professional");const [len,setLen]=useState("medium");
   const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const gen=async()=>{if(!ctx.trim())return;setLoading(true);setError("");setRes(null);const eObj=EMAIL_TYPES.find(e=>e.id===etype);const tObj=TONES.find(t=>t.id===tone);const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:(r.subject?"SUBJECT\n"+r.subject+"\n\nBODY\n":"")+r.body});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const gen=async()=>{if(!ctx.trim())return;setLoading(true);setError("");setRes(null);const eObj=EMAIL_TYPES.find(e=>e.id===etype);const tObj=TONES.find(t=>t.id===tone);const wt={short:"~80 words",medium:"~150 words",long:"~250 words"}[len];try{const raw=await callClaude("Expert email writer. Return ONLY valid JSON: {\"subject\":\"...\",\"body\":\"...\",\"tip\":\"brief tip\"}","Write a "+eObj.label+" email. Context: "+ctx+(rec?" Recipient: "+rec:"")+(kp?" Key points: "+kp:"")+" Tone: "+tObj.label+" Length: "+wt,1000,imgData,imgType);const r=parseModelJSON(raw);setRes(r);if(user)HS.save(user.email,"email",{title:r.subject,input:ctx,output:(r.subject?"SUBJECT\n"+r.subject+"\n\nBODY\n":"")+r.body});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   return(<div><div style={{background:"rgba(61,219,164,0.06)",border:"1px solid rgba(61,219,164,0.15)",borderRadius:7,padding:"8px 12px",marginBottom:13,display:"flex",alignItems:"center",gap:7}}><PlanBadge plan="free"/><span style={{fontSize:13,color:C.muted}}>Unlimited — free for all users</span></div><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Email Type</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12}}>{EMAIL_TYPES.map(e=><button key={e.id} onClick={()=>setEtype(e.id)} style={{background:etype===e.id?C.accentSoft:C.surface,border:`1px solid ${etype===e.id?C.blue:C.border}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={e.icon} size={18} color={etype===e.id?C.blue:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:2}}>{e.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{e.desc}</div></button>)}</div><FArea label="Situation / Context" placeholder="What's this email about?" value={ctx} onChange={e=>setCtx(e.target.value)} rows={3} voice/><FInput label="Recipient (optional)" placeholder="e.g. My manager, a recruiter..." icoL="user" value={rec} onChange={e=>setRec(e.target.value)} voice/><FArea label="Key Points (optional)" placeholder="e.g. Ask about timeline..." value={kp} onChange={e=>setKp(e.target.value)} rows={2} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Tone" value={tone} onChange={setTone} options={TONES.map(t=>({value:t.id,label:t.label}))}/><FSelect label="Length" value={len} onChange={setLen} options={[{value:"short",label:"Short"},{value:"medium",label:"Medium"},{value:"long",label:"Long"}]}/></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setCtx(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={gen} loading={loading} disabled={!ctx.trim()}><IconLabel name="mail">Generate Email</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:5}}>Subject</div><div style={{fontSize:15,fontWeight:800,color:C.text}}>{res.subject}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.subject}/><ListenBtn text={res.subject}/><SaveAsImageBtn text={res.subject} title="Email Subject"/></div></Card><Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:7}}>Body</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.body}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.body}/><ListenBtn text={res.body}/><SaveAsImageBtn text={res.body} title="Email"/><GenMoreBtn onClick={()=>{setEtype("professional");setCtx("");setRec("");setKp("");setTone("professional");setLen("medium");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>{res.tip&&<div style={{background:"rgba(245,200,66,0.06)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"10px 12px",display:"flex",gap:8}}><GwmIcon name="idea" size={17} color={C.yellow}/><div style={{fontSize:13,color:C.yellow,lineHeight:1.6}}>{res.tip}</div></div>}</div>}</div>);
 }
 
 function GrammarMode({user}){
   const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);const [genId,setGenId]=useState(0);
-  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\\n\\n\""+text+"\"",2000,imgData,imgType);const r=JSON.parse(raw.replace(/```json|```/g,"").trim());setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammarHistory(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\n\n\""+text+"\"",2000,imgData,imgType);const r=parseModelJSON(raw);setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammarHistory(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
   return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{display:"flex",justifyContent:"center",marginBottom:6}}><GwmIcon name={s.icon} size={20} color={style===s.id?C.blue:C.muted}/></div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setText(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}><IconLabel name="grammar">Check & Rewrite</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/><GenMoreBtn onClick={()=>{setText("");setStyle("formal");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
 }
@@ -2827,7 +2853,7 @@ function GrammarMode({user}){
 function EssayMode({user}){
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [level,setLevel]=useState("B2");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
-  const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const beginner=["A1","A2","B1"].includes(level);const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. "+(beginner?"For A1-B1, use short direct sentences and do not use em dashes, en dashes, or standalone hyphens as punctuation. ":"")+"Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\\nKey points: "+(details||"none")+"\\nCEFR: "+level+"\\nWords: ~"+wc,2000,imgData,imgType);const cleaned=beginner?removeBeginnerDashPunctuation(res):res;setEssay(cleaned);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:cleaned});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const beginner=["A1","A2","B1"].includes(level);const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. "+(beginner?"For A1-B1, use short direct sentences and do not use em dashes, en dashes, or standalone hyphens as punctuation. ":"")+"Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,2000,imgData,imgType);const cleaned=beginner?removeBeginnerDashPunctuation(res):res;setEssay(cleaned);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:cleaned});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?C.text:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="essay">Generate Essay</IconLabel></PriBtn>
     <div style={{marginTop:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:6}}>Essay Types Explained</div>
@@ -2835,6 +2861,17 @@ function EssayMode({user}){
     </div>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><EditableTextResult value={essay} onChange={setEssay} label={`${type} essay`}/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setLevel("B2");setType("Argumentative");setWc("500");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>}</div>);
 }
 
+
+// Placeholder shown by a notice-gated mode (Academic, Humanize) until the user
+// accepts. Shared so both gates behave identically (DRY).
+function NoticeGate({label,color,onOpen}){
+  return(
+    <div style={{textAlign:"center",padding:"60px 20px"}}>
+      <div style={{color:C.muted,fontSize:14,marginBottom:14}}>{label}</div>
+      <button onClick={onOpen} style={{padding:"10px 18px",borderRadius:8,border:`1px solid ${color}`,background:"transparent",color,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Review Notice</button>
+    </div>
+  );
+}
 
 function IntegrityModal({type,accepted,onAccept,onCancel}){
   const [checked,setChecked]=useState(false);
@@ -2936,7 +2973,7 @@ Return ONLY valid JSON, no markdown fences:
 }`;
     try{
       const raw=await callClaude(sys,"Review this essay:\n\n"+(text||"(see attached image)"),2500,imgData,imgType);
-      const r=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      const r=parseModelJSON(raw);
       setRes(r);
       setGenId(g=>g+1);
       if(user)HS.save(user.email,"academic",{title:"Review: "+(text.slice(0,40)||"essay"),input:"reviewer",output:fmtReviewHistory(r)});
@@ -3180,13 +3217,17 @@ function AcademicMode({user}){
   const [showNotice,setShowNotice]=useState(()=>!isNoticeAccepted("academic"));
   const [tab,setTab]=useState("reviewer");
 
+  // Bug fix: the modal used to render unconditionally here, so Cancel/backdrop
+  // (which only set showNotice=false) did nothing and the user was trapped
+  // behind a full-screen overlay. Now Cancel really closes it and the gate
+  // placeholder offers a way to reopen it.
   if(!accepted)return(
     <>
-      <IntegrityModal type="academic" accepted={false}
+      {showNotice&&<IntegrityModal type="academic" accepted={false}
         onAccept={()=>{acceptNotice("academic");setAccepted(true);setShowNotice(false);}}
         onCancel={()=>{setShowNotice(false);}}
-      />
-      <div style={{textAlign:"center",padding:"60px 20px",color:C.muted,fontSize:14}}>Accept the Academic Integrity Notice to continue.</div>
+      />}
+      <NoticeGate label="Accept the Academic Integrity Notice to continue." color={C.blue} onOpen={()=>setShowNotice(true)}/>
     </>
   );
 
@@ -3284,7 +3325,7 @@ function CVMode({user}){
     const u="Create polished CV content."+(tr?" Target role: "+tr+".":"")+(personal.title?" Current title: "+personal.title+".":"")+" Experience: "+(exp||"none provided")+". Skills: "+(ski||"none provided")+". Education: "+(edu||"none provided")+". Achievements: "+(ach||"none provided")+". Rewrite everything professionally. 2-4 strong bullets per role. If a section has no input, return an empty array for it.";
     try{
       const raw=await callClaude(sys,u,2000);
-      const data=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      const data=parseModelJSON(raw);
       setCvData(data);setStep("preview");
       if(user)HS.save(user.email,"cv",{title:"CV: "+(tr||personal.title||personal.name||"Untitled"),input:template,output:fmtCvHistory(data)});
     }catch(e){setError(e.message||"Something went wrong.");}
@@ -3306,7 +3347,8 @@ function CVMode({user}){
     const html=buildCvHtml(cvData,personal,template,accent);
     const w=window.open("","_blank");
     if(!w){alert("Please allow popups to download your CV.");return;}
-    w.document.write('<html><head><title>'+(personal.name||"CV")+'</title><meta charset="utf-8"/><style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}</style></head><body style="margin:0;background:#fff;">'+html+'</body></html>');
+    // Escape the name: it is interpolated into raw HTML in a new window.
+    w.document.write('<html><head><title>'+escapeHtml(personal.name||"CV")+'</title><meta charset="utf-8"/><style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}</style></head><body style="margin:0;background:#fff;">'+html+'</body></html>');
     w.document.close();
     setTimeout(()=>{w.focus();w.print();},400);
   };
@@ -3413,10 +3455,10 @@ function StoryAnalyzer({user}){
       const request='Create a story guide for the '+type+': "'+title+'"'+(notes?'\nFocus on: '+notes:'');
       const raw=await callClaude(storySys,request,3000,null,null,{useSearch:true});
       // With web search enabled the reply can contain brief text around the
-      // JSON despite instructions — slice from first { to last } before parsing
-      // (edge case: search-citation preamble would otherwise break JSON.parse).
-      const cleaned=raw.replace(/```json|```/g,"").trim();
-      const r=JSON.parse(cleaned.slice(cleaned.indexOf("{"),cleaned.lastIndexOf("}")+1));
+      // JSON despite instructions. parseModelJSON slices from the first { to
+      // the last } when a direct parse fails, and turns a reply with no JSON
+      // object into a readable error instead of "Unexpected end of JSON input".
+      const r=parseModelJSON(raw);
       if(r.error){setError(r.error);return;}
       setRes(r);
       if(user)HS.save(user.email,"story",{title:r.title||activeTitle,input:type+(notes?" · "+notes.slice(0,30):""),output:fmtStoryHistory(r)});
@@ -3539,7 +3581,7 @@ function AuthorMode({user}){
   const OT=[{id:"scene",label:"Scene",desc:"Narrative"},{id:"opening",label:"Opening",desc:"Hook reader"},{id:"chapter",label:"Chapter",desc:"Full chapter"},{id:"outline",label:"Outline",desc:"Plot structure"},{id:"character",label:"Character",desc:"Profile"},{id:"dialogue",label:"Dialogue",desc:"Conversation"}];
   const ag=cat==="fiction"?FICTION_GENRES.find(g=>g.id===genre):NONFICTION_GENRES.find(g=>g.id===nfg);
   const wt={short:"~300 words",medium:"~600 words",long:"~1200 words"}[len];
-  const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\\n"+prompt+"\\n"+(chars?"Characters: "+chars+"\\n":"")+(setting?"Setting: "+setting+"\\n":"")+(isFic?"POV: "+pm[pov]+"\\n":"")+"Length: "+wt+"\\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\n"+prompt+"\n"+(chars?"Characters: "+chars+"\n":"")+(setting?"Setting: "+setting+"\n":"")+(isFic?"POV: "+pm[pov]+"\n":"")+"Length: "+wt+"\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const categories=[
     {id:"fiction",icon:"book",label:"Fiction"},
     {id:"nonfiction",icon:"newspaper",label:"Non-Fiction"},
@@ -3585,20 +3627,21 @@ export function HumanizeMode({user}){
   const INTENSITIES=[{id:"light",label:"Light",desc:"Fix obvious AI patterns, keep structure"},{id:"moderate",label:"Moderate",desc:"Rewrite rhythm and sentence variety"},{id:"deep",label:"Deep",desc:"Full transformation at your level"}];
   const levelRules=buildHumanizeLevelRules(level);
   const RULES="STRICT RULES: 1. Use simple sentence structure and one main idea per sentence. Most sentences should be 8 to 18 words. 2. Do not invent questions or use a question merely as a transition. 3. Keep the length close to the source. Do not pad a short idea into a longer paragraph. 4. NO em dashes. 5. No colon to introduce lists mid-sentence. 6. No not-only-but-also. 7. Never start with: Furthermore, Moreover, Additionally, In conclusion, To summarize, Notably, Evidently, Consequently, Nevertheless. 8. Never use: delve, navigate, landscape, realm, crucial, vital, foster, leverage, robust, multifaceted, comprehensive, streamline, cutting-edge, pivotal, testament, transformative, paradigm, holistic, synergy. 9. Use contractions when the purpose allows. 10. Vary rhythm without making sentences complicated. 11. Use simple connectors. 12. Preserve paragraph breaks, headings, list structure, facts, names, figures, and direct quotations. Numeric citations in square brackets have already been removed. Never add them back. 13. Match CEFR "+level+". 14. Match purpose: "+purpose+". 15. LEVEL-SPECIFIC FORMAT: "+(levelRules||"Use natural vocabulary and sentence patterns appropriate for this advanced level.");
-  const process=async()=>{
+  // Renamed from `process`, which shadowed Node's global used for CRA env vars.
+  const runHumanize=async()=>{
     if(!text.trim())return;setPhase("pass1");setError("");setRes(null);
     const cleanedSource=removeBracketedNumberCitations(text);
     const iMap={light:"Fix 3 to 5 obvious AI patterns. Keep original structure.",moderate:"Rewrite most sentences. Break up long ones. Same meaning but feels human.",deep:"Fully rewrite. Sound like a real "+LD[level]+" English speaker. Unrecognizable as AI."};
-    const p1sys="You are an expert at making AI-written text sound like a real human wrote it.\\n\\n"+RULES+"\\n\\nReturn ONLY valid JSON with no markdown fences:\\n{\"humanized\":\"the complete rewritten text\",\"changes\":[{\"what\":\"short label\",\"why\":\"short reason\"}]}\\nThe humanized field must contain the complete text. Keep changes to at most four short items. If space is limited, return an empty changes array rather than shortening the humanized text.";
+    const p1sys="You are an expert at making AI-written text sound like a real human wrote it.\n\n"+RULES+"\n\nReturn ONLY valid JSON with no markdown fences:\n{\"humanized\":\"the complete rewritten text\",\"changes\":[{\"what\":\"short label\",\"why\":\"short reason\"}]}\nThe humanized field must contain the complete text. Keep changes to at most four short items. If space is limited, return an empty changes array rather than shortening the humanized text.";
     let p1;
-    const passOnePrompt="Intensity: "+intensity+" — "+iMap[intensity]+"\\n\\nOriginal text with numeric bracket citations removed:\\n"+cleanedSource;
+    const passOnePrompt="Intensity: "+intensity+" — "+iMap[intensity]+"\n\nOriginal text with numeric bracket citations removed:\n"+cleanedSource;
     const passOneBudget=humanizeOutputTokenBudget(cleanedSource);
     try{
       try{p1=await callHumanizePass(p1sys,passOnePrompt,passOneBudget);}
       catch(firstError){
         if(!isRetryableHumanizeResponseError(firstError))throw firstError;
         const retryBudget=Math.min(8192,Math.max(6000,passOneBudget+1400));
-        p1=await callHumanizePass(p1sys+"\\n\\nRETRY REQUIREMENT: The previous response was incomplete or malformed. Return one complete JSON object. Escape paragraph breaks inside JSON strings and finish the humanized field before adding any change notes.",passOnePrompt,retryBudget);
+        p1=await callHumanizePass(p1sys+"\n\nRETRY REQUIREMENT: The previous response was incomplete or malformed. Return one complete JSON object. Escape paragraph breaks inside JSON strings and finish the humanized field before adding any change notes.",passOnePrompt,retryBudget);
       }
     }
     catch(e){
@@ -3606,9 +3649,9 @@ export function HumanizeMode({user}){
       setPhase("");return;
     }
     setPhase("pass2");
-    const p2sys="You are a strict human-writing reviewer. Make the writing clearer and simpler. Remove every rhetorical question the rewrite introduced. Do not add numeric citations in square brackets.\\n\\n"+RULES+"\\n\\nReturn ONLY valid JSON:\\n{\"humanized\":\"reviewed text\",\"note\":\"one short sentence\"}";
+    const p2sys="You are a strict human-writing reviewer. Make the writing clearer and simpler. Remove every rhetorical question the rewrite introduced. Do not add numeric citations in square brackets.\n\n"+RULES+"\n\nReturn ONLY valid JSON:\n{\"humanized\":\"reviewed text\",\"note\":\"one short sentence\"}";
     let finalText,note;
-    try{const d2=await callHumanizePass(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\\n\\n"+p1.humanized,humanizeOutputTokenBudget(p1.humanized));finalText=d2.humanized||p1.humanized;note=d2.note||"";}
+    try{const d2=await callHumanizePass(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\n\n"+p1.humanized,humanizeOutputTokenBudget(p1.humanized));finalText=d2.humanized||p1.humanized;note=d2.note||"";}
     catch(e){finalText=p1.humanized;note="";}
     finalText=cleanHumanizedFormatting(removeBracketedNumberCitations(finalText));
     finalText=limitQuestionsToSource(finalText,cleanedSource);
@@ -3617,13 +3660,14 @@ export function HumanizeMode({user}){
   };
   const diffWords=(orig,updated)=>{const ow=orig.split(/\s+/),uw=updated.split(/\s+/);return uw.map((word,i)=>({word,changed:ow[i]!==word}));};
   const isLoading=phase!=="";const loadingLabel=phase==="pass1"?"Pass 1 — Rewriting...":phase==="pass2"?"Pass 2 — Reviewing...":"";
+  // Same trap fix as AcademicMode — the modal only renders while showHNotice is true.
   if(!hAccepted)return(
     <>
-      <IntegrityModal type="humanize" accepted={false}
+      {showHNotice&&<IntegrityModal type="humanize" accepted={false}
         onAccept={()=>{acceptNotice("humanize");setHAccepted(true);setShowHNotice(false);}}
         onCancel={()=>setShowHNotice(false)}
-      />
-      <div style={{textAlign:"center",padding:"60px 20px",color:"#8eacc4",fontSize:14}}>Accept the Responsible Use Notice to continue.</div>
+      />}
+      <NoticeGate label="Accept the Responsible Use Notice to continue." color={C.violet} onOpen={()=>setShowHNotice(true)}/>
     </>
   );
   return(
@@ -3641,7 +3685,7 @@ export function HumanizeMode({user}){
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]} · {(["A1","A2","B1"].includes(level)?"common words and short sentences · ":"")}{["A1","A2","B1","B2"].includes(level)?"no rhetorical questions":"natural advanced phrasing"}</div></div>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={p.icon} size={18} color={purpose===p.id?C.violet:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:4}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
       <div style={{marginBottom:14}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Transformation Intensity</div>{INTENSITIES.map(iv=>(<div key={iv.id} onClick={()=>setIntensity(iv.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:intensity===iv.id?C.violetSoft:C.surface,border:`1px solid ${intensity===iv.id?C.violet:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",marginBottom:6}}><div><div style={{fontSize:13,fontWeight:700,color:intensity===iv.id?C.violet:C.text}}>{iv.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{iv.desc}</div></div><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${intensity===iv.id?C.violet:C.border}`,background:intensity===iv.id?C.violet:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{intensity===iv.id&&<div style={{width:7,height:7,borderRadius:"50%",background:"#000"}}/>}</div></div>))}</div>
-      <button onClick={process} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?C.card:`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
+      <button onClick={runHumanize} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?C.card:`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
         {isLoading?(<><Spin color={C.violet}/><span style={{color:C.violet}}>{loadingLabel}</span></>):<IconLabel name="humanize">Humanize My Writing</IconLabel>}
       </button>
       {isLoading&&(<div style={{marginTop:10,display:"flex",gap:6,alignItems:"center"}}><div style={{flex:1,height:3,borderRadius:2,background:phase==="pass1"||phase==="pass2"?"rgba(192,132,252,0.6)":C.border,transition:"background 0.4s"}}/><div style={{flex:1,height:3,borderRadius:2,background:phase==="pass2"?"rgba(192,132,252,0.6)":C.border,transition:"background 0.4s"}}/><div style={{fontSize:12,color:C.violet,flexShrink:0}}>{phase==="pass1"?"1 of 2":"2 of 2"}</div></div>)}
@@ -4828,6 +4872,10 @@ function MainApp(){
             return{...u,trialUsed:u.trialUsed||!!sub.trialUsed}; // protect the trial
           }
           const isPermanentAdmin=!!sub.isAdmin&&!!sub.allFeatures;
+          // A real subscription (or admin grant) supersedes any local trial —
+          // clear it so the trial-ended prompt can't fire on a paying customer
+          // whose session still holds a trial started on another device.
+          const supersedesTrial=isPermanentAdmin||(isPaidPlan(sub.plan)&&sub.status!=="local_trial");
           return{...u,
             plan:sub.plan,
             billing:sub.billing||u.billing,
@@ -4837,8 +4885,8 @@ function MainApp(){
             allFeatures:!!sub.allFeatures,
             // server-side trial (Stripe customer metadata) — restores an active
             // trial started on another device, and blocks double-trials.
-            trialPlan:sub.status==="local_trial"?sub.plan:isPermanentAdmin?null:u.trialPlan,
-            trialEndsAt:sub.trialEndsAt||(isPermanentAdmin?null:u.trialEndsAt),
+            trialPlan:sub.status==="local_trial"?sub.plan:supersedesTrial?null:u.trialPlan,
+            trialEndsAt:sub.trialEndsAt||(supersedesTrial?null:u.trialEndsAt),
             trialUsed:u.trialUsed||!!sub.trialUsed,
           };
         });
@@ -4855,24 +4903,28 @@ function MainApp(){
     }
   },[user]);
 
-  // Cardless-trial expiry check. Runs on mount AND on a 60s interval, since a
-  // user could leave the tab open straight through their trial's end time
-  // without triggering any other state change that would re-run a mount-only
-  // effect. A plain date comparison every 60s is cheap — no network calls.
-  const [showTrialEndedPrompt,setShowTrialEndedPrompt]=useState(false);
+  // Cardless-trial expiry. A 60s clock tick re-renders so a tab left open
+  // through the end time still notices; the prompt is DERIVED from state
+  // rather than set as a side effect inside a setUser updater (updaters must be
+  // pure — StrictMode double-invokes them).
+  // Bug fix: expiry used to only show the prompt while leaving plan="pro"/
+  // "student", so backing out of Pricing kept paid features unlocked (and the
+  // prompt came back every 60s). Access is now revoked the moment the trial
+  // ends, matching /api/get-subscription, which already reports "free";
+  // trialPlan is kept until the user makes a choice so the prompt knows which
+  // tier they were trialing.
+  const [now,setNow]=useState(()=>Date.now());
   useEffect(()=>{
-    const checkTrialExpiry=()=>{
-      setUser(u=>{
-        if(u&&u.trialEndsAt&&new Date(u.trialEndsAt)<=new Date()){
-          setShowTrialEndedPrompt(true);
-        }
-        return u; // read-only check, never mutates user here
-      });
-    };
-    checkTrialExpiry();
-    const interval=setInterval(checkTrialExpiry,60000);
-    return()=>clearInterval(interval);
+    const id=setInterval(()=>setNow(Date.now()),60000);
+    return()=>clearInterval(id);
   },[]);
+  const trialExpired=isTrialExpired(user,now);
+  useEffect(()=>{
+    if(trialExpired&&user&&user.plan===user.trialPlan){
+      setUser(u=>({...u,plan:"free"}));
+    }
+  },[trialExpired,user]);
+  const [showContact,setShowContact]=useState(false);
   
  const handleGetStarted=()=>{setAuthTab("signup");setScreen("auth");};
   const handleSignIn=()=>{setAuthTab("signin");setScreen("auth");};
@@ -4925,10 +4977,19 @@ function MainApp(){
       if(targetPlan==="student")openPricing("student");
       return;
     }
+    // A consumed trial can't be restarted: skip the "3 days free, no card"
+    // prompt and go straight to the paid plans (skipTrial checkout).
+    if(hasUsedTrial(user)){openPricing(targetPlan);return;}
     setTrialInfo({mode,targetPlan});
   };
   const handlePricingSelect=(plan,billing)=>{
-    if(plan==="free"){setUser(u=>u?{...u,plan:"free"}:u);setScreen("app");return;}
+    if(plan==="free"){
+      // Edge case: a real Stripe subscriber picking "Free" here would only flip
+      // a local flag while Stripe keeps billing (and the next load flips it
+      // back). Leave their plan alone — cancelling is a Settings/Stripe action.
+      if(!hasRealSubscription(user))setUser(u=>u?{...u,plan:"free",trialPlan:null,trialEndsAt:null,trialUsed:hasUsedTrial(u)}:u);
+      setScreen("app");return;
+    }
     setPricingInitialTab(plan);
     // Edge case: `user.trialPlan` covers users mid-trial from before the
     // trialUsed flag existed (backward compat with already-stored sessions).
@@ -4981,6 +5042,10 @@ function MainApp(){
   // entire fix for "credit card required upfront": the plan unlocks immediately
   // and a 3-day clock starts locally.
   const handleTrialStart=(targetPlan)=>{
+    // Guard: one trial per account. The server also answers 409, but when that
+    // call fails (offline, 5xx) startCardlessTrial falls back to a local grant,
+    // which must never hand a second trial to someone who already used theirs.
+    if(hasUsedTrial(user)){openPricing(targetPlan);return;}
     startCardlessTrial(targetPlan);
     setTrialInfo(null);
     // Deliberately no setScreen() call — user stays exactly where they were,
@@ -4996,15 +5061,18 @@ function MainApp(){
   // TrialModal (with fallback essay copy) to render over TrialEndedModal if
   // the user navigated back to the app without completing payment.
   const handleTrialContinue=()=>{
-    setShowTrialEndedPrompt(false);
-    openPricing(user?.trialPlan||"pro");
+    // Clearing trialPlan dismisses the prompt for good; trialUsed stays, so
+    // Pricing routes to the paid (skipTrial) checkout. Backing out of Pricing
+    // leaves them on Free with no repeat nag.
+    const preferredPlan=user?.trialPlan||"pro";
+    setUser(u=>({...u,plan:"free",trialPlan:null,trialEndsAt:null,trialUsed:true}));
+    openPricing(preferredPlan);
   };
 
   // User chose "Switch to Free". Nothing was ever billed, so this is a pure
   // local state change — no server call needed.
   const handleTrialDowngrade=()=>{
-    setShowTrialEndedPrompt(false);
-    setUser(u=>({...u,plan:"free",trialPlan:null,trialEndsAt:null}));
+    setUser(u=>({...u,plan:"free",trialPlan:null,trialEndsAt:null,trialUsed:true}));
   };
 
   const handlePaymentComplete=async()=>{
@@ -5031,14 +5099,15 @@ function MainApp(){
   // setScreen("pricing"/"payment"), so this single check covers them all —
   // no per-button gating that could drift out of sync (DRY). The website
   // (isTwaApp()===false) renders the exact same screens as before.
-  if(screen==="pricing")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PricingScreen user={user} initialTab={pricingInitialTab} onSelect={handlePricingSelect} onContact={()=>{}} onBack={()=>setScreen("app")}/>);
+  // Bug fix: onContact was a no-op, so "Questions? Contact us" did nothing.
+  if(screen==="pricing")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <><PricingScreen user={user} initialTab={pricingInitialTab} onSelect={handlePricingSelect} onContact={()=>setShowContact(true)} onBack={()=>setScreen("app")}/>{showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}</>);
   if(screen==="payment")return themed(isTwaApp()? <TwaSubscriptionNotice onBack={()=>setScreen("app")}/> : <PaymentScreen user={user} billing={paymentInfo?.billing||"monthly"} targetPlan={paymentInfo?.targetPlan||"pro"} skipTrial={!!paymentInfo?.skipTrial} onComplete={handlePaymentComplete} onBack={()=>setScreen("pricing")} theme={theme}/>);
 
   return themed(
     <>
       <AppShell user={user} onSignOut={handleSignOut} onUpdateUser={handleUpdateUser} activeMode={activeMode} setActiveMode={setActiveMode} onUpgrade={handleUpgrade} onChangePlan={()=>openPricing(user?.plan==="student"?"student":"pro")} onCancelPlan={flag=>setUser(u=>({...u,cancelAtPeriodEnd:flag!==false}))} theme={theme} onToggleTheme={toggleTheme} starEffect={starEffect} onToggleStarEffect={toggleStarEffect}/>
       {trialInfo&&<TrialModal mode={trialInfo.mode} targetPlan={trialInfo.targetPlan} onStart={handleTrialStart} onClose={()=>setTrialInfo(null)}/>}
-      {showTrialEndedPrompt&&user?.trialPlan&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
+      {trialExpired&&<TrialEndedModal targetPlan={user.trialPlan} onContinue={handleTrialContinue} onDowngrade={handleTrialDowngrade}/>}
     </>
   );
 }
