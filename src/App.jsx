@@ -5,9 +5,12 @@ import { Elements, CardElement, useStripe, useElements } from "@stripe/react-str
 import GwmIcon from "./GwmIcon";
 import { dedupeHistoryItems, historyItemsMatch } from "./historyDedupe";
 import { HISTORY_INITIAL_VISIBLE, HISTORY_REVEAL_STEP, prepareHistoryItems } from "./historyPaging";
-import MeetingAssistMode from "./MeetingAssistMode";
+import { requestJson } from "./requestJson";
+import { ModeBoundary, LazyMeetingAssistMode as MeetingAssistMode } from "./ModeBoundary";
+import { buildCefrWritingRules, writingOutputTokenBudget } from "./cefrWriting";
+import { CefrLevelSelector, WritingProficiencyProvider, useWritingProficiency } from "./WritingProficiency";
 import { speak, stopSpeak } from "./voiceApi";
-import { buildHumanizeLevelRules, cleanHumanizedFormatting, limitQuestionsToSource, removeBeginnerDashPunctuation, removeBracketedNumberCitations } from "./humanizeText";
+import { buildHumanizeLevelRules, cleanHumanizedFormatting, removeBracketedNumberCitations } from "./humanizeText";
 import { humanizeOutputTokenBudget, isRetryableHumanizeResponseError, parseHumanizeResponse } from "./humanizeResponse";
 import AiDetectionPanel from "./AiDetectionPanel";
 import StarField from "./StarField";
@@ -22,6 +25,7 @@ import { defaultSlideElementPosition, editableSlideSupportingText, normalizeSlid
 import { DEFAULT_SLIDE_FONT, DEFAULT_SLIDE_THEME, GOOGLE_SLIDE_FONTS, normalizeSlideHex, SLIDE_FONTS, SLIDE_THEMES, slideContrast, slideFontStack, slidePalette, slideThemeById } from "./slideTheme";
 import { SlideFrame } from "./SlideRenderer";
 import { drawSlideCanvas } from "./slideCanvas";
+import { loadSlideImage, loadDeckSlideImages, loadPptxGenerator, slideCanvasBlob, slideCanvasDataUrl } from "./slideExport";
 import { normalizeSlideSources, withSourcesSlide } from "./slideSources";
 import { mergeSavedProfile, saveProfile } from "./profilePersistence";
 
@@ -383,7 +387,6 @@ const TONES = [
   {id:"professional", icon:"professional",label:"Professional", desc:"clean, polished"},
 ];
 
-const LEVELS = ["A1","A2","B1","B2","C1","C2"];
 const ESSAY_TYPES = ["Argumentative","Descriptive","Expository","Narrative","Compare & Contrast","Reflective","Statement of Purpose","Personal Statement","Cover Letter"];
 // Item 4: one-line explanations shown under the Generate button so users who
 // don't know the terms can pick confidently. Keys must match ESSAY_TYPES.
@@ -540,8 +543,8 @@ const HS = {
     try{fetch("/api/history",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,item:full})}).catch(()=>{});}catch(e){}
     return full;
   },
-  load:(email,mode)=>{try{const r=localStorage.getItem(HS.key(email,mode));return r?JSON.parse(r):[];}catch{return[];}},
-  modes:["reply","email","essay","presentation","interview","slides","study","meeting","academic","portfolio","cv","author","grammar","humanize","story","manga"],
+  load:(email,mode)=>{try{const r=JSON.parse(localStorage.getItem(HS.key(email,mode))||"[]");return Array.isArray(r)?r.filter(item=>item&&typeof item==="object"):[];}catch{return[];}},
+  modes:["reply","writing","email","essay","presentation","interview","slides","study","meeting","academic","portfolio","cv","author","grammar","humanize","story","manga"],
   loadAll:(email)=>dedupeHistoryItems(HS.modes.flatMap(m=>HS.load(email,m).map(e=>({...e,mode:m})))),
   // Pull the server copy. Returns {ok:true,items} or {ok:false,error} — the
   // error MESSAGE is surfaced (bug fix: the old version returned null on any
@@ -549,8 +552,7 @@ const HS = {
   // "no items" and sync problems were invisible to the user).
   fetchRemote:async(email)=>{
     try{
-      const r=await fetch("/api/history?email="+encodeURIComponent(email));
-      const d=await r.json().catch(()=>({}));
+      const {response:r,data:d}=await requestJson("/api/history?email="+encodeURIComponent(email),{},{timeoutMs:20000});
       if(!r.ok)return{ok:false,error:d.error||("Server error "+r.status)};
       return{ok:true,items:Array.isArray(d.items)?d.items:[]};
     }catch(e){return{ok:false,error:"Could not reach the sync server."};}
@@ -577,15 +579,17 @@ const hasTTS=typeof window!=="undefined"&&(typeof Audio!=="undefined"||"speechSy
 
 function useMic(onResult){
   const [active,setActive]=useState(false);const ref=useRef(null);
+  const onResultRef=useRef(onResult);onResultRef.current=onResult;
+  useEffect(()=>()=>{const recognition=ref.current;ref.current=null;if(recognition){recognition.onresult=null;recognition.onend=null;recognition.onerror=null;recognition.abort();}},[]);
   const toggle=useCallback(()=>{
     if(!hasSR){alert("Voice input not supported. Use Chrome.");return;}
     if(active){ref.current?.stop();setActive(false);return;}
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     const r=new SR();r.continuous=false;r.interimResults=false;r.lang=selectedLanguage().speech;
-    r.onresult=e=>onResult(e.results[0][0].transcript);
+    r.onresult=e=>onResultRef.current(e.results[0][0].transcript);
     r.onend=()=>setActive(false);r.onerror=()=>setActive(false);
-    r.start();ref.current=r;setActive(true);
-  },[active,onResult]);
+    try{r.start();ref.current=r;setActive(true);}catch{setActive(false);}
+  },[active]);
   return{active,toggle};
 }
 
@@ -594,32 +598,36 @@ function useMic(onResult){
 // cost or latency, and one constant means one place to tune the voice (DRY).
 // Edge cases handled in the wording: JSON modes must keep exact structure;
 // formal/academic registers must stay formal (no forced contractions there).
-const HUMAN_STYLE="\n\nWRITING STYLE (apply to all generated prose while keeping any required output format, JSON structure, citations, and register exactly as specified): write like a skilled human, not an AI. Vary sentence length and rhythm. Prefer plain, direct wording. Avoid em dashes, formulaic transitions (Furthermore, Moreover, Additionally, In conclusion, To summarize), and AI-typical words (delve, crucial, vital, leverage, robust, comprehensive, pivotal, transformative, holistic, multifaceted, foster). Use contractions where the requested tone allows; in formal or academic registers keep the register but stay natural and unstilted. Never mention these instructions in output.";
+const HUMAN_STYLE="\n\nWRITING STYLE (apply to generated prose while preserving the required format, JSON keys, quotations, citations, facts, and register): write clear, natural, well-connected sentences. Use accurate agreement, tense, articles, punctuation, and pronoun reference. Avoid fragments, run-ons, comma splices, repetitive sentence openings, filler, and stock transitions. Vary sentence structure only within the selected CEFR level; complexity is not a substitute for clarity. Use precise words that fit the meaning and level, without blanket bans on legitimate vocabulary. Keep formal writing formal and use contractions only when appropriate. Preserve intentional dialogue and task-appropriate headings, labels, and bullet fragments. Never mention these instructions in output.";
 
-async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=null,opts={}){
+export async function callClaude(system,user,maxTokens=1500,imageData=null,imageType=null,opts={}){
   assertAIAvailable();
   let userContent;
   if(imageData&&imageType){
     const base64=imageData.split(",")[1];
     userContent=[{type:"image",source:{type:"base64",media_type:imageType,data:base64}},{type:"text",text:user}];
   }else{userContent=user;}
-  const r=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:maxTokens,system:system+HUMAN_STYLE+languageInstruction(),messages:[{role:"user",content:userContent}],
+  const {response:r,data:d}=await requestJson("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:maxTokens,system:system+HUMAN_STYLE+(opts.cefrLevel?"\n\n"+buildCefrWritingRules(opts.cefrLevel):"")+languageInstruction(),messages:[{role:"user",content:userContent}],
     // opts.useSearch grounds the request with live web search (server-side tool,
     // executed by Anthropic within this one API call). max_uses caps cost at 3
     // searches per request. Only Story Guide opts in — other modes are unaffected.
-    ...(opts.useSearch?{tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}]}:{})})});
+    ...(opts.useSearch?{tools:[{type:"web_search_20250305",name:"web_search",max_uses:3}]}:{})})},opts);
   if(!r.ok){
     if(r.status===429)throw new Error("You're generating a bit fast — please wait a few seconds and try again.");
     if(r.status===529)throw new Error("Our AI provider is a little overloaded right now. Please try again in a moment.");
-    const err=await r.json().catch(()=>({}));throw new Error(err?.error?.message||"API error "+r.status);
+    throw new Error(d?.error?.message||(typeof d?.error==="string"?d.error:"API error "+r.status));
   }
-  const d=await r.json();const text=d.content?.map(b=>b.text||"").join("")||"";
+  const text=Array.isArray(d?.content)?d.content.map(b=>b?.text||"").join(""):"";
+  if(!opts.returnMetadata&&["max_tokens","model_context_window_exceeded"].includes(d?.stop_reason))throw new Error("The result ended before it was complete. Please try a shorter source or request a shorter result.");
+  if(!text.trim())throw new Error("The AI returned an empty result. Please try again.");
   return opts.returnMetadata?{text,stopReason:d.stop_reason||""}:text;
 }
 
-async function callHumanizePass(system,user,maxTokens){
-  const response=await callClaude(system,user,maxTokens,null,null,{returnMetadata:true});
-  if(response.stopReason==="max_tokens"){
+async function callHumanizePass(system,user,maxTokens,opts={}){
+  // Both Humanize passes already include the full level policy in their
+  // rewrite rules; do not send a second copy of the same instructions.
+  const response=await callClaude(system,user,maxTokens,null,null,{...opts,cefrLevel:undefined,returnMetadata:true});
+  if(["max_tokens","model_context_window_exceeded"].includes(response.stopReason)){
     const error=new Error("The rewrite ended before it was complete.");error.code="HUMANIZE_RESPONSE_INCOMPLETE";throw error;
   }
   return parseHumanizeResponse(response.text);
@@ -645,30 +653,37 @@ function parseModelJSON(raw){
 // token cap, file validation, and API secret.
 export async function callStudioAI(system,user,maxOutputTokens=5000,files=[],userId="",opts={}){
   assertAIAvailable();
-  const controller=new AbortController();const timeoutMs=Math.max(15000,Number(opts.timeoutMs)||120000);const timeout=setTimeout(()=>controller.abort(),timeoutMs);
-  const cancel=()=>controller.abort();
-  if(opts.signal?.aborted)cancel();else opts.signal?.addEventListener("abort",cancel,{once:true});
-  let r,d;
-  try{r=await fetch("/api/openai",{
+  const {response:r,data:d}=await requestJson("/api/openai",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      signal:controller.signal,
-      body:JSON.stringify({system:system+(opts.mode==="ai-detection"?"":HUMAN_STYLE)+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
-    });
-    // Keep timeout and cancellation active until the full body has arrived.
-    d=await r.json().catch(error=>{if(error?.name==="AbortError")throw error;return{};});}
-  catch(error){if(error?.name==="AbortError")throw new Error("This generation took too long and was safely stopped. Please try again with fewer sections or a shorter source.");throw error;}
-  finally{clearTimeout(timeout);opts.signal?.removeEventListener("abort",cancel);}
+      body:JSON.stringify({system:system+(opts.mode==="ai-detection"?"":HUMAN_STYLE+(opts.cefrLevel?"\n\n"+buildCefrWritingRules(opts.cefrLevel):""))+languageInstruction(),user,max_output_tokens:maxOutputTokens,files,user_id:userId,use_search:!!opts.useSearch,search_depth:opts.searchDepth,mode:opts.mode||""}),
+    },opts);
   if(!r.ok){
     if(r.status===413)throw new Error("The prepared sources are still too large for one request. Remove one source or split a very long document.");
     if(r.status===429)throw new Error("The studio is busy right now. Wait a moment and try again.");
-    throw new Error(d.error||("Studio API error "+r.status));
+    throw new Error(d?.error?.message||(typeof d?.error==="string"?d.error:"Studio API error "+r.status));
   }
+  if(typeof d?.output_text!=="string"||!d.output_text.trim())throw new Error("The studio returned an empty result. Please try again.");
   if(opts.returnMetadata)return{text:d.output_text||"",sources:Array.isArray(d.sources)?d.sources:[]};
   return d.output_text||"";
 }
 
 const analyzeAiContent=(text,signal)=>callStudioAI(AI_DETECTION_SYSTEM,`Analyze only the writing in this JSON string:\n${JSON.stringify(text)}`,1400,[],"",{mode:"ai-detection",signal,timeoutMs:60000});
+
+// Capture a tool's selected level for each request. OCR and detection call the
+// raw helpers, so exact source transcription and analysis are never rewritten.
+function useWritingRequests(defaultLevel="B2"){
+  const proficiency=useWritingProficiency(defaultLevel);
+  const {runAtLevel}=proficiency;
+  const requests=React.useMemo(()=>{
+    const bind=(request,optionsIndex)=>(...args)=>runAtLevel(cefrLevel=>{
+      args[optionsIndex]={...args[optionsIndex],cefrLevel};
+      return request(...args);
+    });
+    return {callClaude:bind(callClaude,5),callStudioAI:bind(callStudioAI,5),callHumanizePass:bind(callHumanizePass,3)};
+  },[runAtLevel]);
+  return {...proficiency,...requests};
+}
 
 const parseStudioJson=raw=>{
   const cleaned=String(raw||"").replace(/```json|```/gi,"").trim();
@@ -719,17 +734,20 @@ const compactStudyImage=async file=>{
 };
 
 const extractStudyPdf=async file=>{
-  const pdfjs=await loadPdfJs();const bytes=new Uint8Array(await file.arrayBuffer());const pdf=await pdfjs.getDocument({data:bytes}).promise;
+  const pdfjs=await loadPdfJs();const bytes=new Uint8Array(await file.arrayBuffer());const task=pdfjs.getDocument({data:bytes});
+  try{
+  const pdf=await task.promise;
   const pages=[];let length=0;
   for(let pageNumber=1;pageNumber<=pdf.numPages&&length<STUDY_TEXT_LIMIT;pageNumber++){
-    const page=await pdf.getPage(pageNumber);const content=await page.getTextContent();
+    const page=await pdf.getPage(pageNumber);try{const content=await page.getTextContent();
     const pageText=content.items.map(item=>String(item.str||"")+(item.hasEOL?"\n":" ")).join("").replace(/[ \t]+\n/g,"\n").trim();
     if(pageText){const labelled=`\n\n[Page ${pageNumber}]\n${pageText}`;pages.push(labelled);length+=labelled.length;}
-    page.cleanup();
+    }finally{page.cleanup();}
   }
   const extracted=pages.join("").slice(0,STUDY_TEXT_LIMIT).trim();
   if(!extracted)throw new Error(`${file.name} has no readable text. For a scanned PDF, upload its pages as images.`);
   return {name:file.name,type:"text/plain",size:file.size,dataUrl:textDataUrl(`Source file: ${file.name}\n${extracted}`),preparedLabel:`${Math.min(pdf.numPages,pages.length)} pages prepared on this device`};
+  }finally{await task.destroy();}
 };
 
 const extractStudyDocument=async file=>{
@@ -866,8 +884,12 @@ const GenMoreBtn=({onClick,loading,label="Generate More"})=>(
   <button onClick={onClick} disabled={loading} style={{padding:"6px 13px",borderRadius:6,background:"transparent",border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:loading?"default":"pointer",fontFamily:"inherit",opacity:loading?0.6:1}}>{loading?"Generating...":<IconLabel name="refresh">{label}</IconLabel>}</button>
 );
 
-function ImageInput({onImage,imageData,onClear,onExtract}){
+export function ImageInput({onImage,imageData,onClear,onExtract}){
   const fileRef=useRef(null);const camRef=useRef(null);
+  const pendingRef=useRef(null);
+  const cancelRead=useCallback(()=>{pendingRef.current?.abort();pendingRef.current=null;},[]);
+  useEffect(()=>cancelRead,[cancelRead]);
+  useEffect(()=>{if(!imageData){cancelRead();setReading("idle");}},[imageData,cancelRead]);
   // Item 3: when a mode passes onExtract, the AI reads the photo IMMEDIATELY
   // on attach (OCR + content extraction) and inserts the text into the mode's
   // input field — so Generate is ready the moment reading finishes, instead of
@@ -876,16 +898,21 @@ function ImageInput({onImage,imageData,onClear,onExtract}){
   // fails (edge case: unreadable/blurry photo — status shows a warning but the
   // attachment stays usable).
   const [reading,setReading]=useState("idle"); // idle | reading | done | error
-  const handle=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=async ev=>{
+  const handle=e=>{const f=e.target.files[0];if(!f)return;e.target.value="";cancelRead();const controller=new AbortController();pendingRef.current=controller;const r=new FileReader();
+  controller.signal.addEventListener("abort",()=>{if(r.readyState===1)r.abort();},{once:true});
+  r.onerror=()=>{if(!controller.signal.aborted)setReading("error");};
+  r.onload=async ev=>{
+    if(controller.signal.aborted)return;
     const data=ev.target.result,type=f.type;
     onImage(data,type);
     if(onExtract){
       setReading("reading");
       try{
-        const txt=await callClaude("You extract content from images. Output ONLY the text found in the image, transcribed exactly. If the image contains little or no text, output a concise factual description of its relevant content instead. No preamble, no commentary.","Read this image.",1200,data,type);
+        const txt=await callClaude("You extract content from images. Output ONLY the text found in the image, transcribed exactly. If the image contains little or no text, output a concise factual description of its relevant content instead. No preamble, no commentary.","Read this image.",1200,data,type,{signal:controller.signal});
+        if(controller.signal.aborted)return;
         if(txt&&txt.trim())onExtract(txt.trim());
         setReading("done");
-      }catch(err){setReading("error");}
+      }catch(err){if(!controller.signal.aborted)setReading("error");}
     }
   };r.readAsDataURL(f);};
   if(imageData)return(
@@ -894,7 +921,7 @@ function ImageInput({onImage,imageData,onClear,onExtract}){
       {reading==="reading"&&<div style={{fontSize:12,color:C.blueText,marginTop:5}}><IconLabel name="scan">Reading photo…</IconLabel></div>}
       {reading==="done"&&<div style={{fontSize:12,color:C.greenText,marginTop:5}}><IconLabel name="check">Photo read — ready to generate</IconLabel></div>}
       {reading==="error"&&<div style={{fontSize:12,color:C.yellowText,marginTop:5}}><IconLabel name="alert">Couldn't read the photo (it's still attached)</IconLabel></div>}
-      <button aria-label="Remove attached image" onClick={()=>{setReading("idle");onClear();}} style={{position:"absolute",top:6,right:6,width:28,height:28,borderRadius:"50%",background:"rgba(0,0,0,0.72)",border:"1px solid rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={13}/></button>
+      <button aria-label="Remove attached image" onClick={()=>{cancelRead();setReading("idle");onClear();}} style={{position:"absolute",top:6,right:6,width:28,height:28,borderRadius:"50%",background:"rgba(0,0,0,0.72)",border:"1px solid rgba(255,255,255,0.18)",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><GwmIcon name="close" size={13}/></button>
       <div style={{fontSize:12,color:C.muted,marginTop:5}}><IconLabel name="paperclip">Image attached — GhostwriterMe will read it</IconLabel></div>
     </div>
   );
@@ -2477,6 +2504,7 @@ function PaymentScreen({user,billing,targetPlan,skipTrial,onComplete,onBack,them
 // Stateless API strategy: callClaude has no server-side memory, so every send
 // embeds the full context + conversation so far in one user message.
 function FollowUpChat({context,intro,accent,requestReply,placeholder="e.g. How can I strengthen my thesis?"}){
+  const {callClaude}=useWritingRequests();
   const [msgs,setMsgs]=useState([]);
   const [q,setQ]=useState("");
   const [busy,setBusy]=useState(false);
@@ -2761,6 +2789,7 @@ function HistoryMode({user}){
 }
 
 function ReplyMode({user,isPro,onUpgradeClick}){
+  const {callClaude}=useWritingRequests();
   const [msg,setMsg]=useState("");const [tone,setTone]=useState("confident");const [noDesp,setNoDesp]=useState(false);
   const [replies,setReplies]=useState([]);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
@@ -2807,6 +2836,7 @@ function ReplyMode({user,isPro,onUpgradeClick}){
 }
 
 function WritingMode({user}){
+  const {callClaude}=useWritingRequests();
   const [notes,setNotes]=useState("");const [style,setStyle]=useState("natural");const [outputType,setOutputType]=useState("sentence");const [result,setResult]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const STYLES=[{value:"natural",label:"Natural"},{value:"professional",label:"Professional"},{value:"friendly",label:"Friendly"},{value:"formal",label:"Formal"},{value:"vivid",label:"Vivid"}];
   const generate=async()=>{
@@ -2835,6 +2865,7 @@ function WritingMode({user}){
 }
 
 function EmailMode({user}){
+  const {callClaude}=useWritingRequests();
   const [etype,setEtype]=useState("professional");const [ctx,setCtx]=useState("");const [rec,setRec]=useState("");
   const [kp,setKp]=useState("");const [tone,setTone]=useState("professional");const [len,setLen]=useState("medium");
   const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
@@ -2844,21 +2875,31 @@ function EmailMode({user}){
 }
 
 function GrammarMode({user}){
+  const {callClaude}=useWritingRequests();
   const [text,setText]=useState("");const [style,setStyle]=useState("formal");const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);const [genId,setGenId]=useState(0);
-  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\n\n\""+text+"\"",2000,imgData,imgType);const r=parseModelJSON(raw);setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammarHistory(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const check=async()=>{if(!text.trim())return;setLoading(true);setError("");setRes(null);const s=GRAMMAR_STYLES.find(x=>x.id===style);try{const raw=await callClaude("Expert grammar checker. Assess actual grammar and meaning in the source. Do not report correct simple sentences as errors just because the target level is higher. Preserve original error excerpts exactly. Apply the selected English level to your rewritten text and explanations. Return ONLY valid JSON: {\"errors\":[{\"type\":\"grammar|spelling|punctuation|style\",\"original\":\"...\",\"fixed\":\"...\",\"explanation\":\"brief\"}],\"rewritten\":\"full rewritten\",\"score\":0-100,\"summary\":\"one sentence\"}","Check & rewrite in "+s.label+" ("+s.desc+") style:\n\n\""+text+"\"",Math.max(2000,writingOutputTokenBudget(text.trim().split(/\s+/).length,{structured:true})),imgData,imgType);const r=parseModelJSON(raw);setRes(r);setGenId(g=>g+1);if(user)HS.save(user.email,"grammar",{title:"Grammar: "+text.slice(0,40),input:text,output:fmtGrammarHistory(r)});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const sc=res?(res.score>=80?C.green:res.score>=60?C.yellow:C.red):C.blue;
   return(<div><FArea label="Paste Your Text" placeholder="Any text — email, essay, message..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/><div style={{marginBottom:12}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Rewrite Style</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{GRAMMAR_STYLES.map(s=><button key={s.id} onClick={()=>setStyle(s.id)} style={{background:style===s.id?C.accentSoft:C.surface,border:`1px solid ${style===s.id?C.blue:C.border}`,borderRadius:8,padding:"11px 7px",cursor:"pointer",textAlign:"center",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><div style={{display:"flex",justifyContent:"center",marginBottom:6}}><GwmIcon name={s.icon} size={20} color={style===s.id?C.blue:C.muted}/></div><div style={{fontSize:13,fontWeight:700}}>{s.label}</div><div style={{fontSize:12,color:C.muted,marginTop:2,lineHeight:1.3}}>{s.desc}</div></button>)}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>setText(v=>v?v+"\n\n"+t:t)}/><PriBtn onClick={check} loading={loading} disabled={!text.trim()}><IconLabel name="grammar">Check & Rewrite</IconLabel></PriBtn>{error&&<ErrBox msg={error}/>}{res&&<div style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><Card style={{marginBottom:9,display:"flex",alignItems:"center",gap:14}}><div style={{width:54,height:54,borderRadius:"50%",border:`3px solid ${sc}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:16,fontWeight:900,color:sc,lineHeight:1}}>{res.score}</span><span style={{fontSize:11,color:C.muted}}>SCORE</span></div><div><div style={{fontSize:14,color:C.text,marginBottom:2}}>{res.summary}</div><div style={{fontSize:13,color:C.muted}}>{res.errors?.length||0} issue{res.errors?.length!==1?"s":""} found</div></div></Card>{res.errors?.length>0&&<Card style={{marginBottom:9}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Issues Found</div>{res.errors.map((e,i)=>{const tc={grammar:C.red,spelling:"#93c5fd",punctuation:C.green,style:"#c4b5fd"}[e.type]||C.muted;return<div key={i} style={{padding:"8px 0",borderBottom:i<res.errors.length-1?`1px solid ${C.border}`:"none"}}><span style={{fontSize:11,letterSpacing:"0.1em",textTransform:"uppercase",color:tc,background:tc+"22",padding:"2px 5px",borderRadius:3}}>{e.type}</span><div style={{display:"flex",gap:6,fontSize:13,marginTop:5,marginBottom:2,flexWrap:"wrap",alignItems:"center"}}><span style={{color:C.red,textDecoration:"line-through"}}>{e.original}</span><span style={{color:C.muted}}>→</span><span style={{color:C.green}}>{e.fixed}</span></div><div style={{fontSize:12,color:C.muted}}>{e.explanation}</div></div>;})}</Card>}<Card><div style={{fontSize:11,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Rewritten — {GRAMMAR_STYLES.find(s=>s.id===style)?.label}</div><div style={{fontSize:14,lineHeight:1.85,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.rewritten}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.rewritten}/><ListenBtn text={res.rewritten}/><SaveAsImageBtn text={res.rewritten} title="Grammar Rewrite"/><GenMoreBtn onClick={()=>{setText("");setStyle("formal");setRes(null);setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card><FollowUpChat key={genId} context={"ORIGINAL TEXT:\n"+text.slice(0,4000)+"\n\nISSUES FOUND:\n"+JSON.stringify(res.errors||[])+"\n\nREWRITTEN VERSION:\n"+(res.rewritten||"").slice(0,4000)} intro="Ask about any correction — e.g. why something was changed, or the grammar rule behind it." accent={C.blue}/></div>}</div>);
 }
 
 function EssayMode({user}){
-  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [level,setLevel]=useState("B2");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
-  const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Mastery"};
-  const gen=async()=>{if(!topic.trim())return;setLoading(true);setError("");setEssay("");try{const beginner=["A1","A2","B1"].includes(level);const res=await callClaude("Expert essay writer. Calibrate EXACTLY to CEFR level. "+(beginner?"For A1-B1, use short direct sentences and do not use em dashes, en dashes, or standalone hyphens as punctuation. ":"")+"Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,2000,imgData,imgType);const cleaned=beginner?removeBeginnerDashPunctuation(res):res;setEssay(cleaned);if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:cleaned});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
-  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=><button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?C.text:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>)}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]}</div></div><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="essay">Generate Essay</IconLabel></PriBtn>
+  const {level,setLevel,callClaude}=useWritingRequests();
+  const [resultLevel,setResultLevel]=useState(null);
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [type,setType]=useState("Argumentative");const [wc,setWc]=useState("500");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
+  const gen=async()=>{
+    if(!topic.trim()||loading)return;
+    setLoading(true);setError("");setEssay("");
+    try{
+      const res=await callClaude("You are an essay writer. Develop a clear central idea, group related points into coherent paragraphs, and connect reasons and examples naturally. Match the requested essay type and selected English level without losing accuracy. Do not invent evidence. Write ONLY the essay.","Write a "+type+" essay on: \""+topic+"\"\nKey points: "+(details||"none")+"\nCEFR: "+level+"\nWords: ~"+wc,writingOutputTokenBudget(wc),imgData,imgType);
+      setEssay(res);setResultLevel(level);
+      if(user)HS.save(user.email,"essay",{title:topic,input:type+", "+level+", "+wc+"w",output:res});
+    }catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
+  };
+  return(<div><FArea label="Essay Topic" placeholder="e.g. The impact of social media on mental health" value={topic} onChange={e=>setTopic(e.target.value)} rows={2} voice/><FArea label="Key Points (optional)" placeholder="e.g. Stats, comparisons, case studies..." value={details} onChange={e=>setDetails(e.target.value)} rows={3} voice/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}><FSelect label="Essay Type" value={type} onChange={setType} options={ESSAY_TYPES}/><FSelect label="Word Count" value={wc} onChange={setWc} options={["100","150","200","300","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/></div><CefrLevelSelector level={level} onChange={setLevel} disabled={loading}/><ImageInput onImage={(d,t)=>{setImgData(d);setImgType(t);}} imageData={imgData} onClear={()=>{setImgData(null);setImgType(null);}} onExtract={t=>{setTopic(v=>v||t.split("\n")[0].slice(0,120));setDetails(v=>v?v+"\n\n"+t:t);}}/><PriBtn onClick={gen} loading={loading} disabled={!topic.trim()}><IconLabel name="essay">Generate Essay</IconLabel></PriBtn>
     <div style={{marginTop:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px"}}>
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:6}}>Essay Types Explained</div>
       {ESSAY_TYPES.map(t=>(<div key={t} style={{fontSize:12,lineHeight:1.55,marginBottom:3}}><span style={{fontWeight:700,color:t===type?C.blue:C.text}}>{t}:</span> <span style={{color:C.muted}}>{ESSAY_TYPE_INFO[t]}</span></div>))}
-    </div>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {level}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><EditableTextResult value={essay} onChange={setEssay} label={`${type} essay`}/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setLevel("B2");setType("Argumentative");setWc("500");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>}</div>);
+    </div>{error&&<ErrBox msg={error}/>}{essay&&<Card style={{marginTop:16,animation:"fadeUp 0.4s ease"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>{type} · {resultLevel}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div><EditableTextResult value={essay} onChange={setEssay} label={`${type} essay`}/><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={type+" Essay"}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setType("Argumentative");setWc("500");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div></Card>}</div>);
 }
 
 
@@ -2946,6 +2987,7 @@ Users are responsible for ensuring that their use of this feature complies with 
 
 // ============ ACADEMIC REVIEWER (primary) ============
 function AcademicReviewer({user}){
+  const {callClaude}=useWritingRequests();
   const [text,setText]=useState("");
   const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const [res,setRes]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [genId,setGenId]=useState(0);
@@ -2953,7 +2995,7 @@ function AcademicReviewer({user}){
   const analyze=async()=>{
     if(!text.trim()&&!imgData){setError("Paste your essay or attach an image of it first.");return;}
     setLoading(true);setError("");setRes(null);
-    const sys=`You are an academic writing coach and reviewer, like a university writing center tutor. Review the student's OWN essay and give constructive, educational feedback to help them improve it themselves. DO NOT rewrite the essay for them. Be specific and reference their actual content.
+    const sys=`You are an academic writing coach and reviewer, like a university writing center tutor. Review the student's OWN essay and give constructive, educational feedback at the selected English level to help them improve it themselves. Assess the actual essay; do not infer the writer's proficiency from the selected output level or lower a grammar score solely for simple correct language. DO NOT rewrite the essay for them. Be specific and reference their actual content.
 
 Return ONLY valid JSON, no markdown fences:
 {
@@ -3065,6 +3107,7 @@ const RESEARCH_TASKS=[
   {id:"litreview",icon:"research", label:"Lit Review Framework",desc:"Organize your sources"},
 ];
 function ResearchAssistant({user}){
+  const {callClaude}=useWritingRequests();
   const [task,setTask]=useState("thesis");
   const [topic,setTopic]=useState("");const [ctx,setCtx]=useState("");
   const [out,setOut]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
@@ -3123,6 +3166,7 @@ function ResearchAssistant({user}){
 }
 
 function DeepResearchMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const [question,setQuestion]=useState("");const [scope,setScope]=useState("");const [depth,setDepth]=useState("6");
   const [out,setOut]=useState("");const [sources,setSources]=useState([]);const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [genId,setGenId]=useState(0);
   const generate=async()=>{
@@ -3157,14 +3201,15 @@ function DeepResearchMode({user}){
 // ============ ACADEMIC DRAFT BUILDER ============
 const CEFR_DESC={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-Intermediate",C1:"Advanced",C2:"Proficient"};
 function DraftBuilder({user}){
-  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [cites,setCites]=useState([{type:"url",value:""}]);const [wc,setWc]=useState("1000");const [style,setStyle]=useState("APA");const [level,setLevel]=useState("C1");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
+  const {level,callClaude}=useWritingRequests("C1");
+  const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [cites,setCites]=useState([{type:"url",value:""}]);const [wc,setWc]=useState("1000");const [style,setStyle]=useState("APA");const [essay,setEssay]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const addC=()=>setCites([...cites,{type:"url",value:""}]);const remC=i=>setCites(cites.filter((_,j)=>j!==i));const updC=(i,fld,v)=>{const c=[...cites];c[i]={...c[i],[fld]:v};setCites(c);};
   const gen=async()=>{
     if(!topic.trim())return;setLoading(true);setError("");setEssay("");
     const cl=cites.filter(c=>c.value.trim()).map((c,i)=>"["+(i+1)+"] "+(c.type==="url"?"URL":"PDF")+": "+c.value).join("\n");
     const prompt="Topic: \""+topic+"\"\nArguments: "+(details||"none")+"\nTarget length: ~"+wc+" words\nCitation style: "+style+(cl?"\nSources:\n"+cl:"");
     const sys="You are an academic writing assistant. Produce a STRUCTURED EXAMPLE DRAFT to help a student understand how to approach this topic — a starting point they will revise and expand with their own analysis. Use "+style+" citations and include a References section. Write at CEFR "+level+" ("+CEFR_DESC[level]+") English level — calibrate vocabulary, sentence complexity, and academic register to exactly this level. Begin the output with the line: [EXAMPLE DRAFT — revise and expand with your own work]";
-    try{const res=await callClaude(sys,prompt,2500,imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:"Draft: "+topic,input:"draft:"+style+","+wc+"w,"+level,output:res});}
+    try{const res=await callClaude(sys,prompt,writingOutputTokenBudget(Number(wc)+200),imgData,imgType);setEssay(res);if(user)HS.save(user.email,"academic",{title:"Draft: "+topic,input:"draft:"+style+","+wc+"w,"+level,output:res});}
     catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}
   };
   return(
@@ -3179,15 +3224,6 @@ function DraftBuilder({user}){
         <FSelect label="Citation Style" value={style} onChange={setStyle} options={["APA","MLA","Chicago","Harvard","Vancouver","IEEE"]}/>
         <FSelect label="Length" value={wc} onChange={setWc} options={["100","150","200","500","750","1000","1500","2000"].map(n=>({value:n,label:n+" words"}))}/>
       </div>
-      <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>English Level (CEFR)</div>
-        <div style={{display:"flex",gap:5}}>
-          {LEVELS.map(l=>(
-            <button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.accentSoft:C.surface,border:`1px solid ${level===l?C.blue:C.border}`,color:level===l?"#fff":C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>
-          ))}
-        </div>
-        <div style={{fontSize:12,color:C.muted,marginTop:4}}>{level} — {CEFR_DESC[level]}</div>
-      </div>
       <div style={{marginBottom:12}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase"}}>Sources to Reference</div><button onClick={addC} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:5,padding:"3px 9px",color:C.blue,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button></div>
         {cites.map((c,i)=>(<div key={i} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}><select value={c.type} onChange={e=>updC(i,"type",e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 6px",color:C.text,fontSize:13,fontFamily:"inherit",width:76,flexShrink:0}}><option value="url">URL</option><option value="pdf">PDF</option></select><input value={c.value} onChange={e=>updC(i,"value",e.target.value)} placeholder={c.type==="url"?"https://...":"Author, Title, Year..."} style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"8px 10px",color:C.text,fontSize:13,fontFamily:"inherit",transition:"border-color 0.2s, box-shadow 0.2s"}} onFocus={e=>{e.target.style.borderColor=C.blue;e.target.style.boxShadow=`0 0 0 3px ${C.blueGlow}`;}} onBlur={e=>{e.target.style.borderColor=C.border;e.target.style.boxShadow="none";}}/>{cites.length>1&&<button aria-label="Remove source" onClick={()=>remC(i)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",flexShrink:0,padding:4}}><GwmIcon name="close" size={14}/></button>}</div>))}
@@ -3199,7 +3235,7 @@ function DraftBuilder({user}){
         <div style={{display:"flex",gap:8,background:"rgba(245,200,66,0.05)",border:"1px solid rgba(245,200,66,0.15)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={15} color={C.yellow}/><div style={{fontSize:12,color:C.yellow,lineHeight:1.55}}>This is an example starting point for research and learning. Review, revise, and ensure compliance with your institution's academic integrity policies before any use.</div></div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:11}}><span style={{fontSize:12,color:C.accent,textTransform:"uppercase",letterSpacing:"0.1em"}}>Example Draft · {style}</span><span style={{fontSize:12,color:C.muted}}>~{essay.split(/\s+/).length}w</span></div>
         <EditableTextResult value={essay} onChange={setEssay} serif label="academic draft"/>
-        <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Draft · "+style}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setCites([{type:"url",value:""}]);setWc("1000");setStyle("APA");setLevel("C1");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div>
+        <div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={essay}/><ListenBtn text={essay}/><SaveAsImageBtn text={essay} title={"Academic Draft · "+style}/><GenMoreBtn onClick={()=>{setTopic("");setDetails("");setCites([{type:"url",value:""}]);setWc("1000");setStyle("APA");setEssay("");setError("");setImgData(null);setImgType(null);}} loading={loading}/></div>
       </Card>}
     </div>
   );
@@ -3305,10 +3341,12 @@ function buildCvHtml(d,p,t,accent){
 
 const savePortfolioHistory=(user,title,input,output)=>{if(user?.email)HS.save(user.email,"portfolio",{title,input,output});};
 export function PortfolioMode({user}){
+  const {callStudioAI}=useWritingRequests();
   return <PortfolioStudio user={user} request={callStudioAI} save={savePortfolioHistory} compactImage={compactStudyImage} ui={{Card,FInput,FArea,StudioFileDrop,StudioTabs,PriBtn,CopyBtn,ErrBox,FollowUpChat}}/>;
 }
 
 function CVMode({user}){
+  const {callClaude}=useWritingRequests();
   const [step,setStep]=useState("form");
   const [personal,setPersonal]=useState({photo:null,name:"",title:"",email:"",phone:"",location:"",link:""});
   const [tr,setTr]=useState("");const [exp,setExp]=useState("");const [ski,setSki]=useState("");const [edu,setEdu]=useState("");const [ach,setAch]=useState("");
@@ -3425,6 +3463,7 @@ function CVMode({user}){
 
 // ============ STORY ANALYZER (Pro) ============
 function StoryAnalyzer({user}){
+  const {callClaude}=useWritingRequests();
   const [type,setType]=useState("movie");
   const [title,setTitle]=useState("");
   const [notes,setNotes]=useState("");
@@ -3577,11 +3616,12 @@ function StoryAnalyzer({user}){
 }
 
 function AuthorMode({user}){
+  const {callClaude}=useWritingRequests();
   const [cat,setCat]=useState("fiction");const [genre,setGenre]=useState("fantasy");const [nfg,setNfg]=useState("memoir");const [prompt,setPrompt]=useState("");const [chars,setChars]=useState("");const [setting,setSetting]=useState("");const [ot,setOt]=useState("scene");const [len,setLen]=useState("medium");const [pov,setPov]=useState("third");const [res,setRes]=useState("");const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [imgData,setImgData]=useState(null);const [imgType,setImgType]=useState(null);
   const OT=[{id:"scene",label:"Scene",desc:"Narrative"},{id:"opening",label:"Opening",desc:"Hook reader"},{id:"chapter",label:"Chapter",desc:"Full chapter"},{id:"outline",label:"Outline",desc:"Plot structure"},{id:"character",label:"Character",desc:"Profile"},{id:"dialogue",label:"Dialogue",desc:"Conversation"}];
   const ag=cat==="fiction"?FICTION_GENRES.find(g=>g.id===genre):NONFICTION_GENRES.find(g=>g.id===nfg);
   const wt={short:"~300 words",medium:"~600 words",long:"~1200 words"}[len];
-  const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\n"+prompt+"\n"+(chars?"Characters: "+chars+"\n":"")+(setting?"Setting: "+setting+"\n":"")+(isFic?"POV: "+pm[pov]+"\n":"")+"Length: "+wt+"\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,2500,imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
+  const gen=async()=>{if(!prompt.trim())return;setLoading(true);setError("");setRes("");const isFic=cat==="fiction";const sys=isFic?"Master "+(ag?.label)+" fiction author. Show don't tell. Write ONLY the content.":"Award-winning "+(ag?.label)+" non-fiction author. Write ONLY the content.";const pm={first:"First person",third:"Third person limited",omniscient:"Third person omniscient"};const fullP="Write a "+(ot==="chapter"?"full chapter":ot)+" in the "+(ag?.label)+" "+(isFic?"genre":"style")+".\n"+prompt+"\n"+(chars?"Characters: "+chars+"\n":"")+(setting?"Setting: "+setting+"\n":"")+(isFic?"POV: "+pm[pov]+"\n":"")+"Length: "+wt+"\nMake it feel like a published "+(ag?.label)+(isFic?" novel":" book")+".";try{const r=await callClaude(sys,fullP,writingOutputTokenBudget({short:300,medium:600,long:1200}[len]),imgData,imgType);setRes(r);if(user)HS.save(user.email,"author",{title:(ag?.label)+": "+prompt.slice(0,40),input:ot+", "+len,output:r});}catch(e){setError(e.message||"Something went wrong.");}finally{setLoading(false);}};
   const categories=[
     {id:"fiction",icon:"book",label:"Fiction"},
     {id:"nonfiction",icon:"newspaper",label:"Non-Fiction"},
@@ -3619,19 +3659,19 @@ function AuthorMode({user}){
 }
 
 export function HumanizeMode({user}){
+  const {level,setLevel,callHumanizePass}=useWritingRequests();
   const [hAccepted,setHAccepted]=useState(()=>isNoticeAccepted("humanize"));
   const [showHNotice,setShowHNotice]=useState(()=>!isNoticeAccepted("humanize"));
-  const [text,setText]=useState("");const [level,setLevel]=useState("B2");const [intensity,setIntensity]=useState("moderate");const [purpose,setPurpose]=useState("essay");const [res,setRes]=useState(null);const [phase,setPhase]=useState("");const [error,setError]=useState("");const [view,setView]=useState("output");const [hzHover,setHzHover]=useState(false);
-  const LD={A1:"Beginner",A2:"Elementary",B1:"Intermediate",B2:"Upper-intermediate",C1:"Advanced",C2:"Near-native"};
+  const [text,setText]=useState("");const [intensity,setIntensity]=useState("moderate");const [purpose,setPurpose]=useState("essay");const [res,setRes]=useState(null);const [phase,setPhase]=useState("");const [error,setError]=useState("");const [view,setView]=useState("output");const [hzHover,setHzHover]=useState(false);
   const PURPOSES=[{id:"essay",icon:"essay",label:"Essay",desc:"Academic"},{id:"email",icon:"mail",label:"Email",desc:"Professional"},{id:"report",icon:"report",label:"Report",desc:"Formal"},{id:"personal",icon:"reply",label:"Personal",desc:"Casual/Blog"}];
-  const INTENSITIES=[{id:"light",label:"Light",desc:"Fix obvious AI patterns, keep structure"},{id:"moderate",label:"Moderate",desc:"Rewrite rhythm and sentence variety"},{id:"deep",label:"Deep",desc:"Full transformation at your level"}];
+  const INTENSITIES=[{id:"light",label:"Light",desc:"Make focused corrections at your level"},{id:"moderate",label:"Moderate",desc:"Improve flow and sentence variety at your level"},{id:"deep",label:"Deep",desc:"Full transformation at your level"}];
   const levelRules=buildHumanizeLevelRules(level);
-  const RULES="STRICT RULES: 1. Use simple sentence structure and one main idea per sentence. Most sentences should be 8 to 18 words. 2. Do not invent questions or use a question merely as a transition. 3. Keep the length close to the source. Do not pad a short idea into a longer paragraph. 4. NO em dashes. 5. No colon to introduce lists mid-sentence. 6. No not-only-but-also. 7. Never start with: Furthermore, Moreover, Additionally, In conclusion, To summarize, Notably, Evidently, Consequently, Nevertheless. 8. Never use: delve, navigate, landscape, realm, crucial, vital, foster, leverage, robust, multifaceted, comprehensive, streamline, cutting-edge, pivotal, testament, transformative, paradigm, holistic, synergy. 9. Use contractions when the purpose allows. 10. Vary rhythm without making sentences complicated. 11. Use simple connectors. 12. Preserve paragraph breaks, headings, list structure, facts, names, figures, and direct quotations. Numeric citations in square brackets have already been removed. Never add them back. 13. Match CEFR "+level+". 14. Match purpose: "+purpose+". 15. LEVEL-SPECIFIC FORMAT: "+(levelRules||"Use natural vocabulary and sentence patterns appropriate for this advanced level.");
+  const RULES="REWRITING RULES: Preserve meaning, facts, qualifications, names, figures, quotations, paragraph breaks, headings, and list structure. Numeric bracket citations have already been removed; do not reinsert them. Improve grammatical sentence structure, logical connections, and natural collocations at the selected CEFR level. Keep a similar length without padding or omitting ideas. Adjust syntax to the target level even in light mode; do not make advanced writing uniformly short or simple. Do not invent rhetorical questions, remove necessary complexity, or substitute fancy words merely to sound advanced. Match the purpose: "+purpose+".\n\n"+levelRules;
   // Renamed from `process`, which shadowed Node's global used for CRA env vars.
   const runHumanize=async()=>{
     if(!text.trim())return;setPhase("pass1");setError("");setRes(null);
     const cleanedSource=removeBracketedNumberCitations(text);
-    const iMap={light:"Fix 3 to 5 obvious AI patterns. Keep original structure.",moderate:"Rewrite most sentences. Break up long ones. Same meaning but feels human.",deep:"Fully rewrite. Sound like a real "+LD[level]+" English speaker. Unrecognizable as AI."};
+    const iMap={light:"Make the smallest changes that improve grammar and meet the selected level; preserve the organisation where possible.",moderate:"Reshape awkward sentences and improve connections and rhythm within the selected level, preserving meaning.",deep:"Rework sentence and paragraph structure thoroughly within the selected level; preserve all substantive meaning and the original voice."};
     const p1sys="You are an expert at making AI-written text sound like a real human wrote it.\n\n"+RULES+"\n\nReturn ONLY valid JSON with no markdown fences:\n{\"humanized\":\"the complete rewritten text\",\"changes\":[{\"what\":\"short label\",\"why\":\"short reason\"}]}\nThe humanized field must contain the complete text. Keep changes to at most four short items. If space is limited, return an empty changes array rather than shortening the humanized text.";
     let p1;
     const passOnePrompt="Intensity: "+intensity+" — "+iMap[intensity]+"\n\nOriginal text with numeric bracket citations removed:\n"+cleanedSource;
@@ -3649,13 +3689,12 @@ export function HumanizeMode({user}){
       setPhase("");return;
     }
     setPhase("pass2");
-    const p2sys="You are a strict human-writing reviewer. Make the writing clearer and simpler. Remove every rhetorical question the rewrite introduced. Do not add numeric citations in square brackets.\n\n"+RULES+"\n\nReturn ONLY valid JSON:\n{\"humanized\":\"reviewed text\",\"note\":\"one short sentence\"}";
-    let finalText,note;
-    try{const d2=await callHumanizePass(p2sys,"Review and fix this text. Keep it direct, compact, and declarative:\n\n"+p1.humanized,humanizeOutputTokenBudget(p1.humanized));finalText=d2.humanized||p1.humanized;note=d2.note||"";}
+    const p2sys="You are a writing reviewer. Compare the rewrite with the original. Correct grammar, preserve meaning and voice, and enforce the selected CEFR sentence structures, vocabulary, and cohesion. Simplify only where the target level requires it; retain controlled complexity at B2, C1, and C2. Do not introduce rhetorical questions or numeric bracket citations.\n\n"+RULES+"\n\nReturn ONLY valid JSON:\n{\"humanized\":\"reviewed text\",\"note\":\"one short sentence\"}";
+    let finalText,note,reviewed=false;
+    try{const d2=await callHumanizePass(p2sys,"Original source:\n"+cleanedSource+"\n\nRewrite to review at CEFR "+level+":\n"+p1.humanized,humanizeOutputTokenBudget(p1.humanized));finalText=d2.humanized||p1.humanized;note=d2.note||"";reviewed=true;}
     catch(e){finalText=p1.humanized;note="";}
     finalText=cleanHumanizedFormatting(removeBracketedNumberCitations(finalText));
-    finalText=limitQuestionsToSource(finalText,cleanedSource);
-    const finalRes={humanized:finalText,changes:p1.changes||[],note};
+    const finalRes={humanized:finalText,changes:p1.changes||[],note,level,reviewed};
     setRes(finalRes);setView("output");if(user)HS.save(user.email,"humanize",{title:"Humanized: "+text.slice(0,40),input:text,output:finalText});setPhase("");
   };
   const diffWords=(orig,updated)=>{const ow=orig.split(/\s+/),uw=updated.split(/\s+/);return uw.map((word,i)=>({word,changed:ow[i]!==word}));};
@@ -3682,7 +3721,7 @@ export function HumanizeMode({user}){
       </div>
       <FArea label="Paste Your Text" placeholder="Paste any AI-generated or overly formal text here..." value={text} onChange={e=>setText(e.target.value)} rows={6} voice/>
       <AiDetectionPanel text={text} rewrittenText={res?.humanized} analyze={analyzeAiContent} disabled={isLoading}/>
-      <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:7}}>Your English Level (CEFR)</div><div style={{display:"flex",gap:5}}>{LEVELS.map(l=>(<button key={l} onClick={()=>setLevel(l)} style={{flex:1,padding:"7px 2px",borderRadius:6,background:level===l?C.violetSoft:C.surface,border:`1px solid ${level===l?C.violet:C.border}`,color:level===l?C.violet:C.muted,fontSize:13,fontWeight:level===l?800:400,cursor:"pointer",fontFamily:"inherit",transition:"all 0.15s"}}>{l}</button>))}</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>{LD[level]} · {(["A1","A2","B1"].includes(level)?"common words and short sentences · ":"")}{["A1","A2","B1","B2"].includes(level)?"no rhetorical questions":"natural advanced phrasing"}</div></div>
+      <CefrLevelSelector level={level} onChange={setLevel} disabled={isLoading}/>
       <div style={{marginBottom:13}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Writing Purpose</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>{PURPOSES.map(p=>(<button key={p.id} onClick={()=>setPurpose(p.id)} style={{background:purpose===p.id?C.violetSoft:C.surface,border:`1px solid ${purpose===p.id?C.violet:C.border}`,borderRadius:8,padding:"9px 10px",cursor:"pointer",textAlign:"left",color:C.text,fontFamily:"inherit",transition:"all 0.15s"}}><GwmIcon name={p.icon} size={18} color={purpose===p.id?C.violet:C.muted}/><div style={{fontSize:13,fontWeight:700,marginTop:4}}>{p.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{p.desc}</div></button>))}</div></div>
       <div style={{marginBottom:14}}><div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Transformation Intensity</div>{INTENSITIES.map(iv=>(<div key={iv.id} onClick={()=>setIntensity(iv.id)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 12px",background:intensity===iv.id?C.violetSoft:C.surface,border:`1px solid ${intensity===iv.id?C.violet:C.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",marginBottom:6}}><div><div style={{fontSize:13,fontWeight:700,color:intensity===iv.id?C.violet:C.text}}>{iv.label}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{iv.desc}</div></div><div style={{width:16,height:16,borderRadius:"50%",border:`2px solid ${intensity===iv.id?C.violet:C.border}`,background:intensity===iv.id?C.violet:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{intensity===iv.id&&<div style={{width:7,height:7,borderRadius:"50%",background:"#000"}}/>}</div></div>))}</div>
       <button onClick={runHumanize} disabled={isLoading||!text.trim()} onMouseEnter={()=>setHzHover(true)} onMouseLeave={()=>setHzHover(false)} style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:isLoading||!text.trim()?C.card:`linear-gradient(135deg,${C.violet},#c4b5fd)`,color:isLoading||!text.trim()?C.muted:"#000",fontSize:14,fontWeight:800,cursor:isLoading||!text.trim()?"not-allowed":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:9,transition:"all 0.2s",transform:!isLoading&&text.trim()&&hzHover?"translateY(-1px)":"none",boxShadow:isLoading||!text.trim()?"none":hzHover?"0 6px 26px rgba(192,132,252,0.45)":"0 4px 20px rgba(192,132,252,0.3)"}}>
@@ -3694,7 +3733,7 @@ export function HumanizeMode({user}){
         {res.note&&<div style={{background:C.violetSoft,border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 12px",marginBottom:10,display:"flex",gap:8}}><GwmIcon name="idea" size={17} color={C.violet}/><div style={{fontSize:13,color:C.violet,lineHeight:1.6}}>{res.note}</div></div>}
         {res.changes?.length>0&&(<Card style={{marginBottom:10,borderColor:"rgba(192,132,252,0.3)"}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>What Changed</div>{res.changes.map((c,i)=>(<div key={i} style={{display:"flex",gap:8,paddingBottom:i<res.changes.length-1?8:0,marginBottom:i<res.changes.length-1?8:0,borderBottom:i<res.changes.length-1?`1px solid ${C.border}`:"none"}}><GwmIcon name="check" size={14} color={C.violet} style={{marginTop:1}}/><div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{c.what}</div><div style={{fontSize:12,color:C.muted,marginTop:1}}>{c.why}</div></div></div>))}</Card>)}
         <div style={{display:"flex",background:C.surface,borderRadius:7,padding:3,marginBottom:10}}>{[{id:"output",icon:"checkDocument",label:"Final Output"},{id:"compare",icon:"compare",label:"Before vs After"}].map(v=>(<button key={v.id} onClick={()=>setView(v.id)} style={{flex:1,padding:"7px",borderRadius:5,border:"none",background:view===v.id?C.violet:"transparent",color:view===v.id?"#000":C.muted,fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.2s",fontFamily:"inherit"}}><IconLabel name={v.icon}>{v.label}</IconLabel></button>))}</div>
-        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(192,132,252,0.06)",border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={16} color={C.violet}/><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · 2-Pass Reviewed</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/><GenMoreBtn onClick={()=>{setText("");setLevel("B2");setIntensity("moderate");setPurpose("essay");setRes(null);setError("");setView("output");}} loading={isLoading}/></div></Card>)}
+        {view==="output"&&(<Card glow glowColor={C.violet}><div style={{display:"flex",gap:8,background:"rgba(192,132,252,0.06)",border:"1px solid rgba(192,132,252,0.2)",borderRadius:8,padding:"9px 11px",marginBottom:12}}><GwmIcon name="info" size={16} color={C.violet}/><div style={{fontSize:12,color:C.violet,lineHeight:1.55}}>Humanized content is provided to improve readability and writing quality. Users remain responsible for complying with academic, workplace, and institutional policies.</div></div><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Humanized Output · {res.level} · {res.reviewed?"2-Pass Reviewed":"First-Pass Rewrite"}</div><div style={{fontSize:14,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap",maxWidth:"64ch"}}>{res.humanized}</div><div style={{display:"flex",gap:7,marginTop:11,flexWrap:"wrap"}}><CopyBtn text={res.humanized}/><ListenBtn text={res.humanized}/><SaveAsImageBtn text={res.humanized} title="Humanized Writing"/><GenMoreBtn onClick={()=>{setText("");setIntensity("moderate");setPurpose("essay");setRes(null);setError("");setView("output");}} loading={isLoading}/></div></Card>)}
         {view==="compare"&&(<div><div style={{display:"flex",gap:10,marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(240,107,107,0.25)",border:"1px solid rgba(240,107,107,0.5)"}}/>Original</div><div style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:C.muted}}><div style={{width:10,height:10,borderRadius:2,background:"rgba(192,132,252,0.25)",border:"1px solid rgba(192,132,252,0.5)"}}/>Changed words</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.red,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Before</div><div style={{background:"rgba(240,107,107,0.05)",border:"1px solid rgba(240,107,107,0.2)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{text}</div></div><div style={{marginBottom:10}}><div style={{fontSize:11,color:C.violet,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>After</div><div style={{background:"rgba(192,132,252,0.05)",border:"1px solid rgba(192,132,252,0.25)",borderRadius:8,padding:"12px 14px",fontSize:13,lineHeight:1.9,color:C.text,whiteSpace:"pre-wrap"}}>{diffWords(text,res.humanized).map((w,i)=>(<span key={i}><span style={{background:w.changed?"rgba(192,132,252,0.22)":"transparent",borderRadius:w.changed?3:0,padding:w.changed?"1px 2px":0,color:w.changed?C.violet:C.text,fontWeight:w.changed?700:400}}>{w.word}</span>{i<res.humanized.split(/\s+/).length-1?" ":""}</span>))}</div></div><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{[{label:"Original words",val:text.split(/\s+/).filter(Boolean).length},{label:"Final words",val:res.humanized.split(/\s+/).filter(Boolean).length},{label:"Words changed",val:diffWords(text,res.humanized).filter(w=>w.changed).length},{label:"Change rate",val:Math.round(diffWords(text,res.humanized).filter(w=>w.changed).length/Math.max(res.humanized.split(/\s+/).filter(Boolean).length,1)*100)+"%"}].map(s=>(<div key={s.label} style={{flex:1,minWidth:70,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",textAlign:"center"}}><div style={{fontSize:14,fontWeight:900,color:C.violet}}>{s.val}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{s.label}</div></div>))}</div><OutputActions text={res.humanized}/></div>)}
       </div>)}
     </div>
@@ -3729,6 +3768,7 @@ async function mangaHistoryImages(images){
 }
 
 function MangaStudioMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const STYLES=[
     {id:"manga",label:"Manga B&W",desc:"Tapered ink, expressive anatomy, rich screentone and cinematic contrast"},
     {id:"manhwa",label:"Color Manhwa",desc:"Elegant faces, clean linework, polished cel shading and luminous color"},
@@ -3752,9 +3792,9 @@ function MangaStudioMode({user}){
   const requestPage=async(page,index,continuityDataUrl=null,sourcePack=pack)=>{
     const continuity=/^data:image\/(?:png|jpeg|webp);base64,/i.test(continuityDataUrl||"")?[continuityDataUrl]:[];
     const refs=continuity.length?[...continuity,...references.slice(0,1).map(file=>file.dataUrl)]:references.map(file=>file.dataUrl);
-    const response=await fetch("/api/manga-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:pagePrompt(page,index,sourcePack),references:refs})});
-    const data=await response.json().catch(()=>({}));
+    const {response,data}=await requestJson("/api/manga-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:pagePrompt(page,index,sourcePack),references:refs})},{timeoutMs:75000});
     if(!response.ok)throw new Error(data.error||`Page ${index+1} could not be illustrated.`);
+    if(!data?.image?.dataUrl)throw new Error(`Page ${index+1} returned no illustration. Please redraw it.`);
     return data.image;
   };
 
@@ -3844,6 +3884,7 @@ const studyBundleAsText=bundle=>{
 // longer present in MODES, navigation, pricing, landing cards, or rendering.
 // eslint-disable-next-line no-unused-vars
 function StudyMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const [website,setWebsite]=useState("");const [files,setFiles]=useState([]);const [focus,setFocus]=useState("");
   const [questionCount,setQuestionCount]=useState(10);const [questionType,setQuestionType]=useState("mixed");
   const [bundle,setBundle]=useState(null);const [tab,setTab]=useState("summary");const [loading,setLoading]=useState(false);const [error,setError]=useState("");
@@ -3925,6 +3966,7 @@ const presentationAsText=result=>{
 const PRESENTATION_TIME_PRESETS=["5","10","15","20","30"];
 
 export function PresentationMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const cacheKey="gwm_presentation_result_"+String(user?.email||"guest").trim().toLowerCase();
   const [workflow,setWorkflow]=useState("create");
   const [topic,setTopic]=useState("");const [audience,setAudience]=useState("");const [details,setDetails]=useState("");
@@ -4012,6 +4054,7 @@ export function PresentationMode({user}){
 }
 
 function InterviewMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const [role,setRole]=useState("");const [company,setCompany]=useState("");const [level,setLevel]=useState("mid");const [details,setDetails]=useState("");
   const [requirements,setRequirements]=useState([]);const [cv,setCv]=useState([]);const [tone,setTone]=useState("standard");const [count,setCount]=useState("6");const [pace,setPace]=useState("1");
   const [pack,setPack]=useState(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
@@ -4112,15 +4155,7 @@ const slideSupportingText=slide=>String(slide?.supportingText||"").trim();
 
 const slideDeckAsText=deck=>`${deck?.title||"Slide Deck"}${deck?.subtitle?"\n"+deck.subtitle:""}\n\n${(deck?.slides||[]).filter(s=>!s.isSources).map((s,i)=>`SLIDE ${i+1}: ${s.title}${slideSupportingText(s)?"\n"+slideSupportingText(s):""}${(s.bullets||[]).length?"\n"+(s.bullets||[]).map(point=>`• ${point}`).join("\n"):""}${s.speakerNotes?"\n\nSpeaker notes: "+s.speakerNotes:""}`).join("\n\n")}${(deck?.sources||[]).length?`\n\nSOURCES\n${deck.sources.map((source,index)=>`${index+1}. ${source.title} — ${source.url}`).join("\n")}`:""}`;
 
-const slideCanvasBlob=(canvas,type,quality)=>new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("The slide image could not be prepared.")),type,quality));
-const loadPptxGenerator=()=>new Promise((resolve,reject)=>{
-  if(window.PptxGenJS){resolve(window.PptxGenJS);return;}const existing=document.querySelector('script[data-gwm-pptx="true"]');
-  const ready=()=>window.PptxGenJS?resolve(window.PptxGenJS):reject(new Error("Google Slides export did not finish loading."));
-  if(existing){existing.addEventListener("load",ready,{once:true});existing.addEventListener("error",()=>reject(new Error("Google Slides export could not load.")),{once:true});return;}
-  const script=document.createElement("script");script.src="/pptxgen.bundle.js";script.async=true;script.dataset.gwmPptx="true";script.addEventListener("load",ready,{once:true});script.addEventListener("error",()=>reject(new Error("Google Slides export could not load.")),{once:true});document.head.appendChild(script);
-});
 
-const loadSlideImage=src=>new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error("An uploaded slide image could not be loaded."));image.src=src;});
 const compactSlideSource=async(source,maxDimension,quality)=>{
   const image=await loadSlideImage(source);const longest=Math.max(image.naturalWidth,image.naturalHeight);const scale=Math.min(1,maxDimension/Math.max(1,longest));
   const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));const ctx=canvas.getContext("2d");ctx.drawImage(image,0,0,canvas.width,canvas.height);
@@ -4134,14 +4169,10 @@ const prepareSlideImage=async file=>{
   return {id:`slide-image-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,name:file.name||"Uploaded image",dataUrl,historyDataUrl,fit:"cover"};
 };
 const requestSlideIllustration=async(slide,index,{themeName,themePrompt,deckTitle="",palette=null})=>{
-  const response=await fetch("/api/slide-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:slide.title,direction:slide.visualDirection,theme:`${themeName}. ${themePrompt}. Keep one coherent illustrated visual world across the complete deck.`,layout:slide.layout,deckTitle,palette:palette?{bg:palette.bg,accent:palette.accent}:undefined})});
-  const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||"The AI visual could not be created.");const dataUrl=result?.image?.dataUrl;if(!dataUrl)throw new Error("The AI visual returned no image.");
+  const {response,data:result}=await requestJson("/api/slide-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:slide.title,direction:slide.visualDirection,theme:`${themeName}. ${themePrompt}. Keep one coherent illustrated visual world across the complete deck.`,layout:slide.layout,deckTitle,palette:palette?{bg:palette.bg,accent:palette.accent}:undefined})},{timeoutMs:75000});
+  if(!response.ok)throw new Error(result.error||"The AI visual could not be created.");const dataUrl=result?.image?.dataUrl;if(!dataUrl)throw new Error("The AI visual returned no image.");
   const historyDataUrl=await compactSlideSource(dataUrl,480,.62);const position=defaultSlideElementPosition(slide.layout||"left-third","image",slide);
   return {id:`slide-ai-${Date.now()}-${index}-${Math.random().toString(36).slice(2,7)}`,name:`Illustration · ${slide.title}`,dataUrl,historyDataUrl,fit:"cover",generated:true,...normalizeSlideElementPosition(position,position,{image:true})};
-};
-const loadDeckSlideImages=async deck=>{
-  const map=new Map();const images=(deck?.slides||[]).flatMap(slide=>slide.customImages||[]);
-  await Promise.all(images.map(async item=>{try{map.set(item.id,await loadSlideImage(item.dataUrl));}catch{}}));return map;
 };
 
 const slideExportOptions=async(deck,design={})=>{
@@ -4151,7 +4182,7 @@ const slideExportOptions=async(deck,design={})=>{
 
 const downloadSlideDeckPdf=async(deck,design={})=>{
   const options=await slideExportOptions(deck,design);const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});
-  for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);pdf.addImage(canvas.toDataURL("image/jpeg",0.9),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight(),undefined,"FAST");}
+  for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);pdf.addImage(slideCanvasDataUrl(canvas,"image/jpeg",0.9),"JPEG",0,0,pdf.internal.pageSize.getWidth(),pdf.internal.pageSize.getHeight(),undefined,"FAST");}
   pdf.save("ghostwriterme-slide-deck.pdf");
 };
 
@@ -4163,6 +4194,7 @@ const downloadSlideDeckImages=async(deck,design={},type="image/png")=>{
 };
 
 function SlideGeneratorMode({user}){
+  const {callStudioAI}=useWritingRequests();
   const [topic,setTopic]=useState("");const [details,setDetails]=useState("");const [audience,setAudience]=useState("");const [theme,setTheme]=useState(DEFAULT_SLIDE_THEME.id);const [background,setBackground]=useState(DEFAULT_SLIDE_THEME.background);
   const [customTheme,setCustomTheme]=useState("");
   const [textColor,setTextColor]=useState("#f8fbff");
@@ -4255,7 +4287,7 @@ function SlideGeneratorMode({user}){
 
   const exportWord=async()=>{
     if(!deck)return;setExporting("word");setError("");
-    try{await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const options={background,textColor,theme,font,titleSize,bodySize,imageMap};const sections=deck.slides.map((slide,i)=>{const preview=drawSlideCanvas(deck,slide,i,options).toDataURL("image/jpeg",.9);return `<section style="page-break-after:always;margin-bottom:36px"><div style="color:${palette.accent};font-size:12px;font-weight:700">SLIDE ${i+1}</div><h2>${escapeHtml(slide.title)}</h2><img src="${preview}" alt="Slide ${i+1}" style="display:block;width:100%;max-width:960px;height:auto"/><h3>Speaker notes</h3><p>${escapeHtml(slide.speakerNotes||"")}</p></section>`;}).join("");
+    try{await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const options={background,textColor,theme,font,titleSize,bodySize,imageMap};const sections=deck.slides.map((slide,i)=>{const preview=slideCanvasDataUrl(drawSlideCanvas(deck,slide,i,options),"image/jpeg",.9);return `<section style="page-break-after:always;margin-bottom:36px"><div style="color:${palette.accent};font-size:12px;font-weight:700">SLIDE ${i+1}</div><h2>${escapeHtml(slide.title)}</h2><img src="${preview}" alt="Slide ${i+1}" style="display:block;width:100%;max-width:960px;height:auto"/><h3>Speaker notes</h3><p>${escapeHtml(slide.speakerNotes||"")}</p></section>`;}).join("");
       const html=`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(deck.title)}</title></head><body style="font-family:${escapeHtml(font)},Arial;color:#172535"><h1>${escapeHtml(deck.title)}</h1><p>${escapeHtml(deck.subtitle||"")}</p>${sections}</body></html>`;downloadBlob(new Blob([html],{type:"application/msword;charset=utf-8"}),"ghostwriterme-slide-deck.doc");setExportNotice("Word document downloaded with the edited slide visuals and speaker notes.");
     }catch(e){setError(e?.message||"The Word document could not be created.");}finally{setExporting("");}
   };
@@ -4264,7 +4296,7 @@ function SlideGeneratorMode({user}){
     if(!deck)return;setExporting("pdf");setError("");setExportNotice("");
     try{
       await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const {jsPDF}=await import("jspdf");const pdf=new jsPDF({orientation:"landscape",unit:"px",format:[1600,900],hotfixes:["px_scaling"],compress:true});const options={background,textColor,theme,font,titleSize,bodySize,imageMap};
-      for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);const width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight();pdf.addImage(canvas.toDataURL("image/jpeg",0.9),"JPEG",0,0,width,height,undefined,"FAST");}
+      for(let index=0;index<deck.slides.length;index++){if(index>0)pdf.addPage([1600,900],"landscape");const canvas=drawSlideCanvas(deck,deck.slides[index],index,options);const width=pdf.internal.pageSize.getWidth(),height=pdf.internal.pageSize.getHeight();pdf.addImage(slideCanvasDataUrl(canvas,"image/jpeg",0.9),"JPEG",0,0,width,height,undefined,"FAST");}
       pdf.save("ghostwriterme-slide-deck.pdf");setExportNotice(`PDF downloaded with ${deck.slides.length} slides.`);
     }catch(e){setError(e?.message||"The PDF could not be created. Please try again.");}finally{setExporting("");}
   };
@@ -4273,7 +4305,7 @@ function SlideGeneratorMode({user}){
     if(!deck)return;setExporting("google-slides");setError("");setExportNotice("");
     try{
       await prepareSlideFont();const imageMap=await loadDeckSlideImages(deck);const PptxGenJS=await loadPptxGenerator();const pptx=new PptxGenJS();pptx.layout="LAYOUT_WIDE";pptx.author="GhostwriterMe";pptx.subject=deck.subtitle||deck.title;pptx.title=deck.title;const options={background,textColor,theme,font,titleSize,bodySize,imageMap};
-      deck.slides.forEach((slide,index)=>{const page=pptx.addSlide();const canvas=drawSlideCanvas(deck,slide,index,options);page.addImage({data:canvas.toDataURL("image/png"),x:0,y:0,w:13.333,h:7.5});if(page.addNotes)page.addNotes(slide.speakerNotes||"");});
+      deck.slides.forEach((slide,index)=>{const page=pptx.addSlide();const canvas=drawSlideCanvas(deck,slide,index,options);page.addImage({data:slideCanvasDataUrl(canvas,"image/png"),x:0,y:0,w:13.333,h:7.5});if(page.addNotes)page.addNotes(slide.speakerNotes||"");});
       await pptx.writeFile({fileName:"ghostwriterme-google-slides.pptx",compression:true});setExportNotice("Google Slides file downloaded. Upload the .pptx at slides.google.com to continue editing or presenting.");
     }catch(e){setError(e?.message||"The Google Slides file could not be created.");}finally{setExporting("");}
   };
@@ -4385,7 +4417,7 @@ function SlideGeneratorMode({user}){
 function TrialModal({mode,targetPlan,onStart,onClose}){
   const [bill,setBill]=useState("monthly");
   const isStudent=targetPlan==="student";const planColor=isStudent?C.magenta:C.blue;
-  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},presentation:{icon:"presentation",title:"Presentation Mode",perks:["Scripts for 1–8 speakers","Fair timing and handoffs","Friend-script image review","Delivery coaching"]},interview:{icon:"interview",title:"Interview Simulator",perks:["CV + requirements tailoring","Spoken interview questions","Answer-by-answer feedback","Final readiness score"]},slides:{icon:"slides",title:"Slide Generator",perks:["Research-backed storyboards","AI and uploaded visuals","Inline text and image editing","Editable sources + PDF, Word and PPTX"]},manga:{icon:"manga",title:"Manga & Manhwa Studio",perks:["Original illustrated comic pages","Consistent character bible","Manga, manhwa, romance and action looks","High-resolution page downloads"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","C1/C2 English"]},portfolio:{icon:"portfolio",title:"University Portfolio",perks:["Create with your details and photos","Save your portfolio as PDF","PDF review with 1–100 scores","Follow-up coaching in both modes"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books and movies","Original plot summaries","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["Simple sentence structure","Numeric citation cleanup","No added rhetorical questions","Two-pass quality review"]}};
+  const M={essay:{icon:"essay",title:"Essay Writer",perks:["CEFR A1-C2 levels","6 essay types","Word count control","Instant generation"]},presentation:{icon:"presentation",title:"Presentation Mode",perks:["Scripts for 1–8 speakers","Fair timing and handoffs","Friend-script image review","Delivery coaching"]},interview:{icon:"interview",title:"Interview Simulator",perks:["CV + requirements tailoring","Spoken interview questions","Answer-by-answer feedback","Final readiness score"]},slides:{icon:"slides",title:"Slide Generator",perks:["Research-backed storyboards","AI and uploaded visuals","Inline text and image editing","Editable sources + PDF, Word and PPTX"]},manga:{icon:"manga",title:"Manga & Manhwa Studio",perks:["Original illustrated comic pages","Consistent character bible","Manga, manhwa, romance and action looks","High-resolution page downloads"]},academic:{icon:"academic",title:"Academic Essay",perks:["APA, MLA, Chicago & more","URL/PDF citations","Auto-references","CEFR A1–C2 English"]},portfolio:{icon:"portfolio",title:"University Portfolio",perks:["Create with your details and photos","Save your portfolio as PDF","PDF review with 1–100 scores","Follow-up coaching in both modes"]},cv:{icon:"cv",title:"CV / Resume Builder",perks:["4 CV styles","ATS-optimised","Full CV or by section","Tailored to role"]},author:{icon:"author",title:"Author Mode",perks:["8 fiction + 4 non-fiction","Scene, chapter, outline","POV selector","Literary quality"]},story:{icon:"story",title:"Story Analyzer",perks:["Books and movies","Original plot summaries","Characters, themes & conflicts","Chapter-by-chapter (books)"]},humanize:{icon:"humanize",title:"Humanize My Writing",perks:["CEFR-matched sentence structure","Numeric citation cleanup","No added rhetorical questions","Two-pass quality review"]}};
   const h=M[mode]||M.essay;
   return(
     <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,0.8)",backdropFilter:"blur(6px)",animation:"fadeUp 0.2s ease"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -4447,7 +4479,33 @@ function TrialEndedModal({targetPlan,onContinue,onDowngrade}){
   );
 }
 
-function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan,theme,onToggleTheme,starEffect,onToggleStarEffect}){
+// Preserve mode state without re-rendering every visited tool on shell changes.
+const ModeContent=React.memo(function ModeContent({id,user,isPro,onChangePlan}){
+  const {callStudioAI}=useWritingRequests();
+  switch(id){
+    case"reply":return <ReplyMode user={user} isPro={isPro} onUpgradeClick={onChangePlan}/>;
+    case"writing":return <WritingMode user={user}/>;
+    case"email":return <EmailMode user={user}/>;
+    case"grammar":return <GrammarMode user={user}/>;
+    case"essay":return <EssayMode user={user}/>;
+    case"presentation":return <PresentationMode user={user}/>;
+    case"interview":return <InterviewMode user={user}/>;
+    case"slides":return <SlideGeneratorMode user={user}/>;
+    case"meeting":return <MeetingAssistMode user={user} request={callStudioAI} save={entry=>HS.save(user?.email,"meeting",entry)} parseJson={parseStudioJson} ensureAI={assertAIAvailable} ui={{Card,FArea,PriBtn,ErrBox,IconLabel}}/>;
+    case"academic":return <AcademicMode user={user}/>;
+    case"cv":return <CVMode user={user}/>;
+    case"portfolio":return <PortfolioMode user={user}/>;
+    case"author":return <AuthorMode user={user}/>;
+    case"story":return <StoryAnalyzer user={user}/>;
+    case"humanize":return <HumanizeMode user={user}/>;
+    case"manga":return <MangaStudioMode user={user}/>;
+    default:return null;
+  }
+});
+
+export function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrade,onChangePlan,onCancelPlan,theme,onToggleTheme,starEffect,onToggleStarEffect}){
+  const changePlanRef=useRef(onChangePlan);changePlanRef.current=onChangePlan;
+  const changePlan=useCallback(()=>changePlanRef.current?.(),[]);
   const [showContact,setShowContact]=useState(false);
   const [showSettings,setShowSettings]=useState(false);
   const [showTerms,setShowTerms]=useState(false);
@@ -4504,35 +4562,13 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
     setActiveMode(next);
   };
 
-  const renderModeFor=(id)=>{
-    switch(id){
-      case"reply":return <ReplyMode user={user} isPro={isPro} onUpgradeClick={onChangePlan}/>;
-      case"writing":return <WritingMode user={user}/>;
-      case"email":return <EmailMode user={user}/>;
-      case"grammar":return <GrammarMode user={user}/>;
-      case"essay":return <EssayMode user={user}/>;
-      case"presentation":return <PresentationMode user={user}/>;
-      case"interview":return <InterviewMode user={user}/>;
-      case"slides":return <SlideGeneratorMode user={user}/>;
-      case"meeting":return <MeetingAssistMode user={user} request={callStudioAI} save={entry=>HS.save(user?.email,"meeting",entry)} parseJson={parseStudioJson} ensureAI={assertAIAvailable} ui={{Card,FArea,PriBtn,ErrBox,IconLabel}}/>;
-      case"academic":return <AcademicMode user={user}/>;
-      case"cv":return <CVMode user={user}/>;
-      case"portfolio":return <PortfolioMode user={user}/>;
-      case"author":return <AuthorMode user={user}/>;
-      case"story":return <StoryAnalyzer user={user}/>;
-      case"humanize":return <HumanizeMode user={user}/>;
-      case"manga":return <MangaStudioMode user={user}/>;
-      default:return null;
-    }
-  };
-
   const currentMode=MODES.find(m=>m.id===activeMode);
   const currentModeVisual=modeVisual(currentMode);
   const isProUpgradingToStudent=user.plan==="pro"&&currentMode?.access==="student";
 
-  if(showSettings){
-    return(
-      <>
+  return(
+    <>
+      {showSettings&&<>
         {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
         {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
         <SettingsScreen
@@ -4551,15 +4587,11 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
           onToggleStarEffect={onToggleStarEffect}
         />
         {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
-      </>
-    );
-  }
-
-  return(
-    <div style={{minHeight:"100dvh",background:"transparent",color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",display:"flex",flexDirection:"column",minWidth:0,maxWidth:"100%",overflowX:"clip"}}>
-      {showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
-      {showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
-      {showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
+      </>}
+    <div style={{minHeight:"100dvh",background:"transparent",color:C.text,fontFamily:"'Cabinet Grotesk',sans-serif",display:showSettings?"none":"flex",flexDirection:"column",minWidth:0,maxWidth:"100%",overflowX:"clip"}}>
+      {!showSettings&&showContact&&<ContactModal onClose={()=>setShowContact(false)}/>}
+      {!showSettings&&showTerms&&<TermsModal onClose={()=>setShowTerms(false)}/>}
+      {!showSettings&&showPrivacy&&<PrivacyModal onClose={()=>setShowPrivacy(false)}/>}
 
       <div className="app-chrome" style={{position:"sticky",top:0,zIndex:50,background:C.chrome,backdropFilter:"blur(14px)",borderBottom:`1px solid ${C.border}`}}>
         <div style={{maxWidth:600,margin:"0 auto",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -4618,10 +4650,14 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
             state intentionally drops if access is lost mid-session. */}
         {MODES.filter(m=>m.id!=="history"&&visited.has(m.id)&&!locked(m)&&!comingSoon(m)).map(m=>(
           <div key={m.id} style={{display:activeMode===m.id?"block":"none",paddingBottom:16}}>
-            {renderModeFor(m.id)}
+            <ModeBoundary label={m.label}>
+              <WritingProficiencyProvider defaultLevel={m.id==="academic"?"C1":"B2"} showSelector={m.id!=="essay"&&m.id!=="humanize"}>
+                <ModeContent id={m.id} user={user} isPro={isPro} onChangePlan={changePlan}/>
+              </WritingProficiencyProvider>
+            </ModeBoundary>
           </div>
         ))}
-        {activeMode==="history"&&(
+        {activeMode==="history"&&!showSettings&&(
           <div style={{paddingBottom:16}}>
             <HistoryMode user={user}/>
           </div>
@@ -4663,6 +4699,7 @@ function AppShell({user,onSignOut,onUpdateUser,activeMode,setActiveMode,onUpgrad
         </div>
       </div>
     </div>
+    </>
   );
 }
 
