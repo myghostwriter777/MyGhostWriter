@@ -4,14 +4,14 @@
  *  - NAVIGATIONS (loading the app itself): network-first, fall back to the
  *    last cached index.html only when offline. Network-first means a new
  *    Vercel deploy is picked up immediately — no stale-app bug reports.
- *  - STATIC ASSETS (/static/*, icons): cache-first. CRA fingerprints these
+ *  - FINGERPRINTED STATIC ASSETS (/static/*): cache-first. CRA fingerprints these
  *    filenames (main.abc123.js), so serving from cache is always safe.
  *  - EVERYTHING ELSE (/api/*, api.stripe.com, accounts.google.com, Supabase):
  *    NOT intercepted at all. The fetch handler returns early, so payments,
  *    OAuth and history sync behave exactly as they do today.
  */
 
-const CACHE_VERSION = "gwm-v2"; // bump this string to force-refresh old caches
+const CACHE_VERSION = "gwm-v3"; // bump this string to force-refresh old caches
 
 self.addEventListener("install", (event) => {
   // Pre-cache the app shell so offline fallback works from first install.
@@ -25,7 +25,7 @@ self.addEventListener("activate", (event) => {
   // Edge case: delete caches from previous versions so storage doesn't grow forever.
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k.startsWith("gwm-") && k !== CACHE_VERSION).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -46,24 +46,30 @@ self.addEventListener("fetch", (event) => {
       fetch(event.request)
         .then((res) => {
           // Keep the freshest shell for offline use.
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put("/", copy));
+          if (res.ok) {
+            const copy = res.clone();
+            event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.put("/", copy)).catch(() => {}));
+          }
           return res;
         })
-        .catch(() => caches.match("/"))
+        .catch(async () => (await caches.open(CACHE_VERSION)).match("/").then(cached => cached || Response.error()))
     );
     return;
   }
 
-  // 4) Static assets: cache-first, populate cache on first fetch.
+  // Support files such as the PDF worker and PPTX runtime have stable URLs.
+  // Caching them forever can mix old runtimes with new application code.
+  if (!/^\/static\/.+\.[a-f0-9]{8,}\./i.test(url.pathname)) return;
+
+  // 4) Fingerprinted assets: cache-first, populate cache on first fetch.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.open(CACHE_VERSION).then(cache => cache.match(event.request)).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((res) => {
         // Edge case: only cache successful, basic (same-origin) responses.
         if (res.ok && res.type === "basic") {
           const copy = res.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy));
+          event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.put(event.request, copy)).catch(() => {}));
         }
         return res;
       });

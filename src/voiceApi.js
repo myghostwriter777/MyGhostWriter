@@ -6,6 +6,7 @@ export const DEVICE_SPEECH_CHUNK_LIMIT = 220;
 let activeController = null;
 
 export function splitSpeechText(text, limit = DEVICE_SPEECH_CHUNK_LIMIT) {
+  limit = Number.isFinite(Number(limit)) && Number(limit) >= 1 ? Math.floor(Number(limit)) : DEVICE_SPEECH_CHUNK_LIMIT;
   const input = String(text || "").trim();
   if (!input) return [];
   if (input.length <= limit) return [input];
@@ -19,7 +20,7 @@ export function splitSpeechText(text, limit = DEVICE_SPEECH_CHUNK_LIMIT) {
   };
 
   for (const paragraph of paragraphs) {
-    const sentences = paragraph.match(/[^.!?\n]+[.!?]+(?:["'”’)]*)|[^.!?\n]+$/g) || [paragraph];
+    const sentences = paragraph.match(/[^.!?\n]+[.!?]+(?:["'”’)]*)|[^.!?\n]+(?=\n|$)/g) || [paragraph];
     for (const sentence of sentences) {
       const piece = sentence.trim();
       if (!piece) continue;
@@ -53,13 +54,26 @@ function speakOnDevice(text, language, speed, signal) {
       reject(new Error("Voice playback is not supported on this device."));
       return;
     }
+    if (signal.aborted) { resolve(); return; }
     const utterance = new SpeechSynthesisUtterance(text);
+    const finish = error => {
+      signal.removeEventListener("abort", abort);
+      utterance.onend = null;
+      utterance.onerror = null;
+      if (error) reject(error); else resolve();
+    };
+    const abort = () => {
+      // Browsers do not consistently emit an end/error event after cancel().
+      // Settle ourselves so callers can leave their playing state immediately.
+      finish();
+      window.speechSynthesis.cancel();
+    };
     utterance.lang = language;
     utterance.rate = speed;
-    utterance.onend = resolve;
-    utterance.onerror = (event) => event.error === "canceled" ? resolve() : reject(new Error("Voice playback stopped unexpectedly."));
-    signal.addEventListener("abort", () => window.speechSynthesis.cancel(), { once: true });
-    window.speechSynthesis.speak(utterance);
+    utterance.onend = () => finish();
+    utterance.onerror = event => finish(event.error === "canceled" || event.error === "interrupted" ? null : new Error("Voice playback stopped unexpectedly."));
+    signal.addEventListener("abort", abort, { once: true });
+    try { window.speechSynthesis.speak(utterance); } catch (error) { finish(error); }
   });
 }
 

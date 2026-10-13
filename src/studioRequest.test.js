@@ -1,4 +1,4 @@
-import { callStudioAI } from "./App";
+import { callClaude, callStudioAI } from "./App";
 
 jest.mock("./localWhisper", () => ({ prepareLocalWhisper: jest.fn(), transcribeLocalAudio: jest.fn() }));
 
@@ -22,6 +22,26 @@ test("times out a stalled response body after the server has sent its headers", 
   finally { rejectBody(new DOMException("Aborted", "AbortError")); }
   expect((await result).message).toMatch(/took too long/);
   expect(jest.getTimerCount()).toBe(0);
+});
+
+test("writing modes time out stalled responses and release the pending request", async () => {
+  global.fetch = jest.fn(() => new Promise(() => {}));
+  const result = callClaude("System", "Notes", 100, null, null, { timeoutMs: 15000 }).catch(error => error);
+  jest.advanceTimersByTime(15000);
+  expect((await result).code).toBe("AI_REQUEST_TIMEOUT");
+  expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test.each([null, {}, { output_text: "   " }])("studio rejects empty output instead of silently succeeding: %p", async data => {
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>data}));
+  await expect(callStudioAI("System","Question")).rejects.toThrow(/empty result/);
+});
+
+test("writing modes don't present truncated prose as a completed result", async () => {
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>({content:[{type:"text",text:"A sentence that"}],stop_reason:"max_tokens"})}));
+  await expect(callClaude("System","Notes")).rejects.toThrow(/before it was complete/);
+  await expect(callClaude("System","Notes",100,null,null,{returnMetadata:true})).resolves.toMatchObject({stopReason:"max_tokens"});
 });
 
 test("honors cancellation while the response body is downloading", async () => {

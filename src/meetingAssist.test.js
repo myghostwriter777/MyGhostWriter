@@ -43,13 +43,23 @@ describe("transcription hints",()=>{
     expect(hint).toContain("Grab");
     expect(hint).not.toMatch(/\bI'm\b/);
     expect(hint.length).toBeLessThanOrEqual(360);
-    expect(buildTranscriptionHint({situation:"customer"})).toBe("Customer call between the customer and the representative.");
+    expect(buildTranscriptionHint({situation:"customer"})).toContain("Preserve the spoken language; do not translate.");
+    expect(buildTranscriptionHint({language:"th"})).toContain("Conversation language: Thai.");
   });
 
   test("offers auto-detect first in the language list",()=>{
     expect(MEETING_LANGUAGES[0]).toEqual({value:"",label:"Auto-detect"});
     expect(MEETING_LANGUAGES.map(item=>item.value)).toContain("en");
     expect(new Set(MEETING_LANGUAGES.map(item=>item.value)).size).toBe(MEETING_LANGUAGES.length);
+  });
+
+  test("matches the latest spoken language even when context and older turns are English",()=>{
+    const {system,user}=buildMeetingPrompt({language:"th",context:"Software engineer at Acme",history:[{speaker:"other",text:"Welcome to the interview."}],newLines:[{text:"ทำไมคุณถึงสนใจงานนี้"}]});
+    expect(system).toContain('Write "heard", all three answer options, and any placeholders in that same language');
+    expect(system).toContain("Thai speech must receive natural Thai replies");
+    expect(system).toContain("Follow language switches in the latest speech");
+    expect(user).toContain("Conversation language hint: Thai (follow the actual latest speech)");
+    expect(user).toContain("ทำไมคุณถึงสนใจงานนี้");
   });
 
   test("joins transcribed chunks of one turn cleanly",()=>{

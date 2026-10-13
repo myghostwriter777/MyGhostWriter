@@ -53,9 +53,17 @@ export const cleanMeetingTranscriptSegment=value=>{
 
 export const isUsefulMeetingTranscript=value=>{
   const cleaned=cleanMeetingTranscriptSegment(value);
-  const words=cleaned.toLowerCase().match(/[\p{L}\p{N}']+/gu)||[];
+  const words=cleaned.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}']*/gu)||[];
   const contentWords=words.filter(word=>!CONTENT_FILLERS.has(word.replace(/'/g,"")));
-  return cleaned.length>=10&&contentWords.length>=3;
+  if(!contentWords.length)return false;
+  // Thai and several Asian scripts do not separate words with spaces. Counting
+  // whitespace-delimited tokens drops complete questions in those languages.
+  const unspaced=/[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(cleaned);
+  const letters=(cleaned.match(/\p{L}/gu)||[]).length;
+  if(unspaced)return letters>=2;
+  // Short questions such as "Why?" and "Go on" are real conversation turns.
+  // Acoustic speech gating and the filler blacklist still run before this.
+  return (letters>=2&&/[?？؟]$/.test(cleaned))||(letters>=4&&contentWords.length>=2);
 };
 
 export const hasAudibleMeetingSpeech=(audio,rmsThreshold=0.0045,peakThreshold=0.018)=>{

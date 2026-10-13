@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import GwmIcon from "./GwmIcon";
 import { buildRemoteMeetingAudioStream, cleanMeetingTranscriptSegment, detectMeetingCaptureProfile, isBrowserTabMeetingShare, isUsefulMeetingTranscript, MEETING_DISPLAY_OPTIONS } from "./meetingCapture";
-import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, isLikelySpeech, isVoiceChange, resampleFloat32, voiceSimilarity } from "./meetingAudio";
+import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, isLikelySpeech, isVoiceChange, MEETING_SEGMENTER_OPTIONS, resampleFloat32, voiceSimilarity } from "./meetingAudio";
 import { createMeetingTranscriber, transcribeOnServer } from "./meetingTranscriber";
 import { prepareLocalWhisper, transcribeLocalAudio } from "./localWhisper";
+import { createMeetingTaskQueue } from "./meetingTaskQueue";
 import { buildMeetingPrompt, buildTranscriptionHint, MEETING_LANGUAGE_KEY, MEETING_LANGUAGES, meetingSessionAsText, MEETING_SITUATIONS, MEETING_VOICE_PROFILE_KEY, meetingSituation, mergeUtteranceText, normalizeMeetingReply, speakerLabel } from "./meetingAssist";
 
 const C={
@@ -17,9 +18,6 @@ const C={
 const VOICE_SAMPLE_SECONDS=6;
 const VOICE_SAMPLE_LINE="Thanks for having me today. I'm looking forward to talking about this role and how my experience fits the team.";
 const LEVEL_BARS=14;
-// How long the other person has to stay quiet before their turn counts as
-// finished and answers are prepared. Chunks are transcribed during the turn.
-const TURN_END_SILENCE_MS=2000;
 const TRANSCRIBE_CONCURRENCY=2;
 const ATTRIBUTION_WATCHDOG_MS=75000;
 const ATTRIBUTION_RETRY_DELAY_MS=2500;
@@ -43,18 +41,29 @@ const average=values=>{const list=values.filter(value=>value!=null&&Number.isFin
 async function openAudioGraph(stream){
   const Context=typeof window!=="undefined"?(window.AudioContext||window.webkitAudioContext):null;
   if(!Context)throw new Error("This browser cannot process live audio.");
-  const context=new Context();
+  const context=new Context({latencyHint:"interactive"});
+  const nodes=[];
+  let processor,sink;
+  let closed=false;
+  const onStateChange=()=>{if(!closed&&context.state==="suspended")context.resume().catch(()=>{});};
+  const close=()=>{
+    if(closed)return;
+    closed=true;
+    try{context.removeEventListener("statechange",onStateChange);}catch{}
+    if(processor)processor.onaudioprocess=null;
+    for(const node of [...nodes,processor,sink]){try{node?.disconnect();}catch{}}
+    try{Promise.resolve(context.close()).catch(()=>{});}catch{}
+  };
+  try{
   try{await context.resume();}catch{}
   const source=context.createMediaStreamSource(stream);
-  const nodes=[source];
+  nodes.push(source);
   const filter=(type,frequency)=>{try{const node=context.createBiquadFilter();node.type=type;node.frequency.value=frequency;node.Q.value=0.707;nodes.push(node);}catch{}};
   filter("highpass",85);filter("lowpass",7600);
-  const processor=context.createScriptProcessor(4096,1,1);
-  const sink=context.createGain();sink.gain.value=0;
-  let closed=false;
+  processor=context.createScriptProcessor(1024,1,1);
+  sink=context.createGain();sink.gain.value=0;
   // Mobile browsers can suspend a context when the app is backgrounded during
   // a long pause; wake it again instead of silently hearing nothing.
-  const onStateChange=()=>{if(!closed&&context.state==="suspended")context.resume().catch(()=>{});};
   try{context.addEventListener("statechange",onStateChange);}catch{}
   return {
     sampleRate:context.sampleRate,
@@ -63,14 +72,9 @@ async function openAudioGraph(stream){
       for(let index=0;index+1<nodes.length;index+=1)nodes[index].connect(nodes[index+1]);
       nodes[nodes.length-1].connect(processor);processor.connect(sink);sink.connect(context.destination);
     },
-    close(){
-      closed=true;
-      try{context.removeEventListener("statechange",onStateChange);}catch{}
-      try{processor.onaudioprocess=null;processor.disconnect();}catch{}
-      try{nodes.forEach(node=>node.disconnect());sink.disconnect();}catch{}
-      try{context.close();}catch{}
-    },
+    close,
   };
+  }catch(error){close();throw error;}
 }
 
 function LevelMeter({level,active,paused}){
@@ -116,6 +120,8 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const [copiedIndex,setCopiedIndex]=useState(-1);
 
   const activeRef=useRef(false);
+  const mountedRef=useRef(true);
+  const startingRef=useRef(false);
   const pausedRef=useRef(false);
   const sourceRef=useRef("microphone");
   const situationRef=useRef("interview");
@@ -127,13 +133,16 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const segmenterRef=useRef(null);
   const transcriberRef=useRef(null);
   const utterancesRef=useRef(new Map());
-  const inFlightRef=useRef(0);
-  const waitingRef=useRef([]);
+  const queueRef=useRef(null);
   const linesRef=useRef([]);
   const lineIdRef=useRef(0);
   const attributionBusyRef=useRef(false);
   const attributionStartedRef=useRef(0);
   const attributionDirtyRef=useRef(false);
+  const attributionRunRef=useRef(0);
+  const attributionLatestRef=useRef(0);
+  const attributionControllerRef=useRef(null);
+  const answerLineRef=useRef(0);
   const levelTickRef=useRef(0);
   const phaseRef=useRef("idle");
   const voiceProfileRef=useRef(voiceProfile);
@@ -144,50 +153,52 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const canShareTab=captureProfile.remoteAudioOnlyAvailable&&typeof navigator!=="undefined"&&!!navigator.mediaDevices?.getDisplayMedia;
   const canUseOverlay=typeof window!=="undefined"&&!!window.documentPictureInPicture?.requestWindow;
   const scene=meetingSituation(situation);
-  const canStart=consent&&(source==="tab"?canShareTab:canUseMicrophone);
+  const canStart=consent&&!sampling&&(source==="tab"?canShareTab:canUseMicrophone);
 
   useEffect(()=>{voiceProfileRef.current=voiceProfile;},[voiceProfile]);
   useEffect(()=>{setVoiceProfile(loadVoiceProfile(email));setLanguage(loadLanguage(email));},[email]);
   useEffect(()=>{situationRef.current=situation;},[situation]);
   useEffect(()=>{contextRef.current=context;},[context]);
   useEffect(()=>{languageRef.current=language;},[language]);
-  useEffect(()=>()=>{
+  useEffect(()=>{mountedRef.current=true;return()=>{
+    mountedRef.current=false;
     activeRef.current=false;sessionRef.current+=1;
+    queueRef.current?.cancel();
     graphRef.current?.close?.();stopStream(streamRef.current);sampleRef.current?.close?.();
     try{overlayWindowRef.current?.close?.();}catch{}
-  },[]);
+  };},[]);
 
   const setLinesState=next=>{linesRef.current=next;setLines(next);};
   const updatePhase=value=>{if(phaseRef.current!==value){phaseRef.current=value;setPhase(value);}};
 
   const ensureTranscriber=()=>{
     if(transcriberRef.current)return transcriberRef.current;
+    const session=sessionRef.current;
+    const current=()=>mountedRef.current&&sessionRef.current===session;
     transcriberRef.current=createMeetingTranscriber({
       server:(samples,options)=>transcribeOnServer(samples,options),
-      local:samples=>transcribeLocalAudio(samples,data=>{const progress=Number(data?.progress);if(Number.isFinite(progress))setEngineProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);}),
-      prepareLocal:()=>{setEngineProgress("preparing…");return prepareLocalWhisper(data=>{const progress=Number(data?.progress);if(Number.isFinite(progress))setEngineProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);}).finally(()=>setEngineProgress(""));},
-      onModeChange:({mode,reason})=>{setEngine(mode);if(mode==="local")setNotice(`${reason?reason+" ":""}Ghosty is now transcribing on this device (English works best).`);},
+      local:(samples,options)=>transcribeLocalAudio(samples,data=>{const progress=Number(data?.progress);if(current()&&Number.isFinite(progress))setEngineProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);},options),
+      prepareLocal:()=>{if(current())setEngineProgress("preparing…");return prepareLocalWhisper(data=>{const progress=Number(data?.progress);if(current()&&Number.isFinite(progress))setEngineProgress(`${Math.max(0,Math.min(100,Math.round(progress)))}%`);}).finally(()=>{if(current())setEngineProgress("");});},
+      onModeChange:({mode,reason})=>{if(!current())return;setEngine(mode);if(mode==="local")setNotice(`${reason?reason+" ":""}Ghosty is now transcribing on this device with automatic language detection.`);},
     });
     return transcriberRef.current;
   };
 
-  // Runs at most TRANSCRIBE_CONCURRENCY transcriptions at once, in submission
-  // order, so the short tail of a turn is never stuck behind a long chunk.
-  const runLimited=task=>new Promise((resolve,reject)=>{
-    const start=()=>{
-      inFlightRef.current+=1;setTranscribing(inFlightRef.current);
-      Promise.resolve().then(task).then(resolve,reject).finally(()=>{
-        inFlightRef.current=Math.max(0,inFlightRef.current-1);setTranscribing(inFlightRef.current);
-        const next=waitingRef.current.shift();if(next)next();
-      });
-    };
-    if(inFlightRef.current<TRANSCRIBE_CONCURRENCY)start();else waitingRef.current.push(start);
-  });
+  const ensureQueue=()=>{
+    if(!queueRef.current)queueRef.current=createMeetingTaskQueue({concurrency:TRANSCRIBE_CONCURRENCY,onPendingChange:count=>{if(mountedRef.current)setTranscribing(count);}});
+    return queueRef.current;
+  };
+  const resetSessionWork=()=>{
+    queueRef.current?.cancel();queueRef.current=null;
+    attributionRunRef.current+=1;attributionBusyRef.current=false;attributionDirtyRef.current=false;
+    attributionControllerRef.current?.abort();attributionControllerRef.current=null;attributionLatestRef.current=0;
+    setThinking(false);setTranscribing(0);
+  };
 
-  const requestReply=async({pending,history,nudge=""})=>{
+  const requestReply=async({pending,history,nudge="",signal})=>{
     ensureAI?.();
-    const {system,user:userPrompt}=buildMeetingPrompt({situation:situationRef.current,source:sourceRef.current,context:contextRef.current,history,newLines:pending});
-    const raw=await request(system,userPrompt+nudge,700,[],user?.email,{mode:"meeting",timeoutMs:40000});
+    const {system,user:userPrompt}=buildMeetingPrompt({situation:situationRef.current,source:sourceRef.current,context:contextRef.current,language:languageRef.current,history,newLines:pending});
+    const raw=await request(system,userPrompt+nudge,1400,[],user?.email,{mode:"meeting",timeoutMs:40000,signal,outputLanguage:"auto"});
     return normalizeMeetingReply(parseJson(raw),pending.length);
   };
 
@@ -199,50 +210,70 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
       const label=reply.labels[pendingIds.get(line.id)];
       return {...line,reviewed:true,speaker:remoteOnly?"other":(label||"unclear")};
     }));
-    if(reply.needsReply){setAnswer({heard:reply.heard,options:reply.options,at:Date.now()});setCopiedIndex(-1);setError("");setAnswerNote("");}
+    const latestLine=Math.max(...pending.map(line=>line.id));
+    // Concurrent transcription may finish an older turn last. Its labels still
+    // belong in the transcript, but its answer must not replace a newer one.
+    if(latestLine<answerLineRef.current)return;
+    if(reply.needsReply){answerLineRef.current=latestLine;setAnswer({heard:reply.heard,options:reply.options,at:Date.now()});setCopiedIndex(-1);setError("");setAnswerNote("");}
     else setAnswerNote(reply.labels.length&&reply.labels.every(label=>label==="you")?"That was you speaking, so no new answers were prepared.":`Nothing new from ${scene.other} in that line. Answers appear as soon as they speak.`);
   };
 
   const runAttribution=async session=>{
     const startedAt=Date.now();
-    // A run that never returned (a hung request) must not block every later
-    // question for the rest of the session.
-    if(attributionBusyRef.current&&startedAt-attributionStartedRef.current<ATTRIBUTION_WATCHDOG_MS)return;
+    const latestLine=Math.max(0,...linesRef.current.filter(line=>line.complete&&!line.reviewed).map(line=>line.id));
+    // A new completed turn supersedes an older answer request immediately.
+    // Transcription keeps its own queue and is never cancelled by this switch.
+    if(attributionBusyRef.current&&latestLine<=attributionLatestRef.current&&startedAt-attributionStartedRef.current<ATTRIBUTION_WATCHDOG_MS)return;
+    attributionControllerRef.current?.abort();
+    const controller=new AbortController();attributionControllerRef.current=controller;
+    const queueSignal=ensureQueue().signal;
+    const cancel=()=>controller.abort();
+    queueSignal.addEventListener("abort",cancel,{once:true});
+    if(queueSignal.aborted)cancel();
+    const run=++attributionRunRef.current;
+    const current=()=>mountedRef.current&&sessionRef.current===session&&attributionRunRef.current===run&&!controller.signal.aborted;
+    const signal=controller.signal;
     attributionBusyRef.current=true;attributionStartedRef.current=startedAt;
     try{
-      while(attributionDirtyRef.current&&sessionRef.current===session){
+      while(attributionDirtyRef.current&&current()){
         attributionDirtyRef.current=false;
         const pending=linesRef.current.filter(line=>line.complete&&!line.reviewed);
         if(!pending.length)break;
+        attributionLatestRef.current=Math.max(...pending.map(line=>line.id));
         const history=linesRef.current.filter(line=>line.reviewed).slice(-12);
         setThinking(true);
         try{
           let reply=null;
           for(let attempt=0;attempt<2&&!reply;attempt+=1){
-            try{reply=await requestReply({pending,history});}
+            try{reply=await requestReply({pending,history,signal});}
             catch(replyError){
-              if(sessionRef.current!==session||attempt===1)throw replyError;
+              if(!current()||attempt===1)throw replyError;
               await wait(ATTRIBUTION_RETRY_DELAY_MS);
+              if(!current())throw replyError;
             }
           }
-          if(sessionRef.current!==session)break;
+          if(!current())break;
           const remoteOnly=sourceRef.current==="tab";
           const otherIndexes=reply.labels.map((label,index)=>(remoteOnly||label==="other")?index:-1).filter(index=>index>=0);
           if(!reply.needsReply&&otherIndexes.length){
             // The model labelled a line as the other party but skipped the
             // options. Ask once more with that contradiction spelled out.
             const nudge=`\n\nLine(s) ${otherIndexes.join(", ")} were spoken by the other party, so needsReply must be true with exactly three options responding to the most recent of them.`;
-            try{const second=await requestReply({pending,history,nudge});if(second.needsReply)reply={...second,labels:second.labels.map((label,index)=>label||reply.labels[index])};}catch{}
-            if(sessionRef.current!==session)break;
+            try{const second=await requestReply({pending,history,nudge,signal});if(second.needsReply)reply={...second,labels:second.labels.map((label,index)=>label||reply.labels[index])};}catch{}
+            if(!current())break;
           }
           applyReply(reply,pending);
         }catch(replyError){
-          if(sessionRef.current!==session)break;
-          setLinesState(linesRef.current.map(line=>line.reviewed||!line.complete?line:{...line,reviewed:true,speaker:sourceRef.current==="tab"?"other":(line.speaker==="pending"?"unclear":line.speaker)}));
+          if(!current())break;
+          const failedIds=new Set(pending.map(line=>line.id));
+          setLinesState(linesRef.current.map(line=>!failedIds.has(line.id)?line:{...line,reviewed:true,speaker:sourceRef.current==="tab"?"other":(line.speaker==="pending"?"unclear":line.speaker)}));
           setError("Ghosty heard the line but could not prepare answers yet. "+(replyError?.message||"Try again shortly."));
-        }finally{setThinking(false);}
+        }finally{if(current())setThinking(false);}
       }
-    }finally{attributionBusyRef.current=false;}
+    }finally{
+      queueSignal.removeEventListener("abort",cancel);
+      if(current()){attributionBusyRef.current=false;attributionControllerRef.current=null;}
+    }
   };
 
   const newLineRecord=()=>{lineIdRef.current+=1;return {id:lineIdRef.current,chunks:[],closed:false,finished:false,at:Date.now()};};
@@ -261,7 +292,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const upsertLine=(record,text,complete)=>{
     const existing=linesRef.current.find(line=>line.id===record.id);
     const entry={id:record.id,text,speaker:existing?.speaker||(sourceRef.current==="tab"?"other":"pending"),reviewed:false,voiceMatch:average(record.chunks.map(chunk=>chunk.match)),at:existing?.at||record.at,complete};
-    setLinesState(existing?linesRef.current.map(line=>line.id===record.id?entry:line):[...linesRef.current,entry]);
+    setLinesState(existing?linesRef.current.map(line=>line.id===record.id?entry:line):[...linesRef.current,entry].sort((a,b)=>a.id-b.id));
   };
 
   const removeLine=record=>{if(linesRef.current.some(line=>line.id===record.id))setLinesState(linesRef.current.filter(line=>line.id!==record.id));};
@@ -295,7 +326,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
       const samples=chunk.samples16k;chunk.samples16k=null;
       let text="";
       try{
-        text=await runLimited(()=>ensureTranscriber().transcribe(samples,{sampleRate:16000,language:languageRef.current||undefined,prompt:buildTranscriptionHint({situation:situationRef.current,context:contextRef.current})}));
+        text=await ensureQueue().run(signal=>ensureTranscriber().transcribe(samples,{sampleRate:16000,signal,language:languageRef.current||undefined,prompt:buildTranscriptionHint({situation:situationRef.current,context:contextRef.current,language:languageRef.current})}));
       }catch(transcriptionError){
         if(sessionRef.current!==session)return;
         if(transcriptionError?.skipped){/* cooling down after a rate limit; nothing to show */}
@@ -332,7 +363,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
       const current=utterance.current;
       if(current.chunks.length&&isVoiceChange(average(current.chunks.map(item=>item.match)),chunk.match)){
         // The other party stopped and the user began answering inside the
-        // two-second window: close the question now and start a new line.
+        // pause window: close the question now and start a new line.
         closeLine(current,session);
         utterance.current=newLineRecord();utterance.lines.push(utterance.current);
       }
@@ -344,7 +375,7 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const handleUtteranceEnd=({utteranceId},session)=>{
     const utterance=utterancesRef.current.get(utteranceId);
     if(!utterance)return;
-    utterance.chain=utterance.chain.then(()=>{utterance.ended=true;closeLine(utterance.current,session);}).catch(()=>{});
+    utterance.chain=utterance.chain.then(()=>{if(sessionRef.current!==session)return;utterance.ended=true;closeLine(utterance.current,session);}).catch(()=>{});
   };
 
   const stopSession=()=>{
@@ -357,15 +388,22 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   };
 
   const startSession=async()=>{
-    if(!canStart||starting||active)return;
+    if(!canStart||startingRef.current||activeRef.current||sampleRef.current)return;
+    startingRef.current=true;
+    const session=++sessionRef.current;
+    const current=()=>mountedRef.current&&sessionRef.current===session;
+    resetSessionWork();
+    transcriberRef.current=null;setEngine("server");setEngineProgress("");
     setError("");setNotice("");setAnswerNote("");setStarting(true);
-    let stream=null;
+    let stream=null,captureStream=null,graph=null;
     try{
       ensureAI?.();
       // Capture must be requested synchronously after the tap so the browser
       // still counts it as a user gesture; every slow step happens afterwards.
       if(source==="tab"){
         stream=await navigator.mediaDevices.getDisplayMedia(MEETING_DISPLAY_OPTIONS);
+        if(!current()){stopStream(stream);return;}
+        captureStream=stream;
         const surface=stream.getVideoTracks()[0]?.getSettings?.().displaySurface;
         if(!isBrowserTabMeetingShare(stream)){
           stopStream(stream);
@@ -373,26 +411,27 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
         }
         const audioOnly=buildRemoteMeetingAudioStream(stream);
         if(!audioOnly){stopStream(stream);throw new Error("The shared tab did not expose meeting audio. Choose the meeting tab and enable “Share tab audio”.");}
-        streamRef.current=stream;
-        stream.getAudioTracks()[0]?.addEventListener("ended",()=>stopSession(),{once:true});
-        stream.getVideoTracks()[0]?.addEventListener("ended",()=>stopSession(),{once:true});
         stream=audioOnly;
       }else{
         // Echo cancellation is deliberately off: it would strip the other
         // person's voice whenever the call plays through this device's speakers,
         // which is exactly the voice Meeting Assist needs to hear.
         stream=await navigator.mediaDevices.getUserMedia(MICROPHONE_CONSTRAINTS);
-        streamRef.current=stream;
-        stream.getAudioTracks()[0]?.addEventListener("ended",()=>stopSession(),{once:true});
+        if(!current()){stopStream(stream);return;}
+        captureStream=stream;
       }
-      sessionRef.current+=1;const session=sessionRef.current;
+      streamRef.current=captureStream;
       sourceRef.current=source;
-      utterancesRef.current=new Map();waitingRef.current=[];
-      attributionDirtyRef.current=false;attributionBusyRef.current=false;
-      const graph=await openAudioGraph(stream);
+      utterancesRef.current=new Map();
+      graph=await openAudioGraph(stream);
+      if(!current()){graph.close();stopStream(captureStream);return;}
+      const onEnded=()=>{if(current())stopSession();};
+      captureStream.getAudioTracks()[0]?.addEventListener("ended",onEnded,{once:true});
+      captureStream.getVideoTracks()[0]?.addEventListener("ended",onEnded,{once:true});
+      if(captureStream.getTracks().some(track=>track.readyState==="ended"))throw new Error("Audio capture ended before listening could start. Please try again.");
       const segmenter=createSpeechSegmenter({
         sampleRate:graph.sampleRate,
-        endSilenceMs:TURN_END_SILENCE_MS,
+        ...MEETING_SEGMENTER_OPTIONS,
         onSegment:segment=>{if(!activeRef.current||sessionRef.current!==session)return;handleChunk(segment,session);},
         onUtteranceEnd:info=>{if(!activeRef.current||sessionRef.current!==session)return;handleUtteranceEnd(info,session);},
       });
@@ -406,14 +445,16 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
       });
       graphRef.current=graph;
       activeRef.current=true;setActive(true);setSaved(false);updatePhase("listening");
-      setNotice(source==="tab"?"Listening to the shared meeting tab only. Your microphone is not open.":`Listening through the microphone. Ghosty waits until ${scene.other} pauses for two seconds, then prepares answers${voiceProfile?", using your voice sample to skip your own words":""}.`);
+      setNotice(source==="tab"?"Listening to the shared meeting tab only. Your microphone is not open.":`Listening through the microphone. Ghosty transcribes during brief pauses and prepares answers in the speaker's language when their turn ends${voiceProfile?", using your voice sample to skip your own words":""}.`);
     }catch(startError){
-      stopStream(stream);stopStream(streamRef.current);streamRef.current=null;
+      graph?.close();stopStream(stream);stopStream(captureStream);
+      if(!current())return;
+      streamRef.current=null;
       activeRef.current=false;setActive(false);
       if(startError?.name==="NotAllowedError")setError(source==="tab"?"Sharing was cancelled. Nothing was recorded.":"Microphone access was blocked. Allow the microphone for this site and try again.");
       else if(startError?.name==="NotFoundError")setError("No microphone was found on this device.");
       else setError(startError?.message||"Meeting Assist could not start.");
-    }finally{setStarting(false);}
+    }finally{if(current()){startingRef.current=false;setStarting(false);}}
   };
 
   // Pausing is itself a signal that the other person finished: the open turn
@@ -427,30 +468,35 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   };
 
   const recordVoiceSample=async()=>{
-    if(sampling||active||!canUseMicrophone)return;
+    if(sampleRef.current||startingRef.current||activeRef.current||!canUseMicrophone)return;
     setError("");
-    let stream=null;
+    let stream=null,graph=null;
+    const sample={cancelled:false,close(){this.cancelled=true;graph?.close();stopStream(stream);}};
+    sampleRef.current=sample;setSampling(VOICE_SAMPLE_SECONDS);
+    const current=()=>mountedRef.current&&!sample.cancelled&&sampleRef.current===sample;
     try{
       stream=await navigator.mediaDevices.getUserMedia(MICROPHONE_CONSTRAINTS);
+      if(!current()){stopStream(stream);return;}
       const chunks=[];
-      const graph=await openAudioGraph(stream);const rate=graph.sampleRate;
-      sampleRef.current=graph;graph.start(frame=>chunks.push(frame));
-      for(let remaining=VOICE_SAMPLE_SECONDS;remaining>0;remaining-=1){setSampling(remaining);await wait(1000);}
-      graph.close();sampleRef.current=null;stopStream(stream);stream=null;
+      graph=await openAudioGraph(stream);const rate=graph.sampleRate;
+      if(!current()){graph.close();stopStream(stream);return;}
+      graph.start(frame=>chunks.push(frame));
+      for(let remaining=VOICE_SAMPLE_SECONDS;remaining>0;remaining-=1){setSampling(remaining);await wait(1000);if(!current())return;}
+      graph.close();stopStream(stream);stream=null;
       const total=chunks.reduce((sum,chunk)=>sum+chunk.length,0);const audio=new Float32Array(total);let offset=0;for(const chunk of chunks){audio.set(chunk,offset);offset+=chunk.length;}
       const profile=buildVoiceProfile(analyzeVoice(audio,rate));
       if(!profile)throw new Error("Ghosty could not hear you clearly. Move closer to the microphone and read the sentence at normal volume.");
       storeVoiceProfile(email,profile);setVoiceProfile(profile);setNotice("Voice sample saved on this device. Ghosty uses it only to tell your voice apart from the other speaker.");
     }catch(sampleError){
-      sampleRef.current?.close?.();sampleRef.current=null;stopStream(stream);
+      if(!current())return;
       setError(sampleError?.name==="NotAllowedError"?"Microphone access was blocked. Allow the microphone for this site and try again.":(sampleError?.message||"The voice sample could not be recorded."));
-    }finally{setSampling(0);}
+    }finally{sample.close();if(sampleRef.current===sample)sampleRef.current=null;if(mountedRef.current)setSampling(0);}
   };
 
   const removeVoiceSample=()=>{storeVoiceProfile(email,null);setVoiceProfile(null);};
   const chooseLanguage=value=>{setLanguage(value);storeLanguage(email,value);};
 
-  const clearSession=()=>{sessionRef.current+=1;utterancesRef.current=new Map();setLinesState([]);setAnswer(null);setAnswerNote("");setError("");setNotice("");setSaved(false);setCopiedIndex(-1);};
+  const clearSession=()=>{sessionRef.current+=1;startingRef.current=false;setStarting(false);resetSessionWork();utterancesRef.current=new Map();setLinesState([]);setAnswer(null);setAnswerNote("");setError("");setNotice("");setSaved(false);setCopiedIndex(-1);};
 
   const saveSession=()=>{
     if(!lines.length||!user)return;
@@ -490,14 +536,14 @@ export default function MeetingAssistMode({user,request,save,parseJson,ensureAI,
   const answerPanel=(dark=false,compact=false)=><div style={{display:"grid",gap:9}}>
     {thinking&&<div role="status" style={{fontSize:11.5,fontWeight:800,color:dark?"#f9a8d4":C.magentaText,display:"flex",alignItems:"center",gap:6}}><span style={{width:7,height:7,borderRadius:"50%",background:C.magenta,boxShadow:`0 0 10px ${C.magenta}`}}/>Preparing three answers…</div>}
     {answer?.heard&&<div style={{padding:compact?"9px 11px":"11px 12px",borderRadius:10,borderLeft:`3px solid ${C.magenta}`,background:dark?"rgba(255,255,255,0.05)":C.surface,color:dark?"#dbeafe":C.text,fontSize:compact?12.5:13.5,lineHeight:1.55}}><span style={{display:"block",fontSize:10,letterSpacing:".12em",textTransform:"uppercase",color:dark?"#f9a8d4":C.magentaText,fontWeight:900,marginBottom:4}}>{otherName} said</span>{answer.heard}</div>}
-    {answer?.options?.length?answer.options.map((option,index)=><OptionCard key={`${answer.at}-${index}`} option={option} index={index} accent={dark?"#f9a8d4":C.magentaText} dark={dark} copied={copiedIndex===index} onCopy={()=>copyOption(option,index)} compact={compact}/>):<div style={{padding:compact?"14px 12px":"18px 14px",borderRadius:11,border:`1px dashed ${dark?"rgba(255,255,255,0.2)":C.border}`,color:dark?"#8eacc4":C.muted,fontSize:12.5,lineHeight:1.6,textAlign:"center"}}>{active?`Three answer options appear here about five seconds after ${scene.other} stops talking.`:"Start listening and Ghosty will place three copy-ready answers here."}</div>}
+    {answer?.options?.length?answer.options.map((option,index)=><OptionCard key={`${answer.at}-${index}`} option={option} index={index} accent={dark?"#f9a8d4":C.magentaText} dark={dark} copied={copiedIndex===index} onCopy={()=>copyOption(option,index)} compact={compact}/>):<div style={{padding:compact?"14px 12px":"18px 14px",borderRadius:11,border:`1px dashed ${dark?"rgba(255,255,255,0.2)":C.border}`,color:dark?"#8eacc4":C.muted,fontSize:12.5,lineHeight:1.6,textAlign:"center"}}>{active?`Three answer options appear here after ${scene.other} finishes, in the language they spoke.`:"Start listening and Ghosty will place three copy-ready answers here."}</div>}
     {answerNote&&!thinking&&<div role="status" style={{fontSize:11.5,color:dark?"#8eacc4":C.muted,lineHeight:1.5}}>{answerNote}</div>}
   </div>;
 
   return(
     <div>
       <Card style={{marginBottom:14,background:`linear-gradient(145deg,${C.magentaSoft},${C.card})`,border:"1px solid rgba(244,114,182,0.3)"}}>
-        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Hear the other side. Answer with confidence.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>Ghosty listens to the whole question, waits two seconds after the speaker finishes, works out who was talking, and writes three answers you can say next. Your own words are recognised and never turned into suggestions.</div></div></div>
+        <div style={{display:"flex",gap:10,alignItems:"flex-start"}}><span style={{width:38,height:38,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",background:C.magentaSoft,color:C.magentaText,flexShrink:0}}><GwmIcon name="meeting" size={21}/></span><div><div style={{fontSize:14,fontWeight:900,color:C.text}}>Hear the other side. Answer with confidence.</div><div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginTop:3}}>Ghosty transcribes while you listen, recognises a brief pause at the end of the question, and writes three answers in the same language. Your own words are recognised and never turned into suggestions.</div></div></div>
       </Card>
 
       <div style={{fontSize:11,letterSpacing:"0.1em",color:C.muted,textTransform:"uppercase",marginBottom:8}}>Situation</div>

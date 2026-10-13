@@ -15,8 +15,10 @@ const MARGIN=96;
 
 export const ILLUSTRATED_VISUALS=new Set(["hero-image","image-cards","image-detail","takeaway-grid"]);
 
+let graphemeSegmenter;
+try{if(typeof Intl!=="undefined"&&typeof Intl.Segmenter==="function")graphemeSegmenter=new Intl.Segmenter(undefined,{granularity:"grapheme"});}catch{}
 const graphemes=value=>{
-  try{if(typeof Intl!=="undefined"&&typeof Intl.Segmenter==="function")return Array.from(new Intl.Segmenter(undefined,{granularity:"grapheme"}).segment(String(value)),part=>part.segment);}catch{}
+  if(graphemeSegmenter)return Array.from(graphemeSegmenter.segment(String(value)),part=>part.segment);
   return Array.from(String(value));
 };
 
@@ -24,20 +26,23 @@ const graphemes=value=>{
 export function createTextMeasure(){
   let context=null;let resolved=false;
   const cache=new Map();
-  return (text,size,weight=500,family=slideFontStack(DEFAULT_SLIDE_FONT),letterSpacing=0)=>{
+  const measure=(text,size,weight=500,family=slideFontStack(DEFAULT_SLIDE_FONT),letterSpacing=0)=>{
     const value=String(text||"");
     if(!value)return 0;
     if(!resolved){resolved=true;try{context=typeof document!=="undefined"?document.createElement("canvas").getContext("2d"):null;}catch{context=null;}}
-    const spacing=letterSpacing*Math.max(0,graphemes(value).length-1);
-    if(!context?.measureText)return value.length*size*(weight>=700?0.6:0.55)+spacing;
-    const key=`${weight}|${size}|${family}|${value}`;
-    if(cache.has(key))return cache.get(key)+spacing;
-    context.font=`${weight} ${size}px ${family}`;
-    const width=context.measureText(value).width;
+    const key=`${weight}|${size}|${family}|${letterSpacing}|${value}`;
+    if(cache.has(key))return cache.get(key);
+    const spacing=letterSpacing?letterSpacing*Math.max(0,graphemes(value).length-1):0;
+    let width;
+    if(context?.measureText){context.font=`${weight} ${size}px ${family}`;width=context.measureText(value).width;}
+    else width=value.length*size*(weight>=700?0.6:0.55);
+    width+=spacing;
     if(cache.size>4000)cache.clear();
     cache.set(key,width);
-    return width+spacing;
+    return width;
   };
+  measure.clearCache=()=>cache.clear();
+  return measure;
 }
 
 // Wraps rich runs ([{text,weight,color,italic}]) into lines, breaking long
@@ -45,7 +50,7 @@ export function createTextMeasure(){
 export function wrapRuns(measure,runs,{width,size,family,letterSpacing=0,maxLines=Infinity}){
   const lines=[];let line=[];let lineWidth=0;
   const measureRun=(text,weight)=>measure(text,size,weight,family,letterSpacing);
-  const pushLine=()=>{if(line.length){lines.push(line);line=[];lineWidth=0;}};
+  const pushLine=(force=false)=>{if(line.length||force){lines.push(line);line=[];lineWidth=0;}};
   const append=(text,run)=>{
     const last=line[line.length-1];
     if(last&&last.weight===run.weight&&last.color===run.color&&last.italic===run.italic)last.text+=text;
@@ -54,8 +59,9 @@ export function wrapRuns(measure,runs,{width,size,family,letterSpacing=0,maxLine
   };
   for(const run of runs){
     const weight=run.weight||500;
-    const tokens=String(run.text||"").split(/(\s+)/).filter(Boolean);
+    const tokens=String(run.text||"").split(/(\r\n|\r|\n|[^\S\r\n]+)/).filter(Boolean);
     for(const token of tokens){
+      if(/^[\r\n]+$/.test(token)){pushLine(true);continue;}
       if(/^\s+$/.test(token)){if(line.length)append(" ",{...run,weight});continue;}
       const tokenWidth=measureRun(token,weight);
       if(lineWidth+tokenWidth<=width||(!line.length&&tokenWidth<=width)){append(token,{...run,weight});continue;}
@@ -69,8 +75,19 @@ export function wrapRuns(measure,runs,{width,size,family,letterSpacing=0,maxLine
     }
   }
   pushLine();
-  const trimmed=lines.map(items=>{const copy=items.map(item=>({...item}));if(copy.length){copy[0].text=copy[0].text.replace(/^\s+/,"");copy[copy.length-1].text=copy[copy.length-1].text.replace(/\s+$/,"");}return copy.filter(item=>item.text.length);}).filter(items=>items.length);
-  if(trimmed.length>maxLines){const kept=trimmed.slice(0,maxLines);const last=kept[kept.length-1];const end=last[last.length-1];end.text=end.text.replace(/[\s,.;:]+$/,"")+"…";return kept;}
+  const trimmed=lines.map(items=>{const copy=items.map(item=>({...item}));if(copy.length){copy[0].text=copy[0].text.replace(/^\s+/,"");copy[copy.length-1].text=copy[copy.length-1].text.replace(/\s+$/,"");}return copy.filter(item=>item.text.length);});
+  if(trimmed.length>maxLines){
+    const kept=trimmed.slice(0,Math.max(1,maxLines));const last=kept[kept.length-1];
+    if(!last.length)last.push({...runs[0],text:""});
+    let end=last[last.length-1];end.text=end.text.replace(/[\s,.;:]+$/,"")+"…";
+    while(last.reduce((sum,run)=>sum+measureRun(run.text,run.weight),0)>width){
+      const characters=graphemes(end.text);
+      if(characters.length>1){characters.splice(-2,1);end.text=characters.join("");}
+      else if(last.length>1){last.pop();end=last[last.length-1];end.text+="…";}
+      else break;
+    }
+    return kept;
+  }
   return trimmed;
 }
 
@@ -122,7 +139,7 @@ export function layoutSlide(deck,slide,index,options={}){
     const runs=spec.runs||[{text:content,weight:spec.weight||500,color:spec.color,italic:spec.italic}];
     const lines=wrapRuns(measure,runs,{width:spec.w,size:spec.size,family:spec.family||family,letterSpacing:spec.letterSpacing||0,maxLines:spec.maxLines||12});
     const lineHeight=spec.lineHeight||1.3;
-    return {kind:"text",x:spec.x,y:spec.y,w:spec.w,size:spec.size,weight:spec.weight||500,color:spec.color,lineHeight,maxLines:spec.maxLines||12,align:spec.align||"left",letterSpacing:spec.letterSpacing||0,family:spec.family||family,italic:!!spec.italic,underline:!!spec.underline,href:spec.href,field:spec.field,bulletIndex:spec.bulletIndex,text:content,runs,lines,h:Math.max(1,lines.length)*spec.size*lineHeight};
+    return {kind:"text",x:spec.x,y:spec.y,w:spec.w,size:spec.size,weight:spec.weight||500,color:spec.color,lineHeight,maxLines:spec.maxLines||12,align:spec.align||"left",letterSpacing:spec.letterSpacing||0,family:spec.family||family,italic:!!spec.italic,underline:!!spec.underline,href:spec.href,field:spec.field,bulletIndex:spec.bulletIndex,bulletPart:spec.bulletPart,bulletLabel:spec.bulletLabel,bulletDetail:spec.bulletDetail,text:content,runs,lines,h:Math.max(1,lines.length)*spec.size*lineHeight};
   };
   const labelRuns=(point,labelColor,detailColor,labelWeight=700)=>{
     const part=slidePointParts(point);
@@ -195,6 +212,7 @@ export function layoutSlide(deck,slide,index,options={}){
     bodyBox.y=Math.min(H*0.86,Math.max(floor,naturalTop));
   }
   const glyphStroke=2.4;
+  const bulletEdit=(part,bulletIndex,bulletPart)=>({field:"bullet",bulletIndex,bulletPart:part.detail?bulletPart:undefined,bulletLabel:part.label,bulletDetail:part.detail});
   const buildBody=fit=>{
     const bodyBlocks=[];
     const body=Math.max(16,Math.round(bodyBase*fit));
@@ -214,8 +232,8 @@ export function layoutSlide(deck,slide,index,options={}){
       if(supporting){const block=text(supporting,{x:0,y,w:bodyBox.w,size:body,weight:500,color:withAlpha(palette.text,0.86),lineHeight:1.45,maxLines:3,field:"supportingText"});bodyBlocks.push(block);y+=block.h+26;}
       bullets.forEach((point,bulletIndex)=>{
         const part=slidePointParts(point);const pad=28;
-        const label=text(part.label,{x:pad+6,y:y+pad,w:bodyBox.w-pad*2-6,size:Math.round(body*1.12),weight:700,color:palette.text,lineHeight:1.25,maxLines:2,field:part.detail?undefined:"bullet",bulletIndex});
-        const detail=part.detail?text(part.detail,{x:pad+6,y:y+pad+label.h+10,w:bodyBox.w-pad*2-6,size:Math.round(body*0.94),weight:500,color:withAlpha(palette.text,0.82),lineHeight:1.45,maxLines:4}):null;
+        const label=text(part.label,{x:pad+6,y:y+pad,w:bodyBox.w-pad*2-6,size:Math.round(body*1.12),weight:700,color:palette.text,lineHeight:1.25,maxLines:2,...bulletEdit(part,bulletIndex,"label")});
+        const detail=part.detail?text(part.detail,{x:pad+6,y:y+pad+label.h+10,w:bodyBox.w-pad*2-6,size:Math.round(body*0.94),weight:500,color:withAlpha(palette.text,0.82),lineHeight:1.45,maxLines:4,...bulletEdit(part,bulletIndex,"detail")}):null;
         const height=pad*2+label.h+(detail?detail.h+10:0);
         bodyBlocks.push({kind:"rect",x:0,y,w:bodyBox.w,h:height,fill:palette.card,stroke:palette.cardBorder,radius:14,bar:palette.accent,editable:{field:"bullet",bulletIndex}},label);
         if(detail)bodyBlocks.push(detail);
@@ -240,8 +258,8 @@ export function layoutSlide(deck,slide,index,options={}){
         const cardY=card.full&&position===2?y+rowHeight+gap:y;
         const height=card.full?card.height:rowHeight;
         bodyBlocks.push({kind:"rect",x,y:cardY,w:card.width,h:height,fill:palette.card,stroke:palette.cardBorder,radius:14,editable:{field:"bullet",bulletIndex:card.bulletIndex}});
-        bodyBlocks.push({...card.label,x:x+pad,y:cardY+pad,field:card.detail?undefined:"bullet",bulletIndex:card.bulletIndex});
-        if(card.detail)bodyBlocks.push({...card.detail,x:x+pad,y:cardY+pad+card.label.h+8});
+        bodyBlocks.push({...card.label,x:x+pad,y:cardY+pad,...bulletEdit(card.part,card.bulletIndex,"label")});
+        if(card.detail)bodyBlocks.push({...card.detail,x:x+pad,y:cardY+pad+card.label.h+8,...bulletEdit(card.part,card.bulletIndex,"detail")});
       });
     }else if(visual==="icon-columns"){
       let y=0;
@@ -252,9 +270,9 @@ export function layoutSlide(deck,slide,index,options={}){
       points.forEach((point,bulletIndex)=>{
         const part=slidePointParts(point);const x=bulletIndex*(columnWidth+gap);
         bodyBlocks.push({kind:"glyph",name:glyphs[bulletIndex],x,y,size:54,color:palette.accent,strokeWidth:glyphStroke});
-        const label=text(part.label,{x,y:y+54+22,w:columnWidth,size:Math.round(body*1.15),weight:700,color:palette.text,lineHeight:1.25,maxLines:2,field:part.detail?undefined:"bullet",bulletIndex});
+        const label=text(part.label,{x,y:y+54+22,w:columnWidth,size:Math.round(body*1.15),weight:700,color:palette.text,lineHeight:1.25,maxLines:2,...bulletEdit(part,bulletIndex,"label")});
         bodyBlocks.push(label);
-        if(part.detail)bodyBlocks.push(text(part.detail,{x,y:y+54+22+label.h+10,w:columnWidth,size:Math.round(body*0.94),weight:500,color:withAlpha(palette.text,0.8),lineHeight:1.45,maxLines:5}));
+        if(part.detail)bodyBlocks.push(text(part.detail,{x,y:y+54+22+label.h+10,w:columnWidth,size:Math.round(body*0.94),weight:500,color:withAlpha(palette.text,0.8),lineHeight:1.45,maxLines:5,...bulletEdit(part,bulletIndex,"detail")}));
       });
     }else if(visual==="process"){
       if(supporting)bodyBlocks.push(text(supporting,{x:0,y:0,w:bodyBox.w,size:body,weight:500,color:withAlpha(palette.text,0.84),lineHeight:1.45,maxLines:3,field:"supportingText"}));

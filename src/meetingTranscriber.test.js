@@ -3,6 +3,33 @@ import { createMeetingTranscriber, MeetingTranscriptionError, transcribeOnServer
 const audio=new Float32Array(1600).fill(0.1);
 
 describe("meeting transcriber",()=>{
+  test("recovers after a failed local model download",async()=>{
+    const prepareLocal=jest.fn().mockRejectedValueOnce(new Error("Download failed")).mockResolvedValue();
+    const local=jest.fn().mockResolvedValue("Recovered locally");
+    const transcriber=createMeetingTranscriber({server:jest.fn().mockRejectedValue(new MeetingTranscriptionError("Offline setup",{code:"gateway_auth"})),local,prepareLocal});
+    await expect(transcriber.transcribe(audio)).rejects.toThrow("Download failed");
+    await expect(transcriber.transcribe(audio)).resolves.toBe("Recovered locally");
+    expect(prepareLocal).toHaveBeenCalledTimes(2);
+    expect(local).toHaveBeenCalledTimes(1);
+  });
+
+  test("times out a stalled response body and allows the queue to advance",async()=>{
+    jest.useFakeTimers();
+    try{
+      const fetchImpl=jest.fn(async(url,{signal})=>({ok:true,json:()=>new Promise((resolve,reject)=>signal.addEventListener("abort",()=>reject(new DOMException("Aborted","AbortError"))))}));
+      const result=transcribeOnServer(audio,{fetchImpl,timeoutMs:1000});
+      // Attach rejection handling before advancing the timer; await it below.
+      const assertion=expect(result).rejects.toMatchObject({code:"network",retryable:true}); // eslint-disable-line jest/valid-expect
+      await Promise.resolve();jest.advanceTimersByTime(1000);await assertion;
+    }finally{jest.useRealTimers();}
+  });
+
+  test("does not start transcription after a session has been cancelled",async()=>{
+    const controller=new AbortController();controller.abort();
+    const fetchImpl=jest.fn();
+    await expect(transcribeOnServer(audio,{fetchImpl,signal:controller.signal})).rejects.toMatchObject({name:"AbortError"});
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
   test("uses the server route first and stays there while it works",async()=>{
     const server=jest.fn().mockResolvedValue("Tell me about yourself.");
     const local=jest.fn();
@@ -27,6 +54,20 @@ describe("meeting transcriber",()=>{
     expect(onModeChange).toHaveBeenCalledWith(expect.objectContaining({mode:"local"}));
     await transcriber.transcribe(audio);
     expect(server).toHaveBeenCalledTimes(1);
+    expect(local).toHaveBeenCalledTimes(2);
+  });
+
+  test("preserves the language hint and cancellation when switching to local transcription",async()=>{
+    const server=jest.fn().mockRejectedValue(new MeetingTranscriptionError("Offline",{code:"gateway_auth"}));
+    const local=jest.fn().mockResolvedValue("ทำไม");
+    const controller=new AbortController();
+    const transcriber=createMeetingTranscriber({server,local,prepareLocal:jest.fn()});
+    await expect(transcriber.transcribe(audio,{language:"th",signal:controller.signal})).resolves.toBe("ทำไม");
+    expect(local.mock.calls[0][1]).toEqual({language:"th",signal:controller.signal});
+    await transcriber.transcribe(audio,{signal:controller.signal});
+    expect(local.mock.calls[1][1]).toEqual({language:undefined,signal:controller.signal});
+    controller.abort();
+    await expect(transcriber.transcribe(audio,{language:"th",signal:controller.signal})).rejects.toMatchObject({name:"AbortError"});
     expect(local).toHaveBeenCalledTimes(2);
   });
 

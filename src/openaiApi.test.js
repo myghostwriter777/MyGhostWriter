@@ -18,6 +18,7 @@ describe("Studio AI API route",()=>{
     if(originalKey===undefined)delete process.env.ANTHROPIC_API_KEY;
     else process.env.ANTHROPIC_API_KEY=originalKey;
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   test("builds a bounded Anthropic request with image and document inputs",async()=>{
@@ -219,5 +220,61 @@ describe("Studio AI API route",()=>{
     const schema=JSON.parse(global.fetch.mock.calls[0][1].body).output_config.format.schema;
     expect(schema.required).toEqual(["title","summary","totalMinutes","sections","handoffs"]);
     expect(schema.properties.sections.items.required).toEqual(["speaker","role","heading","timing","script","visualCue"]);
+  });
+
+  test("returns only completed JSON after research preambles while retaining sources",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    const source={type:"web_search_tool_result",content:[{type:"web_search_result",url:"https://example.org/study",title:"Study"}]};
+    global.fetch=jest.fn()
+      .mockResolvedValueOnce({ok:true,status:200,json:async()=>({stop_reason:"pause_turn",content:[{type:"text",text:"I will find the relevant studies."},source]})})
+      .mockResolvedValueOnce({ok:true,status:200,json:async()=>({stop_reason:"end_turn",content:[{type:"text",text:"One more search."},source,{type:"text",text:'{"title":"Completed study pack"}'}]})});
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Make a study pack.",user:"Use this study.",mode:"study",use_search:true}},res);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body.output_text)).toEqual({title:"Completed study pack"});
+    expect(res.body.sources).toEqual([{url:"https://example.org/study",title:"Study"}]);
+  });
+
+  test("does not mistake another paused search for a complete result",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({stop_reason:"pause_turn",content:[{type:"text",text:"Still researching."}]})});
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Research.",user:"Compare evidence.",mode:"deep-research",use_search:true}},res);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(res.statusCode).toBe(502);
+    expect(res.body.output_text).toBeUndefined();
+  });
+
+  test.each(["max_tokens","model_context_window_exceeded"])("rejects incomplete results ending in %s",async stop_reason=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockResolvedValue({ok:true,status:200,json:async()=>({stop_reason,content:[{type:"text",text:"An unfinished answer"}]})});
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Write a script.",user:"Use these sources.",mode:"presentation"}},res);
+    expect(res.statusCode).toBe(502);
+    expect(res.body.error).toMatch(/too long to finish/i);
+  });
+
+  test("keeps a short deadline for Meeting Assist, including a stalled response body",async()=>{
+    jest.useFakeTimers();
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn().mockImplementation(async(_url,{signal})=>({ok:true,status:200,json:()=>new Promise((_resolve,reject)=>signal.addEventListener("abort",()=>reject(Object.assign(new Error("aborted"),{name:"AbortError"})),{once:true}))}));
+    const res=mockResponse();
+    const pending=handler({method:"POST",body:{system:"Suggest a reply.",user:"A meeting question.",mode:"meeting"}},res);
+    // Attachment preparation and response headers both resolve asynchronously.
+    await Promise.resolve();await Promise.resolve();
+    jest.advanceTimersByTime(25001);
+    await pending;
+    expect(res.statusCode).toBe(504);
+    expect(global.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("rejects malformed base64 attachments before a provider call",async()=>{
+    process.env.ANTHROPIC_API_KEY="test-key";
+    global.fetch=jest.fn();
+    const res=mockResponse();
+    await handler({method:"POST",body:{system:"Review.",user:"Review this file.",files:[{type:"text/plain",dataUrl:"data:text/plain;base64,a===a"}]}},res);
+    expect(res.statusCode).toBe(400);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

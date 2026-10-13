@@ -1,5 +1,6 @@
 // Vercel executes this route as CommonJS, while AI SDK 7 is ESM-only, so the
 // SDK stays behind a native dynamic import (same pattern as manga-image.js).
+const {createGenerationDeadline}=require("./_lib/generation");
 let aiSdkPromise;
 const loadAiSdk=()=>aiSdkPromise||(aiSdkPromise=import("ai"));
 
@@ -43,15 +44,15 @@ function isGatewayAccountBlock(error){
   return status===401||status===402||(status===403&&/AI Gateway|credit card|billing|fund|authentication|API key/i.test(message));
 }
 
-async function generateMultimodal(model,prompt){
+async function generateMultimodal(model,prompt,abortSignal){
   const {generateText}=await loadAiSdk();
-  const result=await generateText({model,prompt,maxRetries:1,providerOptions:{gateway:{tags:["feature:slide-image",`model:${model}`]}}});
+  const result=await generateText({model,prompt,abortSignal,maxRetries:0,providerOptions:{gateway:{tags:["feature:slide-image",`model:${model}`]}}});
   return imagePayload((result?.files||[]).find(file=>file?.mediaType?.startsWith("image/")));
 }
 
-async function generateDedicated(model,prompt){
+async function generateDedicated(model,prompt,abortSignal){
   const {generateImage}=await loadAiSdk();
-  const result=await generateImage({model,prompt,...(model.startsWith("openai/")?{size:"1536x1024"}:{aspectRatio:"16:9"}),maxRetries:1,providerOptions:{gateway:{tags:["feature:slide-image",`model:${model}`]}}});
+  const result=await generateImage({model,prompt,abortSignal,...(model.startsWith("openai/")?{size:"1536x1024"}:{aspectRatio:"16:9"}),maxRetries:0,providerOptions:{gateway:{tags:["feature:slide-image",`model:${model}`]}}});
   return imagePayload(result?.image||result?.images?.[0]);
 }
 
@@ -63,37 +64,45 @@ async function handler(req,res){
   if(req.method!=="POST")return res.status(405).json({error:"Method not allowed"});
   let body=req.body;
   if(typeof body==="string"){try{body=JSON.parse(body);}catch{return res.status(400).json({error:"Could not parse the request."});}}
+  if(!body||typeof body!=="object"||Array.isArray(body)||![body.title,body.direction].some(value=>typeof value==="string"&&value.trim()))return res.status(400).json({error:"Add a slide title or visual description first."});
+  if(["title","direction","theme","layout","deckTitle"].some(key=>body[key]!=null&&typeof body[key]!=="string"))return res.status(400).json({error:"The slide visual description is invalid."});
   const prompt=buildSlideImagePrompt(body||{});
   if(prompt.length>8000)return res.status(400).json({error:"The slide visual description is too long."});
   const errors=[];
+  const deadline=createGenerationDeadline(req,res,55000);
   try{
     for(const model of MULTIMODAL_MODELS){
       try{
-        const image=await generateMultimodal(model,prompt);
+        if(deadline.signal.aborted)throw new Error("Image generation stopped.");
+        const image=await generateMultimodal(model,prompt,deadline.signal);
         if(image)return res.status(200).json({image,model});
         throw Object.assign(new Error("The multimodal image model returned no image file."),{statusCode:502});
       }catch(error){
         errors.push(error);console.error("Slide image multimodal model error",{model,status:Number(error?.statusCode||error?.status||0)||undefined,message:String(error?.message||"").slice(0,300)});
-        if(isGatewayAccountBlock(error))throw error;
+        if(deadline.signal.aborted||isGatewayAccountBlock(error))throw error;
       }
     }
     for(const model of IMAGE_MODELS){
       try{
-        const image=await generateDedicated(model,prompt);
+        if(deadline.signal.aborted)throw new Error("Image generation stopped.");
+        const image=await generateDedicated(model,prompt,deadline.signal);
         if(image)return res.status(200).json({image,model});
         throw Object.assign(new Error("The image model returned no file."),{statusCode:502});
       }catch(error){
         errors.push(error);console.error("Slide image model error",{model,status:Number(error?.statusCode||error?.status||0)||undefined,message:String(error?.message||"").slice(0,300)});
-        if(isGatewayAccountBlock(error))throw error;
+        if(deadline.signal.aborted||isGatewayAccountBlock(error))throw error;
       }
     }
     throw errors.find(item=>[401,402,403,429].includes(Number(item?.statusCode||item?.status||0)))||errors[0]||new Error("No image model returned an illustration.");
   }catch(error){
+    if(deadline.signal.aborted)return res.status(504).json({error:"The slide visual took too long. Try again or upload an image."});
     const status=Number(error?.statusCode||error?.status||0);
     if(status===401||status===403)return res.status(503).json({error:"AI image generation is not enabled for this deployment yet. Upload your own image or try again later.",code:"IMAGE_GATEWAY_ACCESS_REQUIRED"});
     if(status===402)return res.status(402).json({error:"The AI image allowance has run out. You can still upload your own image."});
     if(status===429)return res.status(429).json({error:"The image studio is busy. Wait a moment and try again."});
     return res.status(502).json({error:"The AI visual could not be created. Try a shorter visual direction or upload an image."});
+  }finally{
+    deadline.cleanup();
   }
 }
 

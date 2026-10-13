@@ -2,6 +2,7 @@
 // top-level `import from "ai"` is rewritten to require("ai") by the function
 // bundler and crashes before the handler can run. Keep the SDK behind Node's
 // native dynamic import so production can actually reach the image models.
+const {createGenerationDeadline}=require("./_lib/generation");
 let aiSdkPromise;
 const loadAiSdk=()=>aiSdkPromise||(aiSdkPromise=import("ai"));
 
@@ -25,7 +26,9 @@ function validateReferences(references){
   return references.map((reference,index)=>{
     const match=typeof reference==="string"?reference.match(IMAGE_DATA_URL):null;
     if(!match)throw new Error(`Reference ${index+1} must be a PNG, JPEG, or WebP image.`);
-    const base64=match[2].replace(/[\r\n]/g,"");const padding=base64.endsWith("==")?2:base64.endsWith("=")?1:0;const bytes=Math.floor(base64.length*3/4)-padding;
+    const base64=match[2].replace(/[\r\n]/g,"");
+    if(base64.length%4!==0||!/^[A-Za-z0-9+/]+={0,2}$/.test(base64))throw new Error(`Reference ${index+1} contains invalid image data.`);
+    const padding=base64.endsWith("==")?2:base64.endsWith("=")?1:0;const bytes=Math.floor(base64.length*3/4)-padding;
     if(bytes<=0||bytes>MAX_REFERENCE_BYTES)throw new Error(`Reference ${index+1} must be smaller than 4 MB.`);
     total+=bytes;if(total>MAX_TOTAL_REFERENCE_BYTES)throw new Error("The combined reference images are too large.");
     return {data:Buffer.from(base64,"base64"),mediaType:match[1].toLowerCase()};
@@ -82,7 +85,7 @@ function isGatewayAccountBlock(error){
   return status===401||status===402||(status===403&&/AI Gateway|credit card|billing|fund|authentication|API key/i.test(message));
 }
 
-async function generateGeminiPage(prompt,references,model=PRIMARY_MODEL){
+async function generateGeminiPage(prompt,references,model,abortSignal){
   const {generateText}=await loadAiSdk();
   const input=references.length
     ?{messages:[{role:"user",content:[{type:"text",text:prompt},...references.map(reference=>({type:"image",image:reference.data,mediaType:reference.mediaType}))]}]}
@@ -90,19 +93,21 @@ async function generateGeminiPage(prompt,references,model=PRIMARY_MODEL){
   const result=await generateText({
     model,
     ...input,
-    maxRetries:1,
+    abortSignal,
+    maxRetries:0,
     providerOptions:{gateway:{tags:["feature:manga-image","format:portrait-comic",`model:${model}`]}},
   });
   return imagePayload((result?.files||[]).find(file=>file?.mediaType?.startsWith("image/")));
 }
 
-async function generateFallbackPage(prompt,model){
+async function generateFallbackPage(prompt,references,model,abortSignal){
   const {generateImage}=await loadAiSdk();
   const result=await generateImage({
     model,
-    prompt,
+    prompt:references.length?{text:prompt,images:references.map(reference=>reference.data)}:prompt,
     ...(model.startsWith("openai/")?{size:"1024x1536"}:{aspectRatio:"2:3"}),
-    maxRetries:1,
+    abortSignal,
+    maxRetries:0,
     providerOptions:{gateway:{tags:["feature:manga-image",`fallback:${model.split("/")[0]}`]}},
   });
   return imagePayload(result?.image||result?.images?.[0]);
@@ -124,31 +129,34 @@ async function handler(req,res){
   console.log("[manga-image] request",{referenceCount:references.length,promptLength:prompt.length});
 
   const artDirection=buildArtDirection(prompt);
+  const deadline=createGenerationDeadline(req,res,55000);
   try{
     let image=null;let model=PRIMARY_MODEL;let primaryError=null;const cloudErrors=[];
     for(const multimodalModel of MULTIMODAL_MODELS){
       model=multimodalModel;
       try{
-        image=await generateGeminiPage(artDirection,references,multimodalModel);
+        if(deadline.signal.aborted)throw new Error("Image generation stopped.");
+        image=await generateGeminiPage(artDirection,references,multimodalModel,deadline.signal);
         if(!image)throw Object.assign(new Error("The multimodal image model returned no image file."),{statusCode:502});
         break;
       }catch(error){
         primaryError||=error;cloudErrors.push(error);
         console.error("Manga image multimodal model error",errorMeta(error,multimodalModel,references));
-        if(isGatewayAccountBlock(error))throw error;
+        if(deadline.signal.aborted||isGatewayAccountBlock(error))throw error;
       }
     }
     if(!image){
       for(const fallbackModel of FALLBACK_MODELS){
         model=fallbackModel;
         try{
-          image=await generateFallbackPage(artDirection,fallbackModel);
+          if(deadline.signal.aborted)throw new Error("Image generation stopped.");
+          image=await generateFallbackPage(artDirection,references,fallbackModel,deadline.signal);
           if(image)break;
           throw Object.assign(new Error("The fallback image model returned no image file."),{statusCode:502});
         }catch(fallbackError){
           cloudErrors.push(fallbackError);
           console.error("Manga image fallback model error",errorMeta(fallbackError,fallbackModel,references));
-          if(isGatewayAccountBlock(fallbackError))throw fallbackError;
+          if(deadline.signal.aborted||isGatewayAccountBlock(fallbackError))throw fallbackError;
         }
       }
       if(!image)throw preferredCloudError(cloudErrors);
@@ -158,10 +166,13 @@ async function handler(req,res){
   }catch(error){
     console.error("Manga image generation error",errorMeta(error,"gateway",references));
     const status=Number(error?.statusCode||error?.status||0);
+    if(deadline.signal.aborted)return res.status(504).json({error:"The illustrated page took too long. Try a shorter scene or redraw one page."});
     if(status===401||status===403)return res.status(503).json({error:"Vercel AI Gateway received the illustration request but this team does not currently have image-generation access. Add an eligible provider integration or complete the Gateway billing requirement, then press Redraw. No placeholder page was saved.",code:"IMAGE_GATEWAY_ACCESS_REQUIRED"});
     if(status===402)return res.status(402).json({error:"The AI Gateway image allowance has run out. Add Gateway credits before redrawing this page."});
     if(status===429)return res.status(429).json({error:"Manga Studio is busy. Wait a moment, then generate this page again."});
     return res.status(502).json({error:"The illustrated page could not be generated by either image model. Try a shorter scene or redraw one page."});
+  }finally{
+    deadline.cleanup();
   }
 }
 

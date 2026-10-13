@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import GwmIcon from "./GwmIcon";
 import { preparePdfDocument } from "./presentationPdf";
 import { PORTFOLIO_TEXT_LIMIT, PORTFOLIO_CREATE_SYSTEM, PORTFOLIO_REVIEW_SYSTEM, PORTFOLIO_CHAT_SYSTEM, portfolioNotes, portfolioTextFile, portfolioFiles, parsePortfolio, parsePortfolioReview, portfolioAsText, portfolioReviewAsText, portfolioChatPrompt, buildPortfolioHtml, downloadPortfolioPdf } from "./portfolio";
@@ -6,6 +6,12 @@ import { PORTFOLIO_TEXT_LIMIT, PORTFOLIO_CREATE_SYSTEM, PORTFOLIO_REVIEW_SYSTEM,
 const C = { text: "var(--gwm-text)", muted: "var(--gwm-muted)", border: "var(--gwm-border)", surface: "var(--gwm-surface)", accent: "var(--gwm-blue-text)", green: "var(--gwm-green-text)", red: "var(--gwm-red-text)" };
 const secondaryButton = { minHeight: 40, padding: "8px 12px", border: `1px solid ${C.border}`, borderRadius: 8, background: C.surface, color: C.text, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 800 };
 const preparePortfolioPdf = file => preparePdfDocument(file, { kind: "portfolio", pageLabel: "Page", action: "review" });
+
+function usePortfolioRequest() {
+  const pending = useRef(null);
+  useEffect(() => () => { pending.current?.abort(); pending.current = null; }, []);
+  return pending;
+}
 
 export async function preparePortfolioNotes(file) {
   if (!/\.txt$/i.test(file.name) && file.type !== "text/plain") throw new Error("Choose a plain-text (.txt) notes file.");
@@ -43,6 +49,7 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
   const [pack, setPack] = useState(null);
   const [printNotice, setPrintNotice] = useState("");
   const [exporting, setExporting] = useState(false);
+  const pending = usePortfolioRequest();
   const preview = useMemo(() => {
     if (!pack) return {};
     try { return { html: buildPortfolioHtml(pack.result, pack.form, pack.photos) }; }
@@ -55,15 +62,17 @@ function CreatePortfolio({ user, request, save, compactImage, ui }) {
   const preparing = photosPreparing || notesPreparing;
 
   const generate = async () => {
-    if (busy || exporting || preparing || !hasContent || tooLong) return;
+    if (pending.current || busy || exporting || preparing || !hasContent || tooLong) return;
+    const controller = new AbortController(); pending.current = controller;
     setBusy(true); setError(""); setPrintNotice("");
     const snapshot = { form: { ...form }, photos: photos.map(photo => ({ ...photo })), notes };
     try {
-      const result = parsePortfolio(await request(PORTFOLIO_CREATE_SYSTEM, "Create my university application portfolio using the attached student notes and photos. Keep missing information in the checklist, outside the finished portfolio.", 6500, [...portfolioFiles(snapshot.photos), portfolioTextFile("student-notes.txt", snapshot.notes)], user?.email, { mode: "portfolio-create" }));
+      const result = parsePortfolio(await request(PORTFOLIO_CREATE_SYSTEM, "Create my university application portfolio using the attached student notes and photos. Keep missing information in the checklist, outside the finished portfolio.", 6500, [...portfolioFiles(snapshot.photos), portfolioTextFile("student-notes.txt", snapshot.notes)], user?.email, { mode: "portfolio-create", signal: controller.signal }));
+      if (controller.signal.aborted) return;
       setPack({ ...snapshot, result, id: Date.now() });
       save(user, "Portfolio: " + (snapshot.form.name || result.title), snapshot.form.target || "University application", portfolioAsText(result, snapshot.form, snapshot.photos));
-    } catch (failure) { setError(failure?.message || "Your portfolio could not be created. Please try again."); }
-    finally { setBusy(false); }
+    } catch (failure) { if (!controller.signal.aborted) setError(failure?.message || "Your portfolio could not be created. Please try again."); }
+    finally { if (pending.current === controller) { pending.current = null; setBusy(false); } }
   };
 
   const answer = async messages => {
@@ -119,18 +128,21 @@ function ReviewPortfolio({ user, request, save, ui }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pack, setPack] = useState(null);
+  const pending = usePortfolioRequest();
   const tooLong = target.length + requirements.length > 10000;
 
   const review = async () => {
-    if (!files.length || busy || preparing || tooLong) return;
+    if (pending.current || !files.length || busy || preparing || tooLong) return;
+    const controller = new AbortController(); pending.current = controller;
     setBusy(true); setError("");
     const snapshot = { file: { ...files[0] }, target, requirements };
     try {
-      const result = parsePortfolioReview(await request(PORTFOLIO_REVIEW_SYSTEM, `Review this ${snapshot.file.pageCount}-page portfolio. Target university/course: ${target || "Not specified; give general portfolio feedback"}. User-supplied application requirements: ${requirements || "None supplied"}.`, 6500, portfolioFiles([snapshot.file]), user?.email, { mode: "portfolio-review" }), snapshot.file.pageCount);
+      const result = parsePortfolioReview(await request(PORTFOLIO_REVIEW_SYSTEM, `Review this ${snapshot.file.pageCount}-page portfolio. Target university/course: ${target || "Not specified; give general portfolio feedback"}. User-supplied application requirements: ${requirements || "None supplied"}.`, 6500, portfolioFiles([snapshot.file]), user?.email, { mode: "portfolio-review", signal: controller.signal }), snapshot.file.pageCount);
+      if (controller.signal.aborted) return;
       setPack({ ...snapshot, result, id: Date.now() });
       save(user, "Portfolio review: " + snapshot.file.name, target || "Portfolio PDF review", portfolioReviewAsText(result));
-    } catch (failure) { setError(failure?.message || "The portfolio could not be reviewed. Please try again."); }
-    finally { setBusy(false); }
+    } catch (failure) { if (!controller.signal.aborted) setError(failure?.message || "The portfolio could not be reviewed. Please try again."); }
+    finally { if (pending.current === controller) { pending.current = null; setBusy(false); } }
   };
 
   const answer = messages => request(PORTFOLIO_CHAT_SYSTEM, portfolioChatPrompt(messages), 1800, [...portfolioFiles([pack.file]), portfolioTextFile("portfolio-review.txt", `Target: ${pack.target}\nRequirements: ${pack.requirements}\n\n${portfolioReviewAsText(pack.result)}`)], user?.email, { mode: "portfolio-chat" });

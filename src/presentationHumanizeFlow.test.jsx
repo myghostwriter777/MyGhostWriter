@@ -75,8 +75,41 @@ test("Humanize analyzes the original text through the existing route without rew
   expect(url).toBe("/api/openai");
   const request = JSON.parse(options.body);
   expect(request.mode).toBe("ai-detection");
-  expect(request.system).not.toContain("WRITING STYLE (apply to all generated prose");
+  expect(request.system).not.toContain("WRITING STYLE (apply to");
+  expect(request.system).not.toContain("CEFR WRITING LEVEL:");
   expect(request.user).toContain(text.trim());
   expect(input).toHaveValue(text);
   expect(screen.getByRole("button", { name: "Humanize My Writing" })).toBeEnabled();
+});
+
+const humanizeResponse = (text, stopReason = "end_turn") => ({
+  ok: true,
+  json: async () => ({ content: [{ type: "text", text: JSON.stringify({ humanized: text, changes: [] }) }], stop_reason: stopReason }),
+});
+
+test.each(["max_tokens", "model_context_window_exceeded"])("Humanize retries a first pass stopped by %s even when its JSON is valid", async stopReason => {
+  global.fetch
+    .mockResolvedValueOnce(humanizeResponse("Incomplete draft.", stopReason))
+    .mockResolvedValueOnce(humanizeResponse("A complete first draft."))
+    .mockResolvedValueOnce(humanizeResponse("The complete reviewed rewrite."));
+  render(<HumanizeMode/>);
+  fireEvent.change(screen.getByPlaceholderText(/Paste any AI-generated/), { target: { value: "Our team carefully reviewed all the findings before making a decision." } });
+  fireEvent.click(screen.getByRole("button", { name: "Humanize My Writing" }));
+  expect(await screen.findByText("The complete reviewed rewrite.")).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledTimes(3);
+  expect(screen.queryByText("Incomplete draft.")).not.toBeInTheDocument();
+  expect(screen.getByText(/Humanized Output/)).toHaveTextContent("2-Pass Reviewed");
+});
+
+test.each(["max_tokens", "model_context_window_exceeded"])("Humanize retains the complete first pass when its review stops by %s", async stopReason => {
+  global.fetch
+    .mockResolvedValueOnce(humanizeResponse("A complete first draft."))
+    .mockResolvedValueOnce(humanizeResponse("Incomplete review.", stopReason));
+  render(<HumanizeMode/>);
+  fireEvent.change(screen.getByPlaceholderText(/Paste any AI-generated/), { target: { value: "Our team carefully reviewed all the findings before making a decision." } });
+  fireEvent.click(screen.getByRole("button", { name: "Humanize My Writing" }));
+  expect(await screen.findByText("A complete first draft.")).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText("Incomplete review.")).not.toBeInTheDocument();
+  expect(screen.getByText(/Humanized Output/)).toHaveTextContent("First-Pass Rewrite");
 });

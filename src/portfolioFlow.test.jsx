@@ -1,5 +1,5 @@
 import { TextEncoder } from "util";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MODES, NAV_GROUPS, PortfolioMode } from "./App";
 import { preparePdfDocument } from "./presentationPdf";
 import { downloadPortfolioPdf, PORTFOLIO_CRITERIA } from "./portfolio";
@@ -175,4 +175,18 @@ test("clears a stale review when the target course changes", async () => {
   await screen.findByLabelText("Overall portfolio score");
   fireEvent.change(screen.getByPlaceholderText("Which university or subject is this portfolio for?"), { target: { value: "Architecture" } });
   expect(screen.queryByLabelText("Overall portfolio score")).not.toBeInTheDocument();
+});
+
+test("cancels a pending portfolio on unmount and ignores a late result", async () => {
+  let finish;
+  global.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const { unmount } = render(<PortfolioMode user={{ email: "cancel@example.test" }}/>);
+  inputNotes(); fireEvent.click(screen.getByRole("button", { name: "Create Portfolio" }));
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+  const signal = global.fetch.mock.calls[0][1].signal;
+  expect(signal.aborted).toBe(false);
+  unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () => { finish(respond(portfolio)); });
+  expect(global.fetch.mock.calls.some(([url]) => url === "/api/history")).toBe(false);
 });

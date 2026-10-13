@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import GwmIcon from "./GwmIcon";
 import { createTextMeasure, layoutSlide, organicClipPath, STAGE } from "./slideLayout";
 import { SLIDE_GLYPHS } from "./slideGlyphs";
@@ -7,6 +7,18 @@ import { moveSlideElement, nudgeSlideElement, resizeSlideElement } from "./slide
 
 const EDIT_BLUE="#79BAEC";
 const sharedMeasure=createTextMeasure();
+let fontState={measure:sharedMeasure};
+const fontListeners=new Set();
+const fontSnapshot=()=>fontState;
+const fontsLoaded=()=>{sharedMeasure.clearCache();fontState={measure:sharedMeasure};fontListeners.forEach(listener=>listener());};
+const subscribeFonts=listener=>{
+  if(!fontListeners.size)document.fonts?.addEventListener?.("loadingdone",fontsLoaded);
+  fontListeners.add(listener);
+  return()=>{
+    fontListeners.delete(listener);
+    if(!fontListeners.size){document.fonts?.removeEventListener?.("loadingdone",fontsLoaded);sharedMeasure.clearCache();}
+  };
+};
 
 // Scales the fixed 1600×900 stage to whatever box it is shown in, so text and
 // geometry stay identical between the studio preview, fullscreen and exports.
@@ -31,11 +43,11 @@ function useStageScale(presenting){
 export function DraggableSlideElement({position,image=false,editing=false,selected=false,label,onSelect,onChange,onDelete,children,zIndex}){
   const elementRef=useRef(null);const actionRef=useRef(null);
   const startAction=(mode,event)=>{
-    if(!editing)return;if(event.target?.closest?.('[contenteditable="true"]')){event.stopPropagation();onSelect?.();return;}event.preventDefault();event.stopPropagation();onSelect?.();const shell=elementRef.current?.parentElement;if(!shell)return;
+    if(!editing||(event.button!=null&&event.button!==0))return;if(event.target?.closest?.('[contenteditable="true"]')){event.stopPropagation();onSelect?.();return;}event.preventDefault();event.stopPropagation();onSelect?.();const shell=elementRef.current?.parentElement;if(!shell)return;
     const bounds=shell.getBoundingClientRect();actionRef.current={mode,pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,position:{...position},width:bounds.width,height:bounds.height};event.currentTarget.setPointerCapture?.(event.pointerId);
   };
   const moveAction=event=>{
-    const action=actionRef.current;if(!action||action.pointerId!==event.pointerId)return;event.preventDefault();const delta={dx:event.clientX-action.startX,dy:event.clientY-action.startY,canvasWidth:action.width,canvasHeight:action.height,image};
+    const action=actionRef.current;if(!action||action.pointerId!==event.pointerId)return;event.preventDefault();event.stopPropagation();const delta={dx:event.clientX-action.startX,dy:event.clientY-action.startY,canvasWidth:action.width,canvasHeight:action.height,image};
     onChange?.(action.mode==="resize"?resizeSlideElement(action.position,delta):moveSlideElement(action.position,delta));
   };
   const finishAction=event=>{if(actionRef.current?.pointerId===event.pointerId)actionRef.current=null;};
@@ -44,7 +56,7 @@ export function DraggableSlideElement({position,image=false,editing=false,select
     if(direction){event.preventDefault();onSelect?.();onChange?.(nudgeSlideElement(position,{dx:direction[0],dy:direction[1],image}));}
     if(image&&(event.key==="Delete"||event.key==="Backspace")){event.preventDefault();onDelete?.();}
   };
-  return <div ref={elementRef} role={editing?"group":undefined} tabIndex={editing?0:undefined} aria-label={editing?`${label}. Drag to move. Use arrow keys for precise movement.`:undefined} onPointerDown={event=>startAction("move",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} onKeyDown={onKeyDown} onClick={event=>{if(editing){event.stopPropagation();onSelect?.();}}} style={{position:"absolute",left:`${position.x}%`,top:`${position.y}%`,width:`${position.width}%`,...(image?{height:`${position.height}%`}:{}),zIndex:zIndex??(image?2:3),touchAction:"none",cursor:editing?"move":"default",outline:selected?`4px solid ${EDIT_BLUE}`:"none",outlineOffset:8,borderRadius:image?8:4}}>
+  return <div ref={elementRef} role={editing?"group":undefined} tabIndex={editing?0:undefined} aria-label={editing?`${label}. Drag to move. Use arrow keys for precise movement.`:undefined} onPointerDown={event=>startAction("move",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} onLostPointerCapture={finishAction} onKeyDown={onKeyDown} onClick={event=>{if(editing){event.stopPropagation();onSelect?.();}}} style={{position:"absolute",left:`${position.x}%`,top:`${position.y}%`,width:`${position.width}%`,...(image?{height:`${position.height}%`}:{}),zIndex:zIndex??(image?2:3),touchAction:editing?"none":"auto",cursor:editing?"move":"default",outline:selected?`4px solid ${EDIT_BLUE}`:"none",outlineOffset:8,borderRadius:image?8:4}}>
     {children}
     {editing&&selected&&<><span aria-hidden="true" style={{position:"absolute",left:0,top:-46,padding:"8px 14px",borderRadius:10,background:EDIT_BLUE,color:"#06101a",fontSize:18,fontWeight:900,letterSpacing:".06em",textTransform:"uppercase",whiteSpace:"nowrap",pointerEvents:"none"}}>{label}</span><button type="button" aria-label={`Resize ${label}`} onPointerDown={event=>startAction("resize",event)} onPointerMove={moveAction} onPointerUp={finishAction} onPointerCancel={finishAction} style={{position:"absolute",right:-30,bottom:-30,width:60,height:60,borderRadius:"50%",border:"4px solid #fff",background:EDIT_BLUE,color:"#06101a",display:"grid",placeItems:"center",cursor:"nwse-resize",touchAction:"none",boxShadow:"0 8px 24px rgba(0,0,0,.35)"}}><GwmIcon name="expand" size={26}/></button></>}
   </div>;
@@ -58,11 +70,13 @@ function GlyphSvg({name,size,color,strokeWidth=2.4,style}){
 function TextBlock({block,editing,onUpdateSlideField,onUpdateSlideBullet}){
   const editable=editing&&!!block.field;
   const commit=event=>{
-    if(!editable)return;const value=event.currentTarget.textContent||"";
+    if(!editable)return;let value=event.currentTarget.innerText??event.currentTarget.textContent??"";
+    if(block.bulletPart==="label")value=`${value}: ${block.bulletDetail}`;
+    if(block.bulletPart==="detail")value=`${block.bulletLabel}: ${value}`;
     if(block.field==="bullet")onUpdateSlideBullet?.(block.bulletIndex,value);else onUpdateSlideField?.(block.field,value);
   };
   const style={position:"absolute",left:block.x,top:block.y,width:block.w,minHeight:block.h,margin:0,fontSize:block.size,fontWeight:block.weight,color:block.color,lineHeight:block.lineHeight,textAlign:block.align,letterSpacing:block.letterSpacing?`${block.letterSpacing}px`:undefined,fontFamily:block.family,fontStyle:block.italic?"italic":"normal",textDecoration:block.underline?"underline":"none",textDecorationThickness:block.underline?2:undefined,textUnderlineOffset:block.underline?5:undefined,whiteSpace:"pre-wrap",overflowWrap:"anywhere",wordBreak:"break-word",...(editable?{}:{display:"-webkit-box",WebkitBoxOrient:"vertical",WebkitLineClamp:block.maxLines||12,overflow:"hidden"})};
-  const content=editable?block.text:block.runs.map((run,runIndex)=><span key={runIndex} style={{fontWeight:run.weight,color:run.color||block.color,fontStyle:run.italic?"italic":undefined}}>{run.text}</span>);
+  const content=editable?block.text:block.lines.map((line,lineIndex)=><span key={lineIndex} data-slide-line="true" style={{display:"block",whiteSpace:"pre"}}>{line.length?line.map((run,runIndex)=><span key={runIndex} style={{fontWeight:run.weight,color:run.color||block.color,fontStyle:run.italic?"italic":undefined}}>{run.text}</span>):"\u00a0"}</span>);
   if(block.href&&!editing)return <a href={block.href} target="_blank" rel="noreferrer" style={{...style,color:block.color}} onClick={event=>event.stopPropagation()}>{content}</a>;
   return <div className={editable?"slide-inline-copy":undefined} contentEditable={editable||undefined} suppressContentEditableWarning={editable||undefined} onClick={event=>editable&&event.stopPropagation()} onBlur={commit} style={style}>{content}</div>;
 }
@@ -92,10 +106,11 @@ function Panel({panel}){
 const groupHeight=blocks=>Math.max(1,...blocks.map(block=>block.kind==="circle"?block.cy+block.r:block.kind==="glyph"?block.y+block.size:(block.y||0)+(block.h||0)));
 
 export function SlideFrame({deck,slide,index,palette:paletteProp,theme,background,textColor,font=DEFAULT_SLIDE_FONT,titleSize=34,bodySize=18,presenting=false,onFullscreen,editing=false,selectedElement="",onSelectElement,onUpdateElementPosition,onRemoveImage,onUpdateSlideField,onUpdateSlideBullet,onAddImages,fixedScale}){
-  const palette=paletteProp||slidePalette(background,theme,textColor);
+  const palette=useMemo(()=>paletteProp||slidePalette(background,theme,textColor),[paletteProp,background,theme,textColor]);
+  const fontMeasurement=useSyncExternalStore(subscribeFonts,fontSnapshot,fontSnapshot);
   const [shellRef,measuredScale]=useStageScale(presenting);
   const scale=fixedScale||measuredScale;
-  const layout=useMemo(()=>layoutSlide(deck,slide,index,{palette,font,titleSize,bodySize,total:deck?.slides?.length||1,measure:sharedMeasure}),[deck,slide,index,palette,font,titleSize,bodySize]);
+  const layout=useMemo(()=>layoutSlide(deck,slide,index,{palette,font,titleSize,bodySize,total:deck?.slides?.length||1,measure:fontMeasurement.measure}),[deck,slide,index,palette,font,titleSize,bodySize,fontMeasurement]);
   const shellStyle=fixedScale
     ?{position:"relative",width:STAGE.width*fixedScale,height:STAGE.height*fixedScale,overflow:"hidden",background:palette.bg,color:palette.text}
     :presenting

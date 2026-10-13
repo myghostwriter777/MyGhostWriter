@@ -70,4 +70,13 @@ describe("Meeting Assist browser compatibility",()=>{
     for(let index=0;index<speech.length;index+=1)speech[index]=Math.sin(index/8)*0.06;
     expect(hasAudibleMeetingSpeech(speech)).toBe(true);
   });
+
+  test.each(["ทำไม","คุณมีประสบการณ์อะไรบ้าง","为什么？","教えてください","បន្តទៀត","Why?","Go on","¿Por qué?","لماذا؟"])("preserves meaningful short or unspaced speech: %s",text=>{
+    expect(isUsefulMeetingTranscript(text)).toBe(true);
+    expect(cleanMeetingTranscriptSegment(text)).toBe(text);
+  });
+
+  test.each(["", "...", "12345", "uh um", "you you you", "[silence]", "ก", "a?"])("still rejects filler or incomplete noise tokens: %s",text=>{
+    expect(isUsefulMeetingTranscript(text)).toBe(false);
+  });
 });

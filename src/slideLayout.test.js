@@ -31,6 +31,29 @@ const bounds=block=>{
 };
 
 describe("slide layout engine",()=>{
+  test("preserves deliberate line breaks and fits the truncation marker",()=>{
+    const widthMeasure=text=>Array.from(text).length;
+    const lines=wrapRuns(widthMeasure,[{text:"First\n\nSecond\r\nThird",weight:500}],{width:100,size:20});
+    expect(lines.map(lineText)).toEqual(["First","","Second","Third"]);
+    const clamped=wrapRuns(widthMeasure,[{text:"12345 67890",weight:500}],{width:5,size:20,maxLines:1});
+    expect(lineText(clamped[0])).toBe("1234…");
+  });
+
+  test("reuses cached text widths, including tracked letter spacing",()=>{
+    const measureText=jest.fn(()=>({width:100}));
+    const context=jest.spyOn(HTMLCanvasElement.prototype,"getContext").mockReturnValue({measureText});
+    try{
+      const cached=createTextMeasure();
+      expect(cached("Test",20,500,"Arial",2)).toBe(106);
+      expect(cached("Test",20,500,"Arial",2)).toBe(106);
+      expect(measureText).toHaveBeenCalledTimes(1);
+      expect(cached("Test",20,500,"Arial",0)).toBe(100);
+      measureText.mockReturnValue({width:120});
+      cached.clearCache();
+      expect(cached("Test",20,500,"Arial",2)).toBe(126);
+    }finally{context.mockRestore();}
+  });
+
   test("wraps rich runs by words and breaks unspaced strings",()=>{
     const lines=wrapRuns(measure,[{text:"Label: ",weight:700},{text:"a fairly long explanation that must wrap onto more than one line",weight:500}],{width:260,size:24});
     expect(lines.length).toBeGreaterThan(1);

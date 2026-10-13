@@ -33,11 +33,20 @@ const ensureWhisperWorker=()=>{
   return whisperWorker;
 };
 
-const requestWorker=(type,payload={},transfer=[])=>new Promise((resolve,reject)=>{
+const requestWorker=(type,payload={},transfer=[],signal)=>new Promise((resolve,reject)=>{
+  if(signal?.aborted){reject(new DOMException("Transcription cancelled.","AbortError"));return;}
   const worker=ensureWhisperWorker();
   const id=++requestSequence;
-  pendingRequests.set(id,{resolve,reject});
-  worker.postMessage({id,type,...payload},transfer);
+  const cleanup=()=>signal?.removeEventListener("abort",cancel);
+  const cancel=()=>{
+    if(!pendingRequests.delete(id))return;
+    cleanup();reject(new DOMException("Transcription cancelled.","AbortError"));
+    try{worker.postMessage({id,type:"cancel"});}catch{}
+  };
+  pendingRequests.set(id,{resolve:value=>{cleanup();resolve(value);},reject:error=>{cleanup();reject(error);}});
+  signal?.addEventListener("abort",cancel,{once:true});
+  try{worker.postMessage({id,type,...payload},transfer);}
+  catch(error){pendingRequests.delete(id);cleanup();reject(error);}
 });
 
 const withProgress=async(onProgress,work)=>{
@@ -48,11 +57,13 @@ const withProgress=async(onProgress,work)=>{
 
 export const prepareLocalWhisper=onProgress=>withProgress(onProgress,()=>requestWorker("load"));
 
-export const transcribeLocalAudio=(audio,onProgress)=>{
+export const transcribeLocalAudio=(audio,onProgress,{language,signal}={})=>{
   if(!(audio instanceof Float32Array)||!audio.length)return Promise.resolve("");
   return withProgress(onProgress,async()=>{
-    const message=await requestWorker("transcribe",{audio},[audio.buffer]);
+    // The caller may retry or share a view into a larger recording. Transfer
+    // only our own copy, leaving their buffer usable after transcription.
+    const transferable=audio.slice();
+    const message=await requestWorker("transcribe",{audio:transferable,language},[transferable.buffer],signal);
     return String(message.text||"").trim();
   });
 };
-

@@ -1,7 +1,12 @@
 import { createHash } from "crypto";
-import mammoth from "mammoth";
+import { createGenerationDeadline, requestAnthropic } from "./_lib/generation";
+
+// Text-only requests, especially Meeting Assist, do not need the DOCX parser.
+let mammothPromise;
+const loadMammoth = () => mammothPromise || (mammothPromise = import("mammoth").then(module => module.default || module));
 
 export const config = {
+  maxDuration: 150,
   api: {
     bodyParser: {
       sizeLimit: "12mb",
@@ -223,6 +228,9 @@ function validateFiles(files) {
     }
 
     const base64 = match[2].replace(/[\r\n]/g, "");
+    if (base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+      throw new Error(`Attachment ${index + 1} contains invalid file data.`);
+    }
     const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
     const bytes = Math.floor((base64.length * 3) / 4) - padding;
     if (bytes <= 0 || bytes > MAX_FILE_BYTES) {
@@ -266,6 +274,7 @@ async function toClaudeContent(files) {
     if (file.mime === "text/plain") {
       text = Buffer.from(file.base64, "base64").toString("utf8");
     } else {
+      const mammoth = await loadMammoth();
       const extracted = await mammoth.extractRawText({ buffer: Buffer.from(file.base64, "base64") });
       text = extracted.value;
     }
@@ -283,9 +292,13 @@ async function toClaudeContent(files) {
   return content;
 }
 
-function extractOutputText(data) {
-  return (data?.content || [])
-    .filter((item) => item?.type === "text" && typeof item?.text === "string")
+function extractOutputText(data, structured = false) {
+  const content = Array.isArray(data?.content) ? data.content : [];
+  const blocks = content.filter((item) => item?.type === "text" && typeof item?.text === "string");
+  if (structured && content.some(item => item?.type === "web_search_tool_result")) {
+    return blocks.at(-1)?.text || "";
+  }
+  return blocks
     .map((item) => item.text)
     .join("");
 }
@@ -310,7 +323,7 @@ function extractWebSources(responses) {
     if (Array.isArray(item.citations)) item.citations.forEach(add);
     if (Array.isArray(item.content)) item.content.forEach(visit);
   };
-  responses.forEach((data) => (data?.content || []).forEach(visit));
+  responses.forEach((data) => (Array.isArray(data?.content) ? data.content : []).forEach(visit));
   return [...sources.values()].slice(0, 30);
 }
 
@@ -335,7 +348,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Could not parse the request." });
     }
   }
-  if (!body || typeof body !== "object") {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return res.status(400).json({ error: "Request body is required." });
   }
 
@@ -374,7 +387,7 @@ export default async function handler(req, res) {
     max_tokens: maxOutputTokens,
   };
 
-  const structuredSchema = STRUCTURED_OUTPUTS[body.mode];
+  const structuredSchema = Object.prototype.hasOwnProperty.call(STRUCTURED_OUTPUTS, body.mode) ? STRUCTURED_OUTPUTS[body.mode] : null;
   if (structuredSchema) {
     requestBody.output_config = {
       format: { type: "json_schema", schema: structuredSchema },
@@ -402,50 +415,15 @@ export default async function handler(req, res) {
     };
   }
 
-  let response;
+  const deadline = createGenerationDeadline(req, res, isMeetingRequest ? 25000 : body.mode === "deep-research" ? 140000 : 110000);
+  let response, data, responseParts;
   try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(requestBody),
-    });
+    ({ response, data, responseParts } = await requestAnthropic(requestBody, apiKey, deadline.signal));
   } catch {
+    if (deadline.signal.aborted) return res.status(504).json({ error: "The Studio took too long to respond. Try a shorter source or fewer sections." });
     return res.status(502).json({ error: "Could not reach the Studio AI service." });
-  }
-
-  let data = await response.json().catch(() => null);
-  const responseParts = data ? [data] : [];
-
-  // A server-side search can pause a long research turn. Continue it once with
-  // the tool state intact instead of returning an empty result and forcing the
-  // user to start over. This follows Anthropic's pause_turn continuation shape.
-  if (response.ok && body.use_search === true && data?.stop_reason === "pause_turn") {
-    const continuationBody = {
-      ...requestBody,
-      messages: [
-        ...requestBody.messages,
-        { role: "assistant", content: data.content || [] },
-      ],
-    };
-    try {
-      response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(continuationBody),
-      });
-      data = await response.json().catch(() => null);
-      if (data) responseParts.push(data);
-    } catch {
-      return res.status(502).json({ error: "The research search could not finish. Please try again." });
-    }
+  } finally {
+    deadline.cleanup();
   }
   if (!response.ok) {
     const status = response.status === 429 ? 429 : response.status >= 500 ? 502 : 400;
@@ -455,11 +433,20 @@ export default async function handler(req, res) {
     return res.status(status).json({ error: message });
   }
 
-  const outputText = (body.use_search === true ? responseParts : [data])
-    .map(extractOutputText)
-    .join("")
+  if (data?.stop_reason === "pause_turn") {
+    return res.status(502).json({ error: "The research search could not finish. Try a more focused question." });
+  }
+  if (data?.stop_reason === "refusal") {
+    return res.status(422).json({ error: "The Studio could not complete this request. Try rephrasing the instructions." });
+  }
+  // A search preamble is not part of a structured JSON result. The final
+  // response carries the completed object; retain all turns only for sources.
+  const outputText = (body.use_search === true && !structuredSchema ? responseParts : [data])
+    .map(part => extractOutputText(part, Boolean(structuredSchema)))
+    .filter(Boolean)
+    .join("\n\n")
     .trim();
-  if (data?.stop_reason === "max_tokens") {
+  if (["max_tokens", "model_context_window_exceeded"].includes(data?.stop_reason)) {
     return res.status(502).json({ error: "The Studio result was too long to finish. Try fewer questions or slides." });
   }
   if (!outputText) {

@@ -5,6 +5,10 @@
 
 const clamp=(value,min,max)=>Math.min(max,Math.max(min,value));
 
+// Start decoding during a brief pause, while still leaving room for the
+// speaker to continue the same thought before requesting a reply.
+export const MEETING_SEGMENTER_OPTIONS={endSilenceMs:1200,chunkPauseMs:350,minChunkMs:900,maxChunkMs:6000};
+
 const frameRms=frame=>{
   let sum=0;
   for(let index=0;index<frame.length;index+=1)sum+=frame[index]*frame[index];
@@ -59,7 +63,7 @@ export const resampleFloat32=(input,fromRate,toRate=16000)=>{
     const left=Math.min(source.length-1,Math.floor(position));
     const right=Math.min(source.length-1,left+1);
     const mix=position-left;
-    const a=sampleAt(left);const b=right===left?a:sampleAt(right);
+    const a=sampleAt(left);const b=mix===0||right===left?a:sampleAt(right);
     output[index]=a+(b-a)*mix;
   }
   return output;

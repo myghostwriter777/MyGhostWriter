@@ -67,10 +67,12 @@ function drawBlock(ctx,block,ox,oy,measure){
   }
 }
 
-export function drawSlideCanvas(deck,slide,index,options){
+export function drawSlideCanvas(deck,slide,index,options={}){
   const {width,height}=STAGE;
   const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+  try {
   const ctx=canvas.getContext("2d");
+  if(!ctx)throw new Error("Your browser could not prepare the slide image. Please try again in another browser.");
   const palette=options.palette||slidePalette(options.background,options.theme,options.textColor);
   const measure=options.measure||createTextMeasure();
   const layout=layoutSlide(deck,slide,index,{palette,font:options.font,titleSize:options.titleSize,bodySize:options.bodySize,total:deck?.slides?.length||1,measure});
@@ -95,4 +97,8 @@ export function drawSlideCanvas(deck,slide,index,options){
   for(const group of Object.values(layout.groups))for(const block of group.blocks)drawBlock(ctx,block,group.box.x,group.box.y,measure);
   for(const block of layout.footer)drawBlock(ctx,block,0,0,measure);
   return canvas;
+  } catch(error) {
+    canvas.width=0;canvas.height=0;
+    throw error;
+  }
 }

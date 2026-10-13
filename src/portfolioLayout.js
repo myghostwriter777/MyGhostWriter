@@ -18,6 +18,7 @@ export function wrapPortfolioText(value, width, size, measure, font = BODY, weig
       const next = line ? `${line} ${word}` : word;
       if (measure(next, size, font, weight) <= width) { line = next; continue; }
       if (line) { lines.push(line); line = ""; }
+      if (measure(word, size, font, weight) <= width) { line = word; continue; }
       const characters = graphemeSegmenter ? Array.from(graphemeSegmenter.segment(word), part => part.segment) : Array.from(word);
       for (const character of characters) {
         if (line && measure(line + character, size, font, weight) > width) { lines.push(line); line = ""; }
@@ -31,11 +32,17 @@ export function wrapPortfolioText(value, width, size, measure, font = BODY, weig
 
 export function portfolioTextMeasure() {
   let context;
+  const cache = new Map();
   try { context = document.createElement("canvas").getContext("2d"); } catch {}
   return (text, size, font = BODY, weight = 400) => {
     if (!context?.measureText) return Array.from(text).length * size * 0.57;
+    const key = `${weight}|${size}|${font}|${text}`;
+    if (cache.has(key)) return cache.get(key);
     context.font = `${weight} ${size}px ${font}`;
-    return context.measureText(text).width;
+    const width = context.measureText(text).width;
+    if (cache.size >= 4000) cache.clear();
+    cache.set(key, width);
+    return width;
   };
 }
 
@@ -173,28 +180,35 @@ export function portfolioPageSvg(page) {
 export async function drawPortfolioPage(page, scale = 3) {
   const canvas = document.createElement("canvas");
   canvas.width = 595 * scale; canvas.height = 842 * scale;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Your browser could not prepare the PDF. Please try again in another browser.");
-  context.scale(scale, scale);
-  for (const op of page.ops) {
-    context.fillStyle = op.fill || INK;
-    if (op.type === "rect") { context.fillRect(op.x, op.y, op.w, op.h); if (op.stroke) { context.strokeStyle = op.stroke; context.strokeRect(op.x, op.y, op.w, op.h); } }
-    if (op.type === "path") context.fill(new Path2D(op.d));
-    if (op.type === "text") { context.font = `${op.weight} ${op.size}px ${op.font}`; context.fillText(op.value, op.x, op.y); }
-    if (op.type === "image") {
-      const img = await new Promise((resolve, reject) => {
-        const image = new Image();
-        const fail = () => { clearTimeout(timeout); reject(new Error("A portfolio photo could not be loaded. Reattach it before downloading.")); };
-        const timeout = setTimeout(fail, 15000);
-        image.onload = () => { clearTimeout(timeout); if (image.naturalWidth && image.naturalHeight) resolve(image); else fail(); };
-        image.onerror = fail; image.src = op.src;
-      });
-      const ratio = Math.min(op.w / img.naturalWidth, op.h / img.naturalHeight);
-      const w = img.naturalWidth * ratio, h = img.naturalHeight * ratio;
-      context.drawImage(img, op.x + (op.w - w) / 2, op.y + (op.h - h) / 2, w, h);
+  try {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Your browser could not prepare the PDF. Please try again in another browser.");
+    context.scale(scale, scale);
+    for (const op of page.ops) {
+      context.fillStyle = op.fill || INK;
+      if (op.type === "rect") { context.fillRect(op.x, op.y, op.w, op.h); if (op.stroke) { context.strokeStyle = op.stroke; context.strokeRect(op.x, op.y, op.w, op.h); } }
+      if (op.type === "path") context.fill(new Path2D(op.d));
+      if (op.type === "text") { context.font = `${op.weight} ${op.size}px ${op.font}`; context.fillText(op.value, op.x, op.y); }
+      if (op.type === "image") {
+        const img = await new Promise((resolve, reject) => {
+          const image = new Image();
+          const cleanup = () => { clearTimeout(timeout); image.onload = null; image.onerror = null; };
+          const fail = () => { cleanup(); image.src = ""; reject(new Error("A portfolio photo could not be loaded. Reattach it before downloading.")); };
+          const timeout = setTimeout(fail, 15000);
+          image.onload = () => { if (image.naturalWidth && image.naturalHeight) { cleanup(); resolve(image); } else fail(); };
+          image.onerror = fail;
+          try { image.src = op.src; } catch { fail(); }
+        });
+        const ratio = Math.min(op.w / img.naturalWidth, op.h / img.naturalHeight);
+        const w = img.naturalWidth * ratio, h = img.naturalHeight * ratio;
+        context.drawImage(img, op.x + (op.w - w) / 2, op.y + (op.h - h) / 2, w, h);
+      }
     }
+    return canvas;
+  } catch (error) {
+    canvas.width = 0; canvas.height = 0;
+    throw error;
   }
-  return canvas;
 }
 
 export async function createPortfolioPdf(data, form = {}, photos = []) {
@@ -206,8 +220,8 @@ export async function createPortfolioPdf(data, form = {}, photos = []) {
   for (let index = 0; index < pages.length; index++) {
     if (index) pdf.addPage([595, 842], "portrait");
     const canvas = await drawPortfolioPage(pages[index]);
-    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, 595, 842, undefined, "FAST");
-    canvas.width = 0; canvas.height = 0;
+    try { pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, 595, 842, undefined, "FAST"); }
+    finally { canvas.width = 0; canvas.height = 0; }
   }
   return { pdf, pageCount: pages.length };
 }

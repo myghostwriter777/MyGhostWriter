@@ -12,19 +12,28 @@ export const TERMINAL_SERVER_CODES=new Set(["gateway_auth","gateway_credits","ga
 
 const LANGUAGE_CODE=/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/;
 
-export async function transcribeOnServer(samples16k,{fetchImpl=typeof fetch==="function"?fetch:null,signal,language,prompt}={}){
+export async function transcribeOnServer(samples16k,{fetchImpl=typeof fetch==="function"?fetch:null,signal,language,prompt,timeoutMs=35000}={}){
   if(!fetchImpl)throw new MeetingTranscriptionError("Network transcription is unavailable in this browser.",{code:"no_fetch",retryable:false});
+  if(signal?.aborted)throw new DOMException("Transcription cancelled.","AbortError");
   const body={audio:wavDataUrl(samples16k,16000)};
   if(typeof language==="string"&&LANGUAGE_CODE.test(language.trim()))body.language=language.trim();
   if(typeof prompt==="string"&&prompt.trim())body.prompt=prompt.trim().slice(0,400);
-  let response;
+  const controller=new AbortController();
+  const cancel=()=>controller.abort();
+  signal?.addEventListener("abort",cancel,{once:true});
+  let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;controller.abort();},timeoutMs);
+  let response,data;
   try{
-    response=await fetchImpl("/api/transcribe",{method:"POST",headers:{"Content-Type":"application/json"},signal,body:JSON.stringify(body)});
+    response=await fetchImpl("/api/transcribe",{method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,body:JSON.stringify(body)});
+    try{data=await response.json();}catch(error){if(error?.name==="AbortError")throw error;data={};}
   }catch(error){
+    if(timedOut)throw new MeetingTranscriptionError("The transcription service took too long to respond.",{code:"network",retryable:true,retryAfter:4});
     if(error?.name==="AbortError")throw error;
     throw new MeetingTranscriptionError("The transcription service could not be reached.",{code:"network",retryable:true,retryAfter:4});
+  }finally{
+    clearTimeout(timer);signal?.removeEventListener("abort",cancel);
   }
-  const data=await response.json().catch(()=>({}));
   if(!response.ok){
     throw new MeetingTranscriptionError(data?.error||`Transcription failed (${response.status}).`,{
       code:data?.code||(response.status===429?"rate_limited":response.status>=500?"provider_unavailable":"transcription_failed"),
@@ -50,22 +59,24 @@ export function createMeetingTranscriber({server,local,prepareLocal,onModeChange
   const switchToLocal=async reason=>{
     if(mode!=="local"){mode="local";onModeChange?.({mode,reason});}
     if(!localReady){
-      localPreparation=localPreparation||Promise.resolve(prepareLocal?.()).then(()=>{localReady=true;});
+      localPreparation=localPreparation||Promise.resolve().then(()=>prepareLocal?.()).then(()=>{localReady=true;}).finally(()=>{localPreparation=null;});
       await localPreparation;
     }
   };
 
-  const transcribeLocally=async(samples16k,reason)=>{
+  const transcribeLocally=async(samples16k,reason,{signal,language})=>{
     if(typeof local!=="function")throw new MeetingTranscriptionError(reason||"On-device transcription is unavailable.",{code:"local_unavailable",retryable:false});
     await switchToLocal(reason);
-    return String(await local(samples16k)||"").trim();
+    if(signal?.aborted)throw new DOMException("Transcription cancelled.","AbortError");
+    return String(await local(samples16k,{signal,language})||"").trim();
   };
 
   return{
     get mode(){return mode;},
     async transcribe(samples,{sampleRate=16000,signal,language,prompt}={}){
+      if(signal?.aborted)throw new DOMException("Transcription cancelled.","AbortError");
       const samples16k=normalizePeak(resampleFloat32(samples,sampleRate,16000));
-      if(mode==="local")return transcribeLocally(samples16k);
+      if(mode==="local")return transcribeLocally(samples16k,undefined,{signal,language});
       if(retryNotBefore&&now()<retryNotBefore){
         const error=new MeetingTranscriptionError("Transcription is cooling down after a rate limit.",{code:"cooldown",retryable:true,retryAfter:Math.ceil((retryNotBefore-now())/1000)});
         error.skipped=true;throw error;
@@ -77,10 +88,10 @@ export function createMeetingTranscriber({server,local,prepareLocal,onModeChange
       }catch(error){
         if(error?.name==="AbortError")throw error;
         const code=error?.code||"";
-        if(TERMINAL_SERVER_CODES.has(code)||code==="no_fetch")return transcribeLocally(samples16k,error?.message);
+        if(TERMINAL_SERVER_CODES.has(code)||code==="no_fetch")return transcribeLocally(samples16k,error?.message,{signal,language});
         if(code==="network"){
           networkFailures+=1;
-          if(networkFailures>=maxNetworkFailures)return transcribeLocally(samples16k,"The transcription service is unreachable, so Ghosty switched to the on-device model.");
+          if(networkFailures>=maxNetworkFailures)return transcribeLocally(samples16k,"The transcription service is unreachable, so Ghosty switched to the on-device model.",{signal,language});
         }
         if(error?.retryable&&code!=="network"){retryNotBefore=now()+Math.max(2,Number(error.retryAfter)||5)*1000;}
         throw error;

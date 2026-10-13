@@ -6,7 +6,7 @@ const fs=require("fs");
 function mockResponse(){const res={statusCode:200,body:null};res.setHeader=jest.fn();res.status=jest.fn(code=>{res.statusCode=code;return res;});res.json=jest.fn(body=>{res.body=body;return res;});res.end=jest.fn(()=>res);return res;}
 
 describe("Manga image API",()=>{
-  afterEach(()=>jest.clearAllMocks());
+  afterEach(()=>{jest.clearAllMocks();jest.useRealTimers();});
 
   test("loads the ESM-only AI SDK dynamically in the CommonJS serverless route",()=>{
     const source=fs.readFileSync(require.resolve("../api/manga-image"),"utf8");
@@ -92,5 +92,45 @@ describe("Manga image API",()=>{
     const req={method:"POST",body:{prompt:"A page",references:["data:image/gif;base64,aGVsbG8="]}};const res=mockResponse();
     await handler(req,res);
     expect(res.statusCode).toBe(400);expect(generateText).not.toHaveBeenCalled();expect(generateImage).not.toHaveBeenCalled();
+  });
+
+  test("preserves reference images when dedicated image models take over",async()=>{
+    generateText.mockResolvedValue({files:[]});
+    generateImage.mockResolvedValue({image:{base64:"aGVsbG8=",mediaType:"image/png"}});
+    const res=mockResponse();
+    await handler({method:"POST",body:{prompt:"Keep this character consistent.",references:["data:image/png;base64,aGVsbG8="]}},res);
+    expect(res.statusCode).toBe(200);
+    const fallback=generateImage.mock.calls[0][0];
+    expect(fallback.prompt.text).toContain("Keep this character consistent.");
+    expect(Buffer.from(fallback.prompt.images[0]).toString("utf8")).toBe("hello");
+    expect(fallback.maxRetries).toBe(0);
+    expect(fallback.abortSignal).toBe(generateText.mock.calls[0][0].abortSignal);
+  });
+
+  test("stops the entire model chain before the serverless deadline",async()=>{
+    jest.useFakeTimers();
+    generateText.mockImplementation(({abortSignal})=>new Promise((_resolve,reject)=>abortSignal.addEventListener("abort",()=>reject(Object.assign(new Error("aborted"),{name:"AbortError"})),{once:true})));
+    const res=mockResponse();
+    const pending=handler({method:"POST",body:{prompt:"A comic page."}},res);
+    await Promise.resolve();await Promise.resolve();
+    jest.advanceTimersByTime(55001);
+    await pending;
+    expect(res.statusCode).toBe(504);
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(generateImage).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("rejects corrupt reference encodings without using image models",async()=>{
+    const res=mockResponse();
+    await handler({method:"POST",body:{prompt:"A page",references:["data:image/png;base64,a===a"]}},res);
+    expect(res.statusCode).toBe(400);
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  test("validates full-size reference images without overflowing the regex stack",()=>{
+    const image=Buffer.alloc(4*1024*1024,1);
+    const [reference]=handler.validateReferences([`data:image/png;base64,${image.toString("base64")}`]);
+    expect(reference.data.length).toBe(image.length);
   });
 });

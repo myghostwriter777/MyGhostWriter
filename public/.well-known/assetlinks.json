@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.ghostwriterme.app",
       "sha256_cert_fingerprints": [
-        "C2:4F:40:6B:DF:3F:BC:98:84:EF:10:5B:01:F4:C9:BC:1C:3E:B6:7B:24:1B:A9:DD:6C:B9:A2:9B:FB:9F:E9:BB"
+        "C2:4F:40:6B:DF:3F:BC:98:84:EF:10:5B:01:F4:C9:BC:1C:3E:B6:7B:24:1B:A9:DD:6C:B9:A2:9B:FB:9F:E9:BB",
+        "97:CB:FC:8E:9F:83:22:3B:EF:CA:C2:F7:0E:E0:8C:3F:AE:CA:E8:F1:AC:11:77:0C:4C:32:B3:7C:8C:C5:0D:2D"
       ]
     }
   }

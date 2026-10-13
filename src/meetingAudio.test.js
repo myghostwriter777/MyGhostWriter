@@ -1,4 +1,4 @@
-import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, describeVoiceMatch, encodeWav, isLikelySpeech, isVoiceChange, normalizePeak, resampleFloat32, voiceSimilarity, wavDataUrl } from "./meetingAudio";
+import { analyzeVoice, buildVoiceProfile, createSpeechSegmenter, describeVoiceMatch, encodeWav, isLikelySpeech, isVoiceChange, MEETING_SEGMENTER_OPTIONS, normalizePeak, resampleFloat32, voiceSimilarity, wavDataUrl } from "./meetingAudio";
 
 const RATE=16000;
 const silence=ms=>new Float32Array(Math.round(RATE*ms/1000));
@@ -17,6 +17,28 @@ const join=parts=>{const total=parts.reduce((sum,part)=>sum+part.length,0);const
 const feed=(segmenter,audio,chunk=1024)=>{for(let offset=0;offset<audio.length;offset+=chunk)segmenter.push(audio.subarray(offset,Math.min(audio.length,offset+chunk)));};
 
 describe("speech segmenter",()=>{
+  test("meeting profile starts transcription early but keeps a thinking pause in one turn",()=>{
+    const segments=[];const ends=[];
+    const segmenter=createSpeechSegmenter({...MEETING_SEGMENTER_OPTIONS,sampleRate:RATE,onSegment:segment=>segments.push(segment),onUtteranceEnd:end=>ends.push(end)});
+    feed(segmenter,join([silence(300),tone(1300),silence(400)]));
+    expect(segments).toHaveLength(1);
+    expect(segments[0].reason).toBe("chunk");
+    expect(ends).toHaveLength(0);
+    feed(segmenter,join([silence(600),tone(700),silence(1100)]));
+    expect(ends).toHaveLength(0);
+    feed(segmenter,silence(120));
+    expect(segments).toHaveLength(2);
+    expect(segments.every(segment=>segment.utteranceId===1)).toBe(true);
+    expect(ends).toEqual([expect.objectContaining({utteranceId:1,chunks:2,reason:"pause"})]);
+  });
+
+  test("meeting latency profile retains speech gates for clicks and short blips",()=>{
+    const onSegment=jest.fn();
+    const segmenter=createSpeechSegmenter({...MEETING_SEGMENTER_OPTIONS,sampleRate:RATE,onSegment});
+    feed(segmenter,join([silence(300),tone(40),silence(500),tone(180),silence(1400)]));
+    expect(onSegment).not.toHaveBeenCalled();
+  });
+
   test("keeps a question with a mid-sentence pause as one turn and ends it after two seconds of silence",()=>{
     const segments=[];const ends=[];
     const segmenter=createSpeechSegmenter({sampleRate:RATE,onSegment:segment=>segments.push(segment),onUtteranceEnd:end=>ends.push(end)});
